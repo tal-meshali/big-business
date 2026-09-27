@@ -1,0 +1,49 @@
+# Decision record
+
+Decisions made by the project owner on 2026-09-27, after the research in `docs/research/`. Each entry is short on purpose: what was decided, why, and what it implies.
+
+## D1. Name and theme: "Big Business", fully re-themed
+
+- **Decision:** the app is called Big Business. It reimplements the mechanics of Startups (Jun Sasaki, Oink Games) with original company names, icons, art and rule text. No licence is sought.
+- **Why:** mechanics are not protected by copyright; names, art and rule prose are. Re-theming removes the IP risk without waiting on a licensor that competes with its own app.
+- **Implies:** nothing from Oink may appear in the app or store listing: not the title, the six company names, the animal mascots, the card art, the chip art, the colour scheme, or rulebook sentences. The companies are defined in `docs/design/theme.md`. The rules are written in our own words in `docs/design/rules-spec.md`. The app and store copy do not mention Startups or Oink.
+
+## D2. Engine: Godot 4.6 with GDScript
+
+- **Decision:** the client is built in Godot 4.6 using GDScript.
+- **Why:** solo developer, zero licensing, small builds, strong 2D tween and UI nodes, official Nakama client, official StoreKit 2 and Play Billing plugins as of 4.6.
+- **Implies:** no C# on mobile (export still experimental). Godot 4.6 is pinned; upgrades are deliberate.
+
+## D3. Backend: Nakama, self-hosted, TypeScript match handlers
+
+- **Decision:** Nakama runs the authoritative game. Match logic is a pure TypeScript rules engine wrapped by a Nakama match handler.
+- **Why:** it bundles auth, friends, groups, chat, leaderboards, storage and matchmaking, and has an official Godot 4 client. Self-hosting costs $20 to 40 a month.
+- **Implies:** clients send intents only; the server shuffles, deals and scores. The engine is pure and unit-tested independently of Nakama.
+
+## D4. Audience: every age
+
+- **Decision:** the app targets all ages.
+- **Why:** the game has no gambling; framed as investing it fits a 4+ / PEGI 3 rating.
+- **Implies:**
+  - No casino framing anywhere: no "bet", "gamble", poker chips, slot iconography or "casino" in store copy. Currency is "capital" and cards are "shares".
+  - No free-text chat for anyone under 13. Ship preset phrases and emotes only at launch; free-text chat, if ever added, is gated behind a 13+ declared age.
+  - Custom card upload (the premium feature) is gated at 13+ (16+ where the EU requires it), because photos are personal data under COPPA. Younger players can still see custom decks in private rooms only if the host opts in.
+  - Ask for age at first launch (neutral age screen, not a yes/no gate), store only the age bracket, and keep analytics and advertising SDKs configured for mixed audiences (no personalised ads). Without an ad network configured for families, ship with no ads at all.
+  - Contact info, report and block are available to every player.
+
+## D5. Premium: one-time "Designer" unlock first
+
+- **Decision:** premium launches as a one-time, non-consumable purchase ("Designer", $4.99 to 9.99, final price to be tested) that unlocks custom card designs. No subscription at launch.
+- **Why:** a one-time cosmetic unlock reviews cleanly with Apple and Google and does not require the ongoing-value promise a subscription needs. A subscription can be layered on later if there is enough rotating content.
+- **Implies:** entitlements are checked server-side via RevenueCat. Custom decks display in private rooms only at launch. Restore Purchases is required on both stores. No loot boxes, no virtual currency at launch; curated skins, if sold, are priced in real money.
+
+## D6. Portrait-first
+
+- **Decision:** the table is designed for portrait, one-handed play. Landscape is not planned.
+- **Why:** real-money poker apps and every premium casual card game moved to portrait; landscape-forcing apps get complaints.
+
+## D7. Working directories
+
+- `docs/` research, design and decisions.
+- `server/` Nakama TypeScript runtime: pure rules engine in `server/src/engine`, match handler in `server/src/match`.
+- `client/` Godot 4.6 project.

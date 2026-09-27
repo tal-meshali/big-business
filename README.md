@@ -1,20 +1,40 @@
 # Big Business
 
-A mobile multiplayer card game inspired by the mechanics of the tabletop game *Startups* (Jun Sasaki, Oink Games), with:
+A mobile multiplayer card game for all ages. Collect shares in six companies, pay to draw, take from the Market, and cash in on dividend day. Quick play against anyone or private rooms with a code. A premium unlock lets you design your own cards.
 
-- quick play against random players and private rooms with invite codes,
-- a polished, "one more hand" card-game feel, and
-- a premium tier that lets players upload their own card designs.
+The mechanics are a re-themed implementation of a well-known share-collecting card game; see `docs/decisions.md` for the IP position.
 
-Nothing is built yet. The project starts with the research in `docs/research/`.
+## Layout
 
-## Documents
-
-| File | What it is |
+| Path | What it is |
 | --- | --- |
-| `docs/research/README.md` | Consolidated research report: the game, competitor UX, engagement and monetization, tech stack, custom card upload, and a recommended plan |
-| `docs/research/01-startups-game.md` | Rules of Startups, existing digital versions, IP notes |
-| `docs/research/02-card-game-ux.md` | UI/UX patterns from poker, blackjack and premium card games |
-| `docs/research/03-engagement-monetization.md` | Retention loops, monetization, store policy |
-| `docs/research/04-tech-stack-multiplayer.md` | Client framework, multiplayer backend, infra |
-| `docs/research/05-custom-card-upload.md` | Premium custom card feature: UX, pipeline, moderation, subscriptions |
+| `docs/research/` | Research that preceded the project: the source game, card-game UX, engagement and monetization, tech stack, custom card upload |
+| `docs/decisions.md` | Decision record: name, engine, backend, audience, premium model |
+| `docs/design/theme.md` | The six companies, vocabulary, card layout, table look |
+| `docs/design/rules-spec.md` | Authoritative rules, including every ruling the engine implements |
+| `server/` | Nakama runtime: pure TypeScript rules engine with tests, authoritative match handler, room-code RPCs, Docker Compose for local play |
+| `client/` | Godot 4.6 project: Nakama connection, lobby, table, headless smoke test |
+
+## Run it locally
+
+Server (needs Node 22 and Docker):
+
+```
+cd server
+npm install
+npm run check          # typecheck, engine tests, bundle
+docker compose up      # Nakama on 127.0.0.1:7350, console on :7351
+```
+
+Client (needs Godot 4.6): open `client/` in the editor and press Play, or run headless checks:
+
+```
+godot --headless --path client --import
+godot --headless --path client --script res://tests/smoke.gd
+```
+
+In the app, keep the host as `127.0.0.1`, press Connect, then Play now. Open two or more instances to fill a table, or let bots fill the empty seats after the lobby wait.
+
+## Status
+
+Phase 0 complete: decisions, theme, rules spec, engine with tests, match handler, client spike. Next is Phase 1 (playable core) per `docs/research/README.md` section 7.

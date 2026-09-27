@@ -1,0 +1,28 @@
+# Nakama config for local development only. Change every key before deploying.
+name: big-business-local
+data_dir: /nakama/data
+
+logger:
+  level: INFO
+
+console:
+  username: admin
+  password: password
+  signing_key: change-me-console-signing-key
+
+session:
+  token_expiry_sec: 7200
+  refresh_token_expiry_sec: 604800
+  encryption_key: change-me-session-encryption-key
+  refresh_encryption_key: change-me-refresh-encryption-key
+
+socket:
+  server_key: defaultkey
+  max_message_size_bytes: 8192
+
+runtime:
+  js_entrypoint: index.js
+
+match:
+  input_queue_size: 128
+  call_queue_size: 128

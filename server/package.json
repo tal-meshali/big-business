@@ -1,0 +1,19 @@
+{
+  "name": "big-business-server",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Nakama server runtime for Big Business: pure rules engine plus authoritative match handler.",
+  "main": "build/index.js",
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "build": "esbuild src/main.ts --bundle --target=es2016 --format=esm --outfile=build/index.js --log-level=warning",
+    "check": "npm run typecheck && npm test && npm run build"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0",
+    "typescript": "^5.6.0",
+    "vitest": "^3.0.0"
+  }
+}

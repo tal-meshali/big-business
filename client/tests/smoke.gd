@@ -133,6 +133,7 @@ func _coach_checks() -> int:
 		"tookCompany": null, "tokens": [null, null, null, null, null, null], "seq": 0, "deadline": 0,
 		"drawCost": 0, "legal": [{"type": "take_supply"}], "result": null,
 	}
+	var first_take_view: Dictionary = v.duplicate(true)
 	table._on_view(v)
 	await process_frame
 	if shown != ["welcome"]:
@@ -146,17 +147,44 @@ func _coach_checks() -> int:
 	if shown != ["welcome", "first_take"]:
 		push_error("first_take should follow welcome on an empty market, got %s" % [shown])
 		failures += 1
+	if table.coach.forced_action() != {"type": "take_supply"} or table._draw_button.disabled:
+		push_error("turn 1 take: the draw must be forced and enabled, got %s" % [table.coach.forced_action()])
+		failures += 1
 	table.coach._on_got_it()
 
-	# Play step.
+	# Play step (turn 1): every company held once, so the tie goes to the
+	# larger company, Redline Motors (card 3), and only that card is enabled.
 	v["phase"] = "play"
 	v["tookCompany"] = 5
 	v["drawCost"] = null
-	v["legal"] = [{"type": "play_portfolio", "cardId": 1}, {"type": "play_market", "cardId": 1}]
+	v["legal"] = [
+		{"type": "play_portfolio", "cardId": 1}, {"type": "play_portfolio", "cardId": 2}, {"type": "play_portfolio", "cardId": 3},
+		{"type": "play_market", "cardId": 1}, {"type": "play_market", "cardId": 2},
+	]
 	table._on_view(v)
 	await process_frame
 	if shown.back() != "first_play":
 		push_error("first_play should fire on the first play step, got %s" % [shown])
+		failures += 1
+	if not table.coach._body.text.contains("Keep the Redline Motors share"):
+		push_error("first_play should name the majority card, got %s" % table.coach._body.text)
+		failures += 1
+	if table.coach.forced_action() != {"type": "play_portfolio", "cardId": 3} or table.coach.highlight_card_id != 3:
+		push_error("turn 1 play should force keeping card 3, got %s" % [table.coach.forced_action()])
+		failures += 1
+	for cv in table._hand_cards:
+		if cv.selectable != (cv.card_id == 3):
+			push_error("only the coached hand card may be selectable (card %d)" % cv.card_id)
+			failures += 1
+	table._on_hand_card_pressed(1)
+	await process_frame
+	if not table._keep_button.disabled or not table._sell_button.disabled:
+		push_error("keep and sell must be disabled for a non-forced selection")
+		failures += 1
+	table._on_hand_card_pressed(3)
+	await process_frame
+	if table._keep_button.disabled or not table._sell_button.disabled:
+		push_error("keep must be the only enabled play for the coached card")
 		failures += 1
 	table.coach._on_got_it()
 
@@ -176,11 +204,14 @@ func _coach_checks() -> int:
 		failures += 1
 	table.coach._on_got_it()
 
-	# My take step with coins in the market and a token of mine blocking a share.
+	# My second turn (turn 4 of the game): coins in the market and a token of
+	# mine blocking a share. The coach forces taking the richest share.
 	v["phase"] = "take"
 	v["active"] = 0
+	v["turn"] = 4
 	v["market"] = [{"card": {"id": 20, "company": 1}, "coins": 2}, {"card": {"id": 21, "company": 5}, "coins": 0}]
 	v["seats"][0]["tokens"] = [5]
+	v["seats"][0]["portfolio"] = [{"id": 3, "company": 5}]
 	v["supplyCount"] = 2
 	v["legal"] = [{"type": "take_supply"}, {"type": "take_market", "cardId": 20}]
 	table._on_view(v)
@@ -190,13 +221,53 @@ func _coach_checks() -> int:
 		if not table._animating and not table._pending_events.size():
 			break
 	await process_frame
-	for id in ["endgame_near", "token_blocks", "take_with_coins"]:
+	for id in ["endgame_near", "token_blocks", "take_with_coins", "second_take"]:
 		if not table.coach.seen.has(id):
 			push_error("%s should fire, seen %s" % [id, table.coach.seen.keys()])
 			failures += 1
+	if table.coach.forced_action() != {"type": "take_market", "cardId": 20} or not table._draw_button.disabled:
+		push_error("turn 2 take should force the share with the most coins, got %s" % [table.coach.forced_action()])
+		failures += 1
+	var market_cards: Array = table._market_row.get_children()
+	if market_cards.size() != 2 or not market_cards[0].selectable or market_cards[1].selectable:
+		push_error("turn 2 take: only the coached market card may be selectable")
+		failures += 1
 	while table.coach.visible:
+		if shown.back() == "second_take" and not table.coach._body.text.contains("Take the Pinecone Foods share and pocket its 2 coins"):
+			push_error("second_take should name the share and its coins, got %s" % table.coach._body.text)
+			failures += 1
 		table.coach._on_got_it()
 		await process_frame
+
+	# Turn 2 play: sell a lone share that is not the company just taken;
+	# Solar (card 1) and Robotics (card 2) qualify, the smaller company wins.
+	v["phase"] = "play"
+	v["tookCompany"] = 1
+	v["market"] = [{"card": {"id": 21, "company": 5}, "coins": 0}]
+	v["seats"][0]["hand"] = [{"id": 1, "company": 0}, {"id": 2, "company": 3}, {"id": 20, "company": 1}, {"id": 30, "company": 5}]
+	v["legal"] = [
+		{"type": "play_portfolio", "cardId": 1}, {"type": "play_portfolio", "cardId": 2}, {"type": "play_portfolio", "cardId": 20}, {"type": "play_portfolio", "cardId": 30},
+		{"type": "play_market", "cardId": 1}, {"type": "play_market", "cardId": 2}, {"type": "play_market", "cardId": 30},
+	]
+	table._on_view(v)
+	await process_frame
+	if shown.back() != "second_play" or not table.coach._body.text.contains("Sell the Sunny Side Solar share"):
+		push_error("second_play should fire and name the lone share, got %s / %s" % [shown, table.coach._body.text])
+		failures += 1
+	if table.coach.forced_action() != {"type": "play_market", "cardId": 1}:
+		push_error("turn 2 play should force selling card 1, got %s" % [table.coach.forced_action()])
+		failures += 1
+	for cv in table._hand_cards:
+		if cv.selectable != (cv.card_id == 1):
+			push_error("turn 2 play: only the coached hand card may be selectable (card %d)" % cv.card_id)
+			failures += 1
+	table._on_hand_card_pressed(1)
+	await process_frame
+	if not table._keep_button.disabled or table._sell_button.disabled:
+		push_error("sell must be the only enabled play for the coached card")
+		failures += 1
+	table.coach._on_got_it()
+	await process_frame
 	# Same view again must not re-fire anything.
 	var count_before := shown.size()
 	table._on_view(v)
@@ -204,6 +275,33 @@ func _coach_checks() -> int:
 	if shown.size() != count_before or table.coach.visible:
 		push_error("steps must fire only once")
 		failures += 1
+
+	# Third turn: the guided phase is over, everything legal is enabled again.
+	v["phase"] = "take"
+	v["turn"] = 7
+	v["tookCompany"] = null
+	v["legal"] = [{"type": "take_supply"}]
+	table._on_view(v)
+	await process_frame
+	if not table.coach.forced_action().is_empty() or table.coach.highlight_card_id != -1 or table._draw_button.disabled:
+		push_error("nothing may be forced after the second turn, got %s" % [table.coach.forced_action()])
+		failures += 1
+	if shown.size() != count_before or table.coach.visible:
+		push_error("no guided step may fire after the second turn, got %s" % [shown])
+		failures += 1
+
+	# Skip clears the guidance mid-turn.
+	var solo := Coach.new()
+	root.add_child(solo)
+	solo.on_view(first_take_view)
+	if solo.forced_action() != {"type": "take_supply"}:
+		push_error("a fresh coach should force the opening draw, got %s" % [solo.forced_action()])
+		failures += 1
+	solo._on_skip()
+	if not solo.forced_action().is_empty() or solo.highlight_card_id != -1 or not solo.allows({"type": "take_market", "cardId": 5}):
+		push_error("skip should clear the forced action")
+		failures += 1
+	solo.queue_free()
 
 	# Skip disables everything, including dividend day.
 	table.coach._on_skip()

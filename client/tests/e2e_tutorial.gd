@@ -1,7 +1,8 @@
 extends SceneTree
 ## Headless end-to-end run of the tutorial through the real table scene and
 ## coach against a running Nakama at 127.0.0.1:7350. Dismisses each coach
-## card, then plays a sensible move, until dividend day.
+## card, then plays the coached move while the coach forces one (the first
+## two turns) and a sensible move after that, until dividend day.
 ## Run: godot --headless --path client --script res://tests/e2e_tutorial.gd
 
 
@@ -53,7 +54,26 @@ func _run() -> void:
 		if int(v.get("active", -1)) != int(v.get("you", -2)) or int(v.get("seq", 0)) == acted_seq:
 			continue
 		acted_seq = int(v["seq"])
-		if v.get("phase") == "take":
+		var forced: Dictionary = table.coach.forced_action()
+		if not forced.is_empty():
+			# Guided turns: press exactly what the coach names.
+			var forced_id := int(forced.get("cardId", -1))
+			match String(forced["type"]):
+				"take_supply":
+					table._on_draw_pressed()
+				"take_market":
+					table._on_market_card_pressed(forced_id)
+				"play_portfolio":
+					my_plays += 1
+					table._on_hand_card_pressed(forced_id)
+					await process_frame
+					table._on_keep_pressed()
+				"play_market":
+					my_plays += 1
+					table._on_hand_card_pressed(forced_id)
+					await process_frame
+					table._on_sell_pressed()
+		elif v.get("phase") == "take":
 			# Prefer a market share with coins, else draw, else any market share.
 			var best_id := -1
 			var best_coins := 0
@@ -110,6 +130,11 @@ func _run() -> void:
 			print("E2E TUTORIAL FAILED: missing step ", id)
 			quit(1)
 			return
+	# The guided second turn must have named a take and a play (either variant).
+	if not (shown.has("second_take") or shown.has("second_take_draw")) or not (shown.has("second_play") or shown.has("second_play_keep")):
+		print("E2E TUTORIAL FAILED: guided second turn missing; steps %s" % [shown])
+		quit(1)
+		return
 	if shown.size() < 6 or errors > 0:
 		print("E2E TUTORIAL FAILED: too few steps or server errors")
 		quit(1)

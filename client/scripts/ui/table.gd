@@ -592,6 +592,10 @@ func _render_seats(seats: Array, active: int, phase: String) -> void:
 
 
 func _render_market(phase: String) -> void:
+	if coach != null:
+		# WHY: the cards below ask the coach what is allowed, and coach.on_view
+		# only runs at the end of _render; track() gives it the view first.
+		coach.track(view)
 	for child in _market_row.get_children():
 		_market_row.remove_child(child)
 		child.queue_free()
@@ -599,9 +603,12 @@ func _render_market(phase: String) -> void:
 		var card: Dictionary = slot.get("card", {})
 		var cv := CardView.new()
 		cv.setup(int(card.get("id", -1)), int(card.get("company", 0)), int(slot.get("coins", 0)))
-		cv.selectable = _is_my_turn() and phase == "take" and _legal("take_market", cv.card_id)
+		cv.selectable = _is_my_turn() and phase == "take" and _legal("take_market", cv.card_id) \
+			and (coach == null or coach.allows(Protocol.take_market(cv.card_id)))
 		cv.card_pressed.connect(_on_market_card_pressed)
 		_market_row.add_child(cv)
+		if coach != null and cv.selectable and coach.highlight_card_id == cv.card_id:
+			cv.pulse()
 	var supply := int(view.get("supplyCount", 0))
 	_supply_count.text = "%d left" % supply
 	_supply_pile.modulate = Color(1, 1, 1, 1 if supply > 0 else 0.3)
@@ -634,10 +641,13 @@ func _render_hand(seats: Array, phase: String) -> void:
 		cv.rotation = deg_to_rad(t * 12.0)
 		cv.set_rest_position(Vector2(x0 + i * spacing, 50 + abs(t) * 20))
 		var can_play := _is_my_turn() and phase == "play"
-		cv.selectable = can_play
+		cv.selectable = can_play and (coach == null or coach.allows(Protocol.play_portfolio(cv.card_id)) \
+			or coach.allows(Protocol.play_market(cv.card_id)))
 		cv.card_pressed.connect(_on_hand_card_pressed)
 		_hand_layer.add_child(cv)
 		_hand_cards.append(cv)
+		if coach != null and cv.selectable and coach.highlight_card_id == cv.card_id:
+			cv.pulse()
 
 
 func _update_prompt() -> void:
@@ -661,7 +671,7 @@ func _update_prompt() -> void:
 			cost_text = "free" if int(cost) == 0 else "%d coin%s onto the Market" % [int(cost), "" if int(cost) == 1 else "s"]
 		_prompt.text = "Take a share from the Market, or draw from the supply (%s)" % cost_text
 		_draw_button.visible = true
-		_draw_button.disabled = not _legal("take_supply")
+		_draw_button.disabled = not _legal("take_supply") or not (coach == null or coach.allows(Protocol.take_supply()))
 		return
 	# Play step.
 	if _selected_card < 0:
@@ -675,8 +685,10 @@ func _update_prompt() -> void:
 	_keep_button.visible = true
 	_sell_button.visible = true
 	_cancel_button.visible = true
-	_keep_button.disabled = not _legal("play_portfolio", _selected_card)
-	_sell_button.disabled = not _legal("play_market", _selected_card)
+	_keep_button.disabled = not _legal("play_portfolio", _selected_card) \
+		or not (coach == null or coach.allows(Protocol.play_portfolio(_selected_card)))
+	_sell_button.disabled = not _legal("play_market", _selected_card) \
+		or not (coach == null or coach.allows(Protocol.play_market(_selected_card)))
 
 
 func _render_result(seats: Array) -> void:

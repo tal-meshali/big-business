@@ -30,6 +30,7 @@ var selected: bool = false:
 		tw.tween_property(self, "position:y", _rest_y - (18.0 if value else 0.0), 0.18)
 		queue_redraw()
 var _rest_y: float = 0.0
+var _pulse_tween: Tween
 
 
 func _init() -> void:
@@ -45,6 +46,17 @@ func setup(p_card_id: int, p_company: int, p_coins: int = 0, p_face_up: bool = t
 	coins = p_coins
 	face_up = p_face_up
 	queue_redraw()
+
+
+## Pulse a warm glow until the card is freed: the tutorial's "tap here".
+## WHY: a looping modulate tween rather than a state flag, so the effect
+## needs no per-frame code and dies with the card on the next render.
+func pulse() -> void:
+	if _pulse_tween != null:
+		_pulse_tween.kill()
+	_pulse_tween = create_tween().set_loops().set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	_pulse_tween.tween_property(self, "modulate", Color(1.25, 1.15, 0.75, 1), 0.45)
+	_pulse_tween.tween_property(self, "modulate", Color(1, 1, 1, 1), 0.45)
 
 
 ## Remember the resting y so the selection lift can return to it.

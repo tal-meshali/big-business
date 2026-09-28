@@ -15,6 +15,10 @@ var _xp_bar: ProgressBar
 var _daily_button: Button
 var _board_button: Button
 var _board_label: Label
+var _quests_button: Button
+var _quests_panel: QuestsPanel
+var _felt: ColorRect
+var _felt_edge: ReferenceRect
 var _connected := false
 var _in_lobby := false
 
@@ -34,12 +38,14 @@ func _build() -> void:
 	set_anchors_preset(Control.PRESET_FULL_RECT)
 	theme = UiTheme.get_theme()
 	var bg := ColorRect.new()
-	bg.color = Companies.TABLE_BG
+	bg.color = Cosmetics.table_bg_color()
 	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
 	add_child(bg)
+	_felt = bg
 	var frame := ReferenceRect.new()
 	frame.editor_only = false
-	frame.border_color = Companies.TABLE_EDGE
+	frame.border_color = Cosmetics.table_edge_color()
+	_felt_edge = frame
 	frame.border_width = 6.0
 	frame.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	frame.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -129,6 +135,11 @@ func _build() -> void:
 	_board_label.visible = false
 	_board_label.add_theme_font_size_override("font_size", 15)
 	pbox.add_child(_board_label)
+	_quests_button = Button.new()
+	_quests_button.text = "Quests & card backs"
+	_quests_button.custom_minimum_size = Vector2(0, 48)
+	_quests_button.pressed.connect(_on_toggle_quests)
+	pbox.add_child(_quests_button)
 	box.add_child(profile["panel"])
 
 	_add_button(box, "Connect", _on_connect_pressed, true)
@@ -173,6 +184,17 @@ func _build() -> void:
 	_ready_button.pressed.connect(_on_ready_pressed)
 	box.add_child(_ready_button)
 
+	# Quests overlay above the lobby, toggled by its button.
+	_quests_panel = QuestsPanel.new()
+	_quests_panel.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_quests_panel.offset_left = 24
+	_quests_panel.offset_right = -24
+	_quests_panel.offset_top = 60
+	_quests_panel.offset_bottom = -40
+	_quests_panel.visible = false
+	_quests_panel.cosmetic_changed.connect(_on_cosmetic_changed)
+	add_child(_quests_panel)
+
 
 func _add_button(parent: Control, text: String, handler: Callable, enabled := false) -> void:
 	var b := Button.new()
@@ -216,6 +238,8 @@ func _refresh_profile() -> void:
 	if data.is_empty():
 		return
 	_apply_progress(data.get("progress", {}), bool(data.get("dailyAvailable", false)))
+	_quests_panel.apply_profile(data)
+	_on_cosmetic_changed("table", Cosmetics.table)
 
 
 func _apply_progress(p: Dictionary, daily_available: bool) -> void:
@@ -241,6 +265,16 @@ func _on_claim_daily() -> void:
 	if res.get("claimed", false):
 		_status.text = "+%d XP  (day %d streak)" % [int(res.get("xpAwarded", 0)), int(res.get("progress", {}).get("streak", 1))]
 	_apply_progress(res.get("progress", {}), false)
+
+
+func _on_toggle_quests() -> void:
+	_quests_panel.visible = not _quests_panel.visible
+
+
+## The lobby felt follows the picked table felt at once.
+func _on_cosmetic_changed(_slot: String, _id: String) -> void:
+	_felt.color = Cosmetics.table_bg_color()
+	_felt_edge.border_color = Cosmetics.table_edge_color()
 
 
 func _on_show_board() -> void:

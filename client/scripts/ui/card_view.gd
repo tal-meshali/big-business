@@ -2,7 +2,8 @@ class_name CardView
 extends Button
 ## A share card drawn like a title deed: off-white face, black border, a
 ## solid colour band with the company name, and black text on the body.
-## Drawn in code so no art assets are needed yet. Portrait 5:7.
+## Drawn in code so no art assets are needed yet. Portrait 5:7. The back
+## follows the card back selected in Cosmetics.
 
 signal card_pressed(card_id: int)
 
@@ -105,14 +106,75 @@ func _draw() -> void:
 
 func _draw_back() -> void:
 	var inner := Rect2(INSET, INSET, size.x - INSET * 2, size.y - INSET * 2)
+	match Cosmetics.card_back:
+		"back_midnight":
+			_draw_back_midnight(inner)
+		"back_sunrise":
+			_draw_back_sunrise(inner)
+		"back_pinstripe":
+			_draw_back_pinstripe(inner)
+		_:
+			_draw_back_classic(inner)
+
+
+## Six colour stripes, one per company, then the monogram.
+func _draw_back_classic(inner: Rect2) -> void:
 	draw_rect(inner, Companies.INK, false, 1.5)
-	# Six colour stripes, one per company, then the monogram.
 	var stripe_w := (inner.size.x - 12) / 6.0
 	for i in 6:
 		draw_rect(Rect2(inner.position.x + 6 + i * stripe_w, inner.position.y + 8, stripe_w - 2, 10), Companies.color_of(i), true)
 		draw_rect(Rect2(inner.position.x + 6 + i * stripe_w, inner.end.y - 18, stripe_w - 2, 10), Companies.color_of(i), true)
-	_draw_centered_text("BIG", Vector2(size.x / 2.0, size.y / 2.0 - 14), 22, Companies.INK)
-	_draw_centered_text("BUSINESS", Vector2(size.x / 2.0, size.y / 2.0 + 12), 16, Companies.INK)
+	_draw_monogram(Companies.INK)
+
+
+## Dark ink face with a light monogram and a thin double border.
+func _draw_back_midnight(inner: Rect2) -> void:
+	var entry := Cosmetics.card_back_entry("back_midnight")
+	var face: Color = entry["accent"]
+	var light: Color = entry["ink"]
+	draw_rect(inner, face, true)
+	draw_rect(inner, light, false, 1.5)
+	draw_rect(inner.grow(-5), Color(light, 0.5), false, 1.0)
+	# Four small stars in the corners.
+	for corner in [inner.position + Vector2(12, 12), Vector2(inner.end.x - 12, inner.position.y + 12), Vector2(inner.position.x + 12, inner.end.y - 12), inner.end - Vector2(12, 12)]:
+		draw_circle(corner, 2.0, light)
+	_draw_monogram(light)
+
+
+## Warm horizontal bands from yellow through orange to red, monogram in ink.
+func _draw_back_sunrise(inner: Rect2) -> void:
+	var bands := 7
+	var band_h := inner.size.y / bands
+	var top := Cosmetics.card_back_entry("back_sunrise")["accent"] as Color
+	var bottom := Companies.color_of(5)
+	for i in bands:
+		var t := float(i) / float(bands - 1)
+		draw_rect(Rect2(inner.position.x, inner.position.y + i * band_h, inner.size.x, band_h + 0.5), top.lerp(bottom, t), true)
+	draw_rect(inner, Companies.INK, false, 1.5)
+	# A paler plate so the monogram stays readable on the orange middle.
+	var plate := Rect2(inner.position.x + 14, size.y / 2.0 - 30, inner.size.x - 28, 60)
+	draw_rect(plate, Color(Companies.CARD_FACE, 0.85), true)
+	draw_rect(plate, Companies.INK, false, 1.0)
+	_draw_monogram(Companies.INK)
+
+
+## Thin vertical lines in the company blue, monogram on a white plate.
+func _draw_back_pinstripe(inner: Rect2) -> void:
+	var stripe := Cosmetics.card_back_entry("back_pinstripe")["accent"] as Color
+	var x := inner.position.x + 4.0
+	while x < inner.end.x - 2.0:
+		draw_line(Vector2(x, inner.position.y + 2), Vector2(x, inner.end.y - 2), stripe, 1.0)
+		x += 6.0
+	draw_rect(inner, Companies.INK, false, 1.5)
+	var plate := Rect2(inner.position.x + 14, size.y / 2.0 - 30, inner.size.x - 28, 60)
+	draw_rect(plate, Companies.CARD_FACE, true)
+	draw_rect(plate, Companies.INK, false, 1.0)
+	_draw_monogram(Companies.INK)
+
+
+func _draw_monogram(color: Color) -> void:
+	_draw_centered_text("BIG", Vector2(size.x / 2.0, size.y / 2.0 - 14), 22, color)
+	_draw_centered_text("BUSINESS", Vector2(size.x / 2.0, size.y / 2.0 + 12), 16, color)
 
 
 func _draw_icon(center: Vector2, r: float, color: Color) -> void:

@@ -189,12 +189,15 @@ func send_emote(emote_id: String) -> void:
 	socket.send_match_state_async(match_id, Protocol.OP_EMOTE, JSON.stringify({"emote": emote_id}))
 
 
-## Progression: {progress: {...}, dailyAvailable: bool}, or {} on failure.
+## Progression: {progress: {...}, dailyAvailable: bool, quests, trackPoints,
+## unlocked, equipped, track}, or {} on failure. Applies the equipped cosmetics.
 func get_profile() -> Dictionary:
 	var rpc: NakamaAPI.ApiRpc = await client.rpc_async(session, "get_profile", "{}")
 	if rpc.is_exception():
 		return {}
-	return JSON.parse_string(rpc.payload)
+	var data: Dictionary = JSON.parse_string(rpc.payload)
+	Cosmetics.apply_equipped(data.get("equipped", {}))
+	return data
 
 
 ## Daily bonus: {claimed: bool, xpAwarded: int, progress: {...}}, or {} on failure.
@@ -290,3 +293,26 @@ func _try_reconnect() -> void:
 			return
 	match_id = ""
 	connection_failed.emit("disconnected")
+
+
+## Claims a completed quest: {ok, trackPoints, unlocked}, or {} on failure.
+func claim_quest(id: String) -> Dictionary:
+	if client == null or session == null:
+		return {}
+	var rpc: NakamaAPI.ApiRpc = await client.rpc_async(session, "claim_quest", JSON.stringify({"id": id}))
+	if rpc.is_exception():
+		return {}
+	return JSON.parse_string(rpc.payload)
+
+
+## Equips an unlocked cosmetic ("cardBack" or "table"): {ok, equipped}, or {} on failure.
+func equip_cosmetic(slot: String, id: String) -> Dictionary:
+	if client == null or session == null:
+		return {}
+	var rpc: NakamaAPI.ApiRpc = await client.rpc_async(session, "equip_cosmetic", JSON.stringify({"slot": slot, "id": id}))
+	if rpc.is_exception():
+		return {}
+	var data: Dictionary = JSON.parse_string(rpc.payload)
+	if data.get("ok", false):
+		Cosmetics.apply_equipped(data.get("equipped", {}))
+	return data

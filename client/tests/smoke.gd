@@ -102,6 +102,7 @@ func _run() -> void:
 
 	failures += await _coach_checks()
 	failures += await _social_checks()
+	failures += await _quests_checks()
 
 	if failures == 0:
 		print("SMOKE OK")
@@ -278,4 +279,154 @@ func _social_checks() -> int:
 		push_error("xp bar bounds wrong: %s %s %s" % [main._xp_bar.min_value, main._xp_bar.max_value, main._xp_bar.value])
 		failures += 1
 	main.queue_free()
+	return failures
+
+
+## Quests panel: rows from a fake profile, claim state, the cosmetic picker
+## and the card back / felt selections that CardView and the tables read.
+func _quests_checks() -> int:
+	var failures := 0
+	Cosmetics.reset()
+	# Loaded by path: naming the class here would compile the panel (and its
+	# Net calls) before the autoloads exist in a --script run.
+	var panel = load("res://scripts/ui/quests_panel.gd").new()
+	root.add_child(panel)
+	await process_frame
+	var profile := {
+		"trackPoints": 40,
+		"unlocked": ["back_classic", "table_green", "back_midnight"],
+		"equipped": {"cardBack": "back_classic", "table": "table_green"},
+		"track": [
+			{"points": 30, "cosmeticId": "back_midnight"}, {"points": 70, "cosmeticId": "table_navy"},
+			{"points": 120, "cosmeticId": "back_sunrise"}, {"points": 200, "cosmeticId": "table_burgundy"},
+			{"points": 300, "cosmeticId": "back_pinstripe"},
+		],
+		"quests": {
+			"daily": [
+				{"id": "d_play_3", "text": "Play 3 games", "target": 3, "points": 10, "progress": 3, "claimable": true, "claimed": false},
+				{"id": "d_win_1", "text": "Win a game", "target": 1, "points": 15, "progress": 0, "claimable": false, "claimed": false},
+				{"id": "d_people", "text": "Play a game with other people", "target": 1, "points": 10, "progress": 1, "claimable": false, "claimed": true},
+			],
+			"weekly": [
+				{"id": "w_win_3", "text": "Win 3 games this week", "target": 3, "points": 40, "progress": 1, "claimable": false, "claimed": false},
+				{"id": "w_coins_25", "text": "Collect 25 coins from Market shares", "target": 25, "points": 30, "progress": 25, "claimable": true, "claimed": false},
+			],
+		},
+	}
+	panel.apply_profile(profile)
+	await process_frame
+	if panel.rows.size() != 5 or panel._daily_box.get_child_count() != 3 or panel._weekly_box.get_child_count() != 2:
+		push_error("quests panel should list 3 daily and 2 weekly rows, got %d" % panel.rows.size())
+		failures += 1
+	var by_id := {}
+	for r in panel.rows:
+		by_id[r["id"]] = r
+	if by_id["d_play_3"]["button"].disabled or by_id["d_play_3"]["button"].text != "Claim":
+		push_error("a completed quest must offer Claim")
+		failures += 1
+	if not by_id["d_win_1"]["button"].disabled:
+		push_error("an unfinished quest must not be claimable")
+		failures += 1
+	if not by_id["d_people"]["button"].disabled or by_id["d_people"]["button"].text != "Claimed":
+		push_error("a claimed quest shows Claimed and stays disabled")
+		failures += 1
+	if by_id["w_coins_25"]["bar"].value != 25 or by_id["w_coins_25"]["bar"].max_value != 25:
+		push_error("progress bar should mirror progress / target")
+		failures += 1
+	if not panel._track_label.text.contains("Navy felt") or not panel._track_label.text.contains("70"):
+		push_error("track summary should name the next unlock, got %s" % panel._track_label.text)
+		failures += 1
+	if panel._track_bar.min_value != 30 or panel._track_bar.max_value != 70 or panel._track_bar.value != 40:
+		push_error("track bar bounds wrong: %s %s %s" % [panel._track_bar.min_value, panel._track_bar.max_value, panel._track_bar.value])
+		failures += 1
+
+	# A claim flips the row and can unlock the next step.
+	panel._apply_claim("d_play_3", 70, ["back_classic", "table_green", "back_midnight", "table_navy"])
+	if not by_id["d_play_3"]["button"].disabled or by_id["d_play_3"]["button"].text != "Claimed":
+		push_error("claimed row should flip to Claimed")
+		failures += 1
+	if panel.track_points != 70 or panel._table_buttons["table_navy"].disabled:
+		push_error("claim should update track points and enable the new unlock")
+		failures += 1
+
+	# Picker: locked items disabled, unlocked ones enabled, current one pressed.
+	if panel._back_buttons["back_midnight"].disabled or not panel._back_buttons["back_sunrise"].disabled or not panel._back_buttons["back_pinstripe"].disabled:
+		push_error("card back picker should enable only unlocked backs")
+		failures += 1
+	if not panel._back_buttons["back_sunrise"].text.contains("120"):
+		push_error("locked items show their unlock threshold, got %s" % panel._back_buttons["back_sunrise"].text)
+		failures += 1
+	if not panel._back_buttons["back_classic"].button_pressed:
+		push_error("the equipped back should show as pressed")
+		failures += 1
+	if not panel._table_buttons["table_burgundy"].disabled:
+		push_error("locked felt must be disabled")
+		failures += 1
+
+	# Picking applies to Cosmetics at once (the server call fails offline and is ignored).
+	var changes: Array = []
+	panel.cosmetic_changed.connect(func(slot: String, id: String) -> void: changes.append([slot, id]))
+	panel._on_pick("cardBack", "back_midnight")
+	if Cosmetics.card_back != "back_midnight" or not panel._back_buttons["back_midnight"].button_pressed or panel._back_buttons["back_classic"].button_pressed:
+		push_error("picking an unlocked back should apply it and move the pressed state")
+		failures += 1
+	if changes != [["cardBack", "back_midnight"]]:
+		push_error("cosmetic_changed should fire once with the pick, got %s" % [changes])
+		failures += 1
+	panel._on_pick("cardBack", "back_pinstripe")
+	if Cosmetics.card_back == "back_pinstripe":
+		push_error("a locked back must not be applied")
+		failures += 1
+	var green := Cosmetics.table_bg_color()
+	panel._on_pick("table", "table_navy")
+	if Cosmetics.table != "table_navy" or Cosmetics.table_bg_color() == green:
+		push_error("picking an unlocked felt should change the table colour")
+		failures += 1
+
+	# The card back drives CardView's back; the table reads the felt.
+	var card := CardView.new()
+	root.add_child(card)
+	card.setup(1, 0, 0, false)
+	await process_frame
+	if card.face_up or Cosmetics.card_back_entry()["id"] != "back_midnight":
+		push_error("face-down card should draw the selected back (%s)" % Cosmetics.card_back)
+		failures += 1
+	card.queue_free()
+	var table = load("res://scenes/table.tscn").instantiate()
+	root.add_child(table)
+	await process_frame
+	var felt: ColorRect = table.get_child(0)
+	if felt.color != Cosmetics.table_bg_color() or felt.color == green:
+		push_error("table background should use the picked felt")
+		failures += 1
+	table.queue_free()
+
+	# get_profile applies the server's equipped set; unknown ids are ignored.
+	Cosmetics.apply_equipped({"cardBack": "back_sunrise", "table": "nonsense"})
+	if Cosmetics.card_back != "back_sunrise" or Cosmetics.table != "table_navy":
+		push_error("apply_equipped should take valid ids only")
+		failures += 1
+
+	# The lobby toggles the overlay and recolours its felt.
+	var main = load("res://scenes/main.tscn").instantiate()
+	root.add_child(main)
+	await process_frame
+	if main._quests_panel.visible:
+		push_error("quests overlay starts hidden")
+		failures += 1
+	main._on_toggle_quests()
+	if not main._quests_panel.visible:
+		push_error("quests button should open the overlay")
+		failures += 1
+	main._quests_panel.apply_profile(profile)
+	if main._quests_panel.rows.size() != 5:
+		push_error("lobby panel should take the profile")
+		failures += 1
+	main._on_cosmetic_changed("table", Cosmetics.table)
+	if main._felt.color != Cosmetics.table_bg_color():
+		push_error("lobby felt should follow the picked table")
+		failures += 1
+	main.queue_free()
+	panel.queue_free()
+	Cosmetics.reset()
 	return failures

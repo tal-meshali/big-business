@@ -2,6 +2,8 @@ extends Control
 ## Lobby screen: connect, quick play, create or join a private room.
 
 var _host_edit: LineEdit
+var _secure_check: CheckButton
+var _help: HelpScreen = null
 var _name_edit: LineEdit
 var _code_edit: LineEdit
 var _status: Label
@@ -65,11 +67,25 @@ func _build() -> void:
 	deed["body"].add_child(tagline)
 	box.add_child(deed["panel"])
 
+	# Host field accepts "host", "host:port" or a full "https://host" URL; the
+	# toggle shows the scheme and applies when the text has none.
+	var host_row := HBoxContainer.new()
+	host_row.add_theme_constant_override("separation", 10)
+	box.add_child(host_row)
 	_host_edit = LineEdit.new()
 	_host_edit.placeholder_text = "server host (127.0.0.1)"
-	_host_edit.text = Net.host
+	var default_port := 443 if Net.scheme == "https" else 7350
+	_host_edit.text = Net.host if Net.port == default_port else "%s:%d" % [Net.host, Net.port]
 	_host_edit.custom_minimum_size = Vector2(0, 52)
-	box.add_child(_host_edit)
+	_host_edit.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_host_edit.text_changed.connect(_on_host_text_changed)
+	host_row.add_child(_host_edit)
+	_secure_check = CheckButton.new()
+	_secure_check.text = "Secure (https)"
+	_secure_check.button_pressed = Net.scheme == "https"
+	_secure_check.custom_minimum_size = Vector2(0, 52)
+	_secure_check.toggled.connect(_on_secure_toggled)
+	host_row.add_child(_secure_check)
 
 	_name_edit = LineEdit.new()
 	_name_edit.placeholder_text = "your name"
@@ -133,7 +149,13 @@ func _build() -> void:
 
 	_add_button(box, "Connect", _on_connect_pressed, true)
 	_add_button(box, "Play now", _on_quick_play)
-	_add_button(box, "How to play (tutorial)", _on_tutorial)
+	var learn_row := HBoxContainer.new()
+	learn_row.add_theme_constant_override("separation", 10)
+	box.add_child(learn_row)
+	_add_button(learn_row, "How to play (tutorial)", _on_tutorial)
+	learn_row.get_child(0).size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_add_button(learn_row, "Help", _on_help, true)
+	learn_row.get_child(1).custom_minimum_size = Vector2(150, 56)
 	_add_button(box, "Create private room", _on_create_room)
 
 	var join_row := HBoxContainer.new()
@@ -196,16 +218,50 @@ func _on_ready_pressed() -> void:
 
 
 func _on_connect_pressed() -> void:
-	Net.host = _host_edit.text.strip_edges()
+	var parsed := Net.parse_host_input(_host_edit.text, "https" if _secure_check.button_pressed else "http")
+	Net.scheme = parsed["scheme"]
+	Net.host = parsed["host"]
+	Net.port = parsed["port"]
+	_secure_check.set_pressed_no_signal(Net.scheme == "https")
 	Net.display_name = _name_edit.text.strip_edges()
 	Net.save_settings()
-	_status.text = "Connecting to %s..." % Net.host
+	_status.text = "Connecting to %s..." % _server_address()
 	await Net.connect_to_server()
+
+
+## The effective address after parsing, shown so a wrong scheme is obvious.
+func _server_address() -> String:
+	return "%s://%s:%d" % [Net.scheme, Net.host, Net.port]
+
+
+## A scheme typed into the host field wins over the toggle, so mirror it.
+func _on_host_text_changed(text: String) -> void:
+	var lower := text.strip_edges().to_lower()
+	if lower.begins_with("https://"):
+		_secure_check.set_pressed_no_signal(true)
+	elif lower.begins_with("http://"):
+		_secure_check.set_pressed_no_signal(false)
+
+
+## Toggling rewrites an explicit scheme in the text so the two never disagree.
+func _on_secure_toggled(on: bool) -> void:
+	var text := _host_edit.text.strip_edges()
+	var lower := text.to_lower()
+	if lower.begins_with("https://") or lower.begins_with("http://"):
+		_host_edit.text = ("https://" if on else "http://") + text.substr(text.find("://") + 3)
+
+
+func _on_help() -> void:
+	if _help == null:
+		_help = HelpScreen.new()
+		_help.on_replay = _on_tutorial
+		add_child(_help)
+	_help.visible = true
 
 
 func _on_connected() -> void:
 	_connected = true
-	_status.text = "Connected as %s" % Net.display_name
+	_status.text = "Connected as %s  •  %s" % [Net.display_name, _server_address()]
 	_set_online_buttons(true)
 	_board_button.disabled = false
 	_refresh_profile()
@@ -269,11 +325,22 @@ func _on_failed(reason: String) -> void:
 
 
 func _on_quick_play() -> void:
+	# WHY: a first game against strangers with no rules is the surest way to
+	# lose a new player; the tutorial is short and can be skipped from inside.
+	if not Net.tutorial_done:
+		_status.text = "First time? A two-minute tutorial comes first. You can skip it any time."
+		if Net.is_connected_to_server():
+			_in_lobby = await Net.start_tutorial()
+		return
 	_status.text = "Finding a game..."
 	_in_lobby = await Net.quick_play()
 
 
+## Also reached from the Help screen's "Replay the tutorial".
 func _on_tutorial() -> void:
+	if not Net.is_connected_to_server():
+		_status.text = "Connect to a server first, then start the tutorial."
+		return
 	_status.text = "Starting the tutorial..."
 	_in_lobby = await Net.start_tutorial()
 

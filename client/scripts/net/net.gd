@@ -29,7 +29,12 @@ var user_id: String = ""
 var display_name: String = ""
 ## True while the current match is the tutorial (coach overlay on).
 var tutorial_mode: bool = false
-## Players muted locally (user id -> true). Not persisted across launches.
+## True once the player has finished (or skipped) the tutorial; persisted so
+## the first "Play now" routes new players into it only once.
+var tutorial_done: bool = false
+## Players muted locally (user id -> true), persisted in user://net.cfg.
+## WHY: block is server-side via the friends API, but mute is local only, so
+## it must survive restarts or a muted player's emotes come back on relaunch.
 var muted: Dictionary = {}
 var _reconnect_attempts: int = 0
 var _closing: bool = false
@@ -46,6 +51,9 @@ func _load_settings() -> void:
 		port = cfg.get_value("server", "port", port)
 		scheme = cfg.get_value("server", "scheme", scheme)
 		display_name = cfg.get_value("player", "name", "")
+		tutorial_done = bool(cfg.get_value("player", "tutorial_done", false))
+		var saved_muted = cfg.get_value("social", "muted", {})
+		muted = saved_muted if saved_muted is Dictionary else {}
 
 
 func save_settings() -> void:
@@ -54,7 +62,46 @@ func save_settings() -> void:
 	cfg.set_value("server", "port", port)
 	cfg.set_value("server", "scheme", scheme)
 	cfg.set_value("player", "name", display_name)
+	cfg.set_value("player", "tutorial_done", tutorial_done)
+	cfg.set_value("social", "muted", muted)
 	cfg.save(SETTINGS_PATH)
+
+
+## Parse what a player types into the host field into {scheme, host, port}.
+## Accepts "play.example.com", "play.example.com:7350", "https://play.example.com",
+## "http://127.0.0.1:7350" and "https://play.example.com/" (a trailing path is
+## ignored). Without a scheme in the text, `default_scheme` applies; the port
+## defaults to 7350 for http and 443 for https (Caddy terminates TLS, see
+## docs/deploy.md).
+static func parse_host_input(text: String, default_scheme: String = "http") -> Dictionary:
+	var rest := text.strip_edges()
+	var out_scheme := default_scheme
+	var lower := rest.to_lower()
+	if lower.begins_with("https://"):
+		out_scheme = "https"
+		rest = rest.substr(8)
+	elif lower.begins_with("http://"):
+		out_scheme = "http"
+		rest = rest.substr(7)
+	var slash := rest.find("/")
+	if slash >= 0:
+		rest = rest.substr(0, slash)
+	var out_host := rest
+	var out_port := 443 if out_scheme == "https" else 7350
+	var colon := rest.rfind(":")
+	if colon >= 0 and rest.substr(colon + 1).is_valid_int():
+		out_host = rest.substr(0, colon)
+		out_port = int(rest.substr(colon + 1))
+	return {"scheme": out_scheme, "host": out_host, "port": out_port}
+
+
+## Remember that the tutorial was finished or skipped, so "Play now" goes
+## straight to a real game from now on.
+func mark_tutorial_done() -> void:
+	if tutorial_done:
+		return
+	tutorial_done = true
+	save_settings()
 
 
 func is_connected_to_server() -> bool:
@@ -164,6 +211,9 @@ func _join_match(id: String) -> bool:
 
 
 func leave_match() -> void:
+	# Leaving the tutorial early counts as done: skipping is a choice.
+	if tutorial_mode:
+		mark_tutorial_done()
 	if socket != null and not match_id.is_empty():
 		await socket.leave_match_async(match_id)
 	match_id = ""
@@ -228,6 +278,7 @@ func report_player(target_user_id: String, reason: String, note: String = "") ->
 ## Blocks a player server-side (they can no longer friend or message you) and mutes them locally.
 func block_player(target_user_id: String) -> bool:
 	muted[target_user_id] = true
+	save_settings()
 	var res: NakamaAsyncResult = await client.block_friends_async(session, [target_user_id])
 	return not res.is_exception()
 
@@ -237,6 +288,7 @@ func mute_player(target_user_id: String, on: bool = true) -> void:
 		muted[target_user_id] = true
 	else:
 		muted.erase(target_user_id)
+	save_settings()
 
 
 func is_muted(target_user_id: String) -> bool:
@@ -249,6 +301,8 @@ func _on_match_state(state: NakamaRTAPI.MatchData) -> void:
 		return
 	match state.op_code:
 		Protocol.OP_VIEW:
+			if tutorial_mode and String(data.get("phase", "")) == "ended":
+				mark_tutorial_done()
 			view_updated.emit(data)
 		Protocol.OP_EVENTS:
 			events_received.emit(int(data.get("seq", 0)), data.get("events", []))

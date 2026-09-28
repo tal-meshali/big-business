@@ -102,6 +102,7 @@ func _run() -> void:
 
 	failures += await _coach_checks()
 	failures += await _social_checks()
+	failures += await _lobby_checks()
 
 	if failures == 0:
 		print("SMOKE OK")
@@ -276,6 +277,117 @@ func _social_checks() -> int:
 		failures += 1
 	if main._xp_bar.min_value != 50 or main._xp_bar.max_value != 200 or main._xp_bar.value != 120:
 		push_error("xp bar bounds wrong: %s %s %s" % [main._xp_bar.min_value, main._xp_bar.max_value, main._xp_bar.value])
+		failures += 1
+	main.queue_free()
+	return failures
+
+
+## Lobby: host parsing, mute persistence, the Help screen, and the first
+## "Play now" routing new players into the tutorial.
+func _lobby_checks() -> int:
+	var failures := 0
+	var net: Node = root.get_node("Net")
+
+	# Host field forms -> {scheme, host, port}.
+	var cases := [
+		["play.example.com", "http", "play.example.com", 7350],
+		["play.example.com:7350", "http", "play.example.com", 7350],
+		["https://play.example.com", "https", "play.example.com", 443],
+		["http://127.0.0.1:7350", "http", "127.0.0.1", 7350],
+		["https://play.example.com/", "https", "play.example.com", 443],
+		[" HTTPS://play.example.com:8443/path ", "https", "play.example.com", 8443],
+	]
+	for c in cases:
+		var r: Dictionary = net.parse_host_input(c[0])
+		if r.get("scheme") != c[1] or r.get("host") != c[2] or r.get("port") != c[3]:
+			push_error("parse_host_input(%s) gave %s" % [c[0], r])
+			failures += 1
+	var with_default: Dictionary = net.parse_host_input("play.example.com", "https")
+	if with_default.get("scheme") != "https" or with_default.get("port") != 443:
+		push_error("parse_host_input should apply the default scheme, got %s" % [with_default])
+		failures += 1
+
+	# Mute persistence round-trip through user://net.cfg.
+	net.mute_player("smoke-muted", true)
+	net.save_settings()
+	var cfg := ConfigFile.new()
+	if cfg.load(net.SETTINGS_PATH) != OK or not cfg.get_value("social", "muted", {}).has("smoke-muted"):
+		push_error("muted list should be saved under [social] muted")
+		failures += 1
+	if cfg.get_value("player", "tutorial_done", null) == null:
+		push_error("tutorial_done should be saved under [player]")
+		failures += 1
+	net.mute_player("smoke-muted", false)
+	cfg = ConfigFile.new()
+	if cfg.load(net.SETTINGS_PATH) != OK or cfg.get_value("social", "muted", {}).has("smoke-muted"):
+		push_error("unmute should drop the id from the saved list")
+		failures += 1
+	if net.is_muted("smoke-muted"):
+		push_error("unmute should clear the in-memory flag")
+		failures += 1
+
+	# Help screen: rules sections, buttons and the replay callback.
+	var help: HelpScreen = HelpScreen.new()
+	root.add_child(help)
+	await process_frame
+	var titles: PackedStringArray = help.section_titles()
+	for expected in ["Goal", "A turn: take, then play", "Drawing costs coins", "The Market", "Regulator tokens", "The end and dividend day", "Timers and bots"]:
+		if not titles.has(expected):
+			push_error("help screen missing section %s, got %s" % [expected, titles])
+			failures += 1
+	for b in [help.replay_button, help.support_button, help.privacy_button, help.close_button]:
+		if b == null or b.custom_minimum_size.y < 48:
+			push_error("help buttons must exist with 48 px touch targets")
+			failures += 1
+			break
+	if help.replay_button.text != "Replay the tutorial" or help.support_button.text != "Contact support" or help.privacy_button.text != "Privacy policy":
+		push_error("help button labels wrong")
+		failures += 1
+	if not help.version_label.text.contains(AppInfo.VERSION):
+		push_error("help screen should show the version")
+		failures += 1
+	var replayed := [false]
+	help.on_replay = func() -> void: replayed[0] = true
+	help.replay_button.pressed.emit()
+	await process_frame
+	if not replayed[0] or help.visible:
+		push_error("replay button should close the help screen and call the callback")
+		failures += 1
+	help.queue_free()
+
+	# First "Play now" with tutorial_done=false routes into the tutorial. No
+	# server here, so only the status line is checked.
+	net.tutorial_done = false
+	var main = load("res://scenes/main.tscn").instantiate()
+	root.add_child(main)
+	await process_frame
+	await main._on_quick_play()
+	if not main._status.text.contains("tutorial"):
+		push_error("first Play now should start the tutorial, status was: %s" % main._status.text)
+		failures += 1
+	net.tutorial_done = true
+	main._on_quick_play()
+	if main._status.text.contains("tutorial"):
+		push_error("Play now after the tutorial should look for a real game")
+		failures += 1
+	main._on_help()
+	await process_frame
+	if main._help == null or not main._help.visible:
+		push_error("Help button should open the help overlay")
+		failures += 1
+	main._help.close_button.pressed.emit()
+	if main._help.visible:
+		push_error("Close should hide the help overlay")
+		failures += 1
+	# Secure toggle mirrors a scheme typed into the host field, and vice versa.
+	main._host_edit.text = "https://play.example.com"
+	main._on_host_text_changed(main._host_edit.text)
+	if not main._secure_check.button_pressed:
+		push_error("typing https:// should switch the secure toggle on")
+		failures += 1
+	main._on_secure_toggled(false)
+	if main._host_edit.text != "http://play.example.com":
+		push_error("toggling secure off should rewrite the scheme, got %s" % main._host_edit.text)
 		failures += 1
 	main.queue_free()
 	return failures

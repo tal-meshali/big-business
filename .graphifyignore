@@ -1,0 +1,10 @@
+node_modules/
+.godot/
+build/
+client/addons/
+docs/screenshots/
+graphify-out/cache/
+server/types/
+*.uid
+*.import
+package-lock.json

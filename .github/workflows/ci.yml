@@ -96,3 +96,14 @@ jobs:
       - name: Nakama log on failure
         if: failure()
         run: tail -n 200 nakama.log
+
+  graph:
+    name: Dependency graph conventions (graphify)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install graphifyy
+      - run: python3 tools/graph_check.py

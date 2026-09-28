@@ -1,0 +1,12 @@
+#!/bin/sh
+# Runs the dependency-graph conventions check before every push.
+# Enable once per clone:  git config core.hooksPath .githooks
+# Requires graphify:      pip install graphifyy   (or: uv tool install graphifyy)
+set -e
+cd "$(git rev-parse --show-toplevel)"
+if ! command -v graphify >/dev/null 2>&1; then
+  echo "pre-push: graphify not installed (pip install graphifyy); refusing to push without the graph check." >&2
+  echo "pre-push: to bypass once, run: git push --no-verify" >&2
+  exit 1
+fi
+python3 tools/graph_check.py

@@ -60,11 +60,20 @@ func _ready() -> void:
 
 func _build_layout() -> void:
 	set_anchors_preset(Control.PRESET_FULL_RECT)
+	theme = UiTheme.get_theme()
 	var bg := ColorRect.new()
 	bg.color = Companies.TABLE_BG
 	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
 	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(bg)
+	# Board edge: a darker green frame like the rim of a property board.
+	var frame := ReferenceRect.new()
+	frame.editor_only = false
+	frame.border_color = Companies.TABLE_EDGE
+	frame.border_width = 6.0
+	frame.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	frame.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(frame)
 
 	# Top bar.
 	var top := HBoxContainer.new()
@@ -82,7 +91,7 @@ func _build_layout() -> void:
 	top.add_child(_status)
 	_timer_label = Label.new()
 	_timer_label.add_theme_font_size_override("font_size", 22)
-	_timer_label.add_theme_color_override("font_color", Companies.GOLD)
+	_timer_label.add_theme_color_override("font_color", Companies.ALERT)
 	top.add_child(_timer_label)
 	var leave := Button.new()
 	leave.text = "Leave"
@@ -107,7 +116,7 @@ func _build_layout() -> void:
 	var market_title := Label.new()
 	market_title.text = "The Market"
 	market_title.add_theme_font_size_override("font_size", 16)
-	market_title.add_theme_color_override("font_color", Color(1, 1, 1, 0.7))
+	market_title.add_theme_color_override("font_color", Companies.INK_SOFT)
 	market_box.add_child(market_title)
 	var strip := HBoxContainer.new()
 	strip.add_theme_constant_override("separation", 12)
@@ -126,7 +135,7 @@ func _build_layout() -> void:
 	supply_box.add_child(_supply_count)
 
 	var sep := ColorRect.new()
-	sep.color = Color(1, 1, 1, 0.15)
+	sep.color = Companies.TABLE_EDGE
 	sep.custom_minimum_size = Vector2(2, CardView.H)
 	strip.add_child(sep)
 
@@ -176,35 +185,23 @@ func _build_layout() -> void:
 	_fx_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_fx_layer)
 
-	# Result panel (dividend day): dimmed backdrop + centered panel.
+	# Result panel (dividend day): dimmed backdrop + centered deed-style panel.
 	_result_backdrop = ColorRect.new()
-	_result_backdrop.color = Color(0, 0, 0, 0.55)
-	_result_backdrop.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_result_backdrop.color = Color(0, 0, 0, 0.45)
+	_result_backdrop.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_result_backdrop.visible = false
 	add_child(_result_backdrop)
 	var center := CenterContainer.new()
-	center.set_anchors_preset(Control.PRESET_FULL_RECT)
+	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	center.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_result_backdrop.add_child(center)
-	_result_panel = PanelContainer.new()
+	var deed := UiTheme.deed_panel(Companies.GOLD, "Dividend day", Companies.INK)
+	_result_panel = deed["panel"]
 	_result_panel.custom_minimum_size = Vector2(600, 0)
-	var panel_style := StyleBoxFlat.new()
-	panel_style.bg_color = Color("#1E2A44")
-	panel_style.border_color = Companies.GOLD
-	panel_style.set_border_width_all(2)
-	panel_style.set_corner_radius_all(20)
-	panel_style.set_content_margin_all(24)
-	_result_panel.add_theme_stylebox_override("panel", panel_style)
 	center.add_child(_result_panel)
 	var result_box := VBoxContainer.new()
 	result_box.add_theme_constant_override("separation", 12)
-	_result_panel.add_child(result_box)
-	var result_title := Label.new()
-	result_title.text = "Dividend day"
-	result_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	result_title.add_theme_font_size_override("font_size", 32)
-	result_title.add_theme_color_override("font_color", Companies.GOLD)
-	result_box.add_child(result_title)
+	deed["body"].add_child(result_box)
 	_result_label = Label.new()
 	_result_label.add_theme_font_size_override("font_size", 18)
 	result_box.add_child(_result_label)

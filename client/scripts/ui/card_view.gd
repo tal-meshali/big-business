@@ -1,12 +1,16 @@
 class_name CardView
 extends Button
-## A share card. Draws its own face from company data so no art assets are
-## needed for the spike. Portrait 5:7.
+## A share card drawn like a title deed: off-white face, black border, a
+## solid colour band with the company name, and black text on the body.
+## Drawn in code so no art assets are needed yet. Portrait 5:7.
 
 signal card_pressed(card_id: int)
 
 const W := 120.0
 const H := 168.0
+const RADIUS := 8
+const INSET := 6.0
+const BAND_H := 50.0
 
 var card_id: int = -1
 var company: int = 0
@@ -16,7 +20,7 @@ var selectable: bool = true:
 	set(value):
 		selectable = value
 		disabled = not value
-		modulate = Color(1, 1, 1, 1) if value else Color(0.75, 0.75, 0.75, 1)
+		modulate = Color(1, 1, 1, 1) if value else Color(0.82, 0.82, 0.82, 1)
 var selected: bool = false:
 	set(value):
 		if selected == value:
@@ -51,45 +55,64 @@ func set_rest_position(pos: Vector2) -> void:
 
 func _draw() -> void:
 	var rect := Rect2(Vector2.ZERO, size)
-	var radius := 12
-	var style := StyleBoxFlat.new()
-	style.set_corner_radius_all(radius)
+	var outer := StyleBoxFlat.new()
+	outer.set_corner_radius_all(RADIUS)
+	outer.bg_color = Companies.CARD_FACE
+	outer.border_color = Companies.INK
+	outer.set_border_width_all(2)
+	if selected:
+		outer.border_color = Companies.GOLD
+		outer.set_border_width_all(4)
+		outer.shadow_color = Color(Companies.GOLD, 0.5)
+		outer.shadow_size = 10
+	draw_style_box(outer, rect)
+
 	if not face_up:
-		style.bg_color = Color("#1E2A44")
-		style.border_color = Color("#F2C14E")
-		style.set_border_width_all(2)
-		draw_style_box(style, rect)
-		_draw_centered_text("BB", size / 2.0, 36, Color("#F2C14E"))
+		_draw_back()
 		return
 
 	var color := Companies.color_of(company)
-	style.bg_color = Companies.CARD_FACE
-	style.border_color = Companies.GOLD if selected else color
-	style.set_border_width_all(4 if selected else 3)
-	if selected:
-		style.shadow_color = Color(Companies.GOLD, 0.45)
-		style.shadow_size = 10
-	draw_style_box(style, rect)
-
-	# Corner cluster: share count + icon.
+	var text_on_band := Companies.band_text_color(company)
 	var comp := Companies.get_company(company)
 	var font := ThemeDB.fallback_font
-	draw_string(font, Vector2(10, 30), str(comp["shares"]), HORIZONTAL_ALIGNMENT_LEFT, -1, 26, color)
-	_draw_icon(Vector2(size.x - 24, 22), 12.0, color)
-	# Art window (the only area a custom design may replace).
-	var art := Rect2(10, 42, size.x - 20, size.y - 84)
-	draw_rect(art, color.lerp(Color.WHITE, 0.8), true)
-	# Name band.
-	var band := Rect2(0, size.y - 38, size.x, 38)
-	var band_style := StyleBoxFlat.new()
-	band_style.bg_color = color
-	band_style.corner_radius_bottom_left = radius
-	band_style.corner_radius_bottom_right = radius
-	draw_style_box(band_style, band)
-	_draw_centered_text(Companies.short_name_of(company), Vector2(size.x / 2.0, size.y - 14), 16, Color.WHITE)
+
+	# Colour band with a thin ink border, like a deed's title bar.
+	var band := Rect2(INSET, INSET, size.x - INSET * 2, BAND_H)
+	draw_rect(band, color, true)
+	draw_rect(band, Companies.INK, false, 1.5)
+	# Share count top-left inside the band: the part of the card that stays
+	# visible in a fanned hand.
+	draw_string(font, Vector2(INSET + 6, INSET + 22), str(comp["shares"]), HORIZONTAL_ALIGNMENT_LEFT, -1, 20, text_on_band)
+	_draw_icon(Vector2(size.x - INSET - 14, INSET + 14), 8.0, text_on_band)
+	_draw_centered_text("SHARE OF", Vector2(size.x / 2.0, INSET + 14), 8, Color(text_on_band, 0.85))
+	_draw_centered_text(Companies.short_name_of(company).to_upper(), Vector2(size.x / 2.0, INSET + 38), 15, text_on_band)
+
+	# Body: full name, a deed-style rule, and the share count in words.
+	var body_top := INSET + BAND_H + 6
+	_draw_centered_text(String(comp["name"]), Vector2(size.x / 2.0, body_top + 10), 9, Companies.INK)
+	draw_line(Vector2(INSET + 8, body_top + 20), Vector2(size.x - INSET - 8, body_top + 20), Companies.INK_SOFT, 1.0)
+	# Art window: the only area a custom design may replace.
+	var art := Rect2(INSET + 10, body_top + 26, size.x - INSET * 2 - 20, 46)
+	draw_rect(art, color.lerp(Color.WHITE, 0.82), true)
+	draw_rect(art, Companies.INK_SOFT, false, 1.0)
+	_draw_icon(art.get_center(), 14.0, color)
+	draw_line(Vector2(INSET + 8, size.y - 30), Vector2(size.x - INSET - 8, size.y - 30), Companies.INK_SOFT, 1.0)
+	_draw_centered_text("%d shares issued" % int(comp["shares"]), Vector2(size.x / 2.0, size.y - 17), 9, Companies.INK)
 
 	if coins > 0:
 		_draw_coin_badge(coins)
+
+
+func _draw_back() -> void:
+	var inner := Rect2(INSET, INSET, size.x - INSET * 2, size.y - INSET * 2)
+	draw_rect(inner, Companies.INK, false, 1.5)
+	# Six colour stripes, one per company, then the monogram.
+	var stripe_w := (inner.size.x - 12) / 6.0
+	for i in 6:
+		draw_rect(Rect2(inner.position.x + 6 + i * stripe_w, inner.position.y + 8, stripe_w - 2, 10), Companies.color_of(i), true)
+		draw_rect(Rect2(inner.position.x + 6 + i * stripe_w, inner.end.y - 18, stripe_w - 2, 10), Companies.color_of(i), true)
+	_draw_centered_text("BIG", Vector2(size.x / 2.0, size.y / 2.0 - 14), 22, Companies.INK)
+	_draw_centered_text("BUSINESS", Vector2(size.x / 2.0, size.y / 2.0 + 12), 16, Companies.INK)
 
 
 func _draw_icon(center: Vector2, r: float, color: Color) -> void:
@@ -106,8 +129,8 @@ func _draw_icon(center: Vector2, r: float, color: Color) -> void:
 
 
 func _draw_coin_badge(n: int) -> void:
-	var c := Vector2(size.x / 2.0, size.y / 2.0 - 8)
-	draw_circle(c, 22, Color(0, 0, 0, 0.35))
+	var c := Vector2(size.x / 2.0, size.y / 2.0 + 16)
+	draw_circle(c, 21, Companies.INK)
 	draw_circle(c, 18, Companies.BRONZE)
 	_draw_centered_text(str(n), c + Vector2(0, 1), 18, Color.WHITE)
 

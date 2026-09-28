@@ -27,10 +27,18 @@ func _ready() -> void:
 
 func _build() -> void:
 	set_anchors_preset(Control.PRESET_FULL_RECT)
+	theme = UiTheme.get_theme()
 	var bg := ColorRect.new()
 	bg.color = Companies.TABLE_BG
 	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
 	add_child(bg)
+	var frame := ReferenceRect.new()
+	frame.editor_only = false
+	frame.border_color = Companies.TABLE_EDGE
+	frame.border_width = 6.0
+	frame.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	frame.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(frame)
 
 	var box := VBoxContainer.new()
 	box.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -41,12 +49,16 @@ func _build() -> void:
 	box.add_theme_constant_override("separation", 14)
 	add_child(box)
 
-	var title := Label.new()
-	title.text = "Big Business"
-	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	title.add_theme_font_size_override("font_size", 48)
-	title.add_theme_color_override("font_color", Companies.GOLD)
-	box.add_child(title)
+	# Title on a red deed band, like the name plate of a property board.
+	var deed := UiTheme.deed_panel(Companies.ALERT, "BIG BUSINESS", Color.WHITE)
+	deed["title"].add_theme_font_size_override("font_size", 40)
+	var tagline := Label.new()
+	tagline.text = "Collect shares. Corner the market. Cash in on dividend day."
+	tagline.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	tagline.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	tagline.add_theme_font_size_override("font_size", 16)
+	deed["body"].add_child(tagline)
+	box.add_child(deed["panel"])
 
 	_host_edit = LineEdit.new()
 	_host_edit.placeholder_text = "server host (127.0.0.1)"

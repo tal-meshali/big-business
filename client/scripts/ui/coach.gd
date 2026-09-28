@@ -78,7 +78,7 @@ func _ready() -> void:
 func _build() -> void:
 	var backdrop := ColorRect.new()
 	backdrop.name = "Backdrop"
-	backdrop.color = Color(0, 0, 0, 0.45)
+	backdrop.color = Color(0, 0, 0, 0.4)
 	backdrop.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	backdrop.mouse_filter = Control.MOUSE_FILTER_STOP
 	add_child(backdrop)
@@ -86,29 +86,20 @@ func _build() -> void:
 	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	center.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	backdrop.add_child(center)
-	_panel = PanelContainer.new()
+	var deed := UiTheme.deed_panel(Companies.CHANCE, "", Color.WHITE)
+	_panel = deed["panel"]
 	_panel.custom_minimum_size = Vector2(620, 0)
-	var style := StyleBoxFlat.new()
-	style.bg_color = Color("#1E2A44")
-	style.border_color = Companies.GOLD
-	style.set_border_width_all(2)
-	style.set_corner_radius_all(20)
-	style.set_content_margin_all(24)
-	_panel.add_theme_stylebox_override("panel", style)
 	center.add_child(_panel)
+	_title = deed["title"]
+	_title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	var box := VBoxContainer.new()
 	box.add_theme_constant_override("separation", 14)
-	_panel.add_child(box)
+	deed["body"].add_child(box)
 	var tag := Label.new()
 	tag.text = "TUTORIAL"
 	tag.add_theme_font_size_override("font_size", 13)
-	tag.add_theme_color_override("font_color", Color(1, 1, 1, 0.5))
+	tag.add_theme_color_override("font_color", Companies.INK_SOFT)
 	box.add_child(tag)
-	_title = Label.new()
-	_title.add_theme_font_size_override("font_size", 28)
-	_title.add_theme_color_override("font_color", Companies.GOLD)
-	_title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	box.add_child(_title)
 	_body = Label.new()
 	_body.add_theme_font_size_override("font_size", 19)
 	_body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART

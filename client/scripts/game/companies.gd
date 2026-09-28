@@ -1,19 +1,38 @@
 class_name Companies
-## Company identities. Must match server/src/engine/companies.ts.
+## Company identities and the visual palette. Must match
+## server/src/engine/companies.ts for ids, names and share counts.
+##
+## Look: "title deed" cards. Off-white card with a black border, a solid
+## colour band naming the company, black text on the body, on a pale
+## board-green table. Six saturated band colours, each paired with a
+## distinct icon silhouette for colourblind players.
 
 const DATA := [
-	{"id": 0, "key": "solar", "name": "Sunny Side Solar", "short": "Solar", "shares": 5, "color": Color("#F5C542")},
-	{"id": 1, "key": "foods", "name": "Pinecone Foods", "short": "Foods", "shares": 6, "color": Color("#4CAF6A")},
-	{"id": 2, "key": "freight", "name": "Tidewater Freight", "short": "Freight", "shares": 7, "color": Color("#3B82F6")},
-	{"id": 3, "key": "robotics", "name": "Cogwheel Robotics", "short": "Robotics", "shares": 8, "color": Color("#F4813F")},
-	{"id": 4, "key": "air", "name": "Nimbus Air", "short": "Air", "shares": 9, "color": Color("#8B5CF6")},
-	{"id": 5, "key": "motors", "name": "Redline Motors", "short": "Motors", "shares": 10, "color": Color("#E5484D")},
+	{"id": 0, "key": "solar", "name": "Sunny Side Solar", "short": "Solar", "shares": 5, "color": Color("#F2C230")},
+	{"id": 1, "key": "foods", "name": "Pinecone Foods", "short": "Foods", "shares": 6, "color": Color("#3F9E4F")},
+	{"id": 2, "key": "freight", "name": "Tidewater Freight", "short": "Freight", "shares": 7, "color": Color("#2E6FD8")},
+	{"id": 3, "key": "robotics", "name": "Cogwheel Robotics", "short": "Robotics", "shares": 8, "color": Color("#F07A1E")},
+	{"id": 4, "key": "air", "name": "Nimbus Air", "short": "Air", "shares": 9, "color": Color("#7B4FC6")},
+	{"id": 5, "key": "motors", "name": "Redline Motors", "short": "Motors", "shares": 10, "color": Color("#D6262C")},
 ]
 
-const TABLE_BG := Color("#121826")
-const CARD_FACE := Color("#F8F6F0")
-const BRONZE := Color("#C8874A")
-const GOLD := Color("#F2C14E")
+## Board-green table, like the centre of a classic property board.
+const TABLE_BG := Color("#C7DFC9")
+const TABLE_EDGE := Color("#9BBE9F")
+## Off-white card and panel faces.
+const CARD_FACE := Color("#FFFDF6")
+const PANEL := Color("#FFFFFF")
+## Near-black ink for text and borders.
+const INK := Color("#1C1C1C")
+const INK_SOFT := Color("#5A5A5A")
+## Coins.
+const BRONZE := Color("#B8722E")
+const GOLD := Color("#E2B23A")
+## Accents borrowed from the two classic card-draw piles.
+const CHANCE := Color("#F7941D")
+const CHEST := Color("#4FA3D8")
+const ALERT := Color("#D6262C")
+const HIGHLIGHT := Color("#FFF1B8")
 
 
 static func get_company(id: int) -> Dictionary:
@@ -30,3 +49,8 @@ static func name_of(id: int) -> String:
 
 static func short_name_of(id: int) -> String:
 	return DATA[id]["short"]
+
+
+## White reads better on dark bands, ink on the yellow band.
+static func band_text_color(id: int) -> Color:
+	return INK if id == 0 else Color.WHITE

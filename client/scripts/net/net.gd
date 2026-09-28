@@ -14,6 +14,9 @@ signal emote_shown(seat: int, emote: String)
 signal player_forfeited(seat: int)
 signal reconnecting(attempt: int)
 signal reconnected
+## A friend invited us to a private room, live over the socket or found as a
+## persistent notification on connect. Also queued in `pending_invites`.
+signal invite_received(from_name: String, code: String)
 
 const SETTINGS_PATH := "user://net.cfg"
 const DEFAULT_PORT := 7350
@@ -50,6 +53,7 @@ var _reconnecting: bool = false
 
 func _ready() -> void:
 	_load_settings()
+	connected.connect(_on_connected_social)
 
 
 func _load_settings() -> void:
@@ -397,3 +401,109 @@ func _try_reconnect() -> void:
 	_reconnecting = false
 	match_id = ""
 	connection_failed.emit("disconnected")
+
+
+# --- Friends and invites ------------------------------------------------------
+
+## Invites not yet shown by a friends panel ({fromName, code}), so one that
+## arrives during a game is still offered back in the lobby.
+var pending_invites: Array = []
+## Notification ids already surfaced this session, so a persistent invite is
+## shown once even across reconnects.
+var _seen_invites: Dictionary = {}
+
+
+## Friends in every state except blocked: [{userId, name, online, state}] with
+## Nakama's states (0 friends, 1 request sent, 2 request received).
+func list_friends() -> Array:
+	var rows: Array = []
+	if client == null or session == null:
+		return rows
+	var res = await client.list_friends_async(session, null, 100)
+	if res.is_exception():
+		return rows
+	for f in res.friends:
+		if f.user == null or f.state == 3:
+			continue
+		var shown_name: String = f.user.display_name if not f.user.display_name.is_empty() else f.user.username
+		rows.append({"userId": f.user.id, "name": shown_name, "online": f.user.online, "state": int(f.state)})
+	return rows
+
+
+## Sends a friend request to a player by exact username (adding back accepts
+## theirs). False when no such player exists.
+func add_friend_by_name(username: String) -> bool:
+	var rpc: NakamaAPI.ApiRpc = await client.rpc_async(session, "find_player", JSON.stringify({"name": username.strip_edges()}))
+	if rpc.is_exception():
+		return false
+	var data: Dictionary = JSON.parse_string(rpc.payload)
+	return await add_friend(String(data.get("userId", "")))
+
+
+## Sends a friend request by user id, or accepts a received one.
+func add_friend(target_user_id: String) -> bool:
+	if target_user_id.is_empty():
+		return false
+	var res: NakamaAsyncResult = await client.add_friends_async(session, [target_user_id])
+	return not res.is_exception()
+
+
+## Removes a friend (or cancels a pending request) both ways.
+func remove_friend(target_user_id: String) -> bool:
+	var res: NakamaAsyncResult = await client.delete_friends_async(session, PackedStringArray([target_user_id]))
+	return not res.is_exception()
+
+
+## Invites a mutual friend to the private room `code`; the server refuses
+## strangers, pending requests and players who blocked us.
+func invite_friend(target_user_id: String, code: String) -> bool:
+	var payload := JSON.stringify({"userId": target_user_id, "code": code})
+	var rpc: NakamaAPI.ApiRpc = await client.rpc_async(session, "invite_friend", payload)
+	if rpc.is_exception():
+		server_error.emit("invite failed: %s" % rpc.get_exception().message)
+		return false
+	return true
+
+
+## Hands over (and clears) invites that arrived while no panel was listening.
+func take_pending_invites() -> Array:
+	var out := pending_invites
+	pending_invites = []
+	return out
+
+
+func _on_connected_social() -> void:
+	socket.received_notification.connect(_on_notification)
+	_fetch_pending_invites()
+
+
+func _on_notification(n: NakamaAPI.ApiNotification) -> void:
+	if n.code != Protocol.INVITE_CODE or _seen_invites.has(n.id):
+		return
+	_seen_invites[n.id] = true
+	var content = JSON.parse_string(n.content)
+	if not content is Dictionary:
+		return
+	var from_name := String(content.get("fromName", "A friend"))
+	var code := String(content.get("code", ""))
+	if code.is_empty():
+		return
+	pending_invites.append({"fromName": from_name, "code": code})
+	invite_received.emit(from_name, code)
+
+
+## Invites sent while we were offline are persistent notifications. Surface
+## them once, then delete them server-side.
+## WHY: rooms live minutes, so an invite shown once is either used now or
+## stale; deleting keeps old codes from reappearing at every launch.
+func _fetch_pending_invites() -> void:
+	var res = await client.list_notifications_async(session, 20)
+	if res.is_exception():
+		return
+	var ids := PackedStringArray()
+	for n in res.notifications:
+		if n.code == Protocol.INVITE_CODE:
+			ids.append(n.id)
+			_on_notification(n)
+	if not ids.is_empty():
+		await client.delete_notifications_async(session, ids)

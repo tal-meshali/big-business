@@ -4,7 +4,7 @@ Nakama runtime for the authoritative game. Two layers:
 
 - `src/engine/`: the pure rules engine. No Nakama imports, no clock, no global randomness. `game.ts` holds the rules, `view.ts` the per-seat views, `auto.ts` the simple auto-move and `bot.ts` the heuristic bot; covered by `game.test.ts` and `bot.test.ts`. This is the reference implementation of `docs/design/rules-spec.md`.
 - `src/match/`: the Nakama match handler (lobby, seats, bots, timers, per-seat views, reconnection) and the wire protocol.
-- `src/main.ts`: registers the match handler and three RPCs: `quick_play`, `create_room`, `join_room`.
+- `src/main.ts`: registers the match handler and the RPCs listed below.
 
 ## Commands
 
@@ -27,7 +27,7 @@ node e2e/play.mjs                       # Node client: private room + quick play
 godot --headless --path ../client --script res://tests/e2e_client.gd   # real Godot client vs bots
 ```
 
-`e2e/play.mjs` verifies room codes, ready gating, hidden information, illegal-action rejection, timeout auto-move, leave and rejoin, coin conservation on every state, dividend day, and quick play filling with bots after the lobby wait. Both scripts exit non-zero on failure.
+`e2e/play.mjs` verifies room codes, ready gating, hidden information, illegal-action rejection, timeout auto-move, leave and rejoin, coin conservation on every state, dividend day, friend requests with room invites delivered as notifications (and refused for strangers), and quick play filling with bots after the lobby wait. Both scripts exit non-zero on failure.
 
 ## Production
 
@@ -58,8 +58,10 @@ Payloads are JSON strings.
 | `get_profile` | `{}` | `{progress: {xp, level, gamesPlayed, wins, streak, lastDailyClaim, bestRank}, dailyAvailable}` |
 | `claim_daily` | `{}` | `{claimed, xpAwarded, progress}`; once per UTC day, streak grows on consecutive days |
 | `report_player` | `{userId, reason, matchId?, note?}` | `{ok}`; written to the `reports` storage collection (system user, console-only) |
+| `find_player` | `{name}` | `{userId, username}`; exact username match, never the caller; error `not found` otherwise |
+| `invite_friend` | `{userId, code}` | `{ok}`; caller and target must be mutual friends (Nakama friend state 0), the target must not have blocked the caller, and the code must be a live room. Sends a persistent in-app notification, code 100 (`INVITE_CODE`), subject `Room invite`, content `{code, fromName, fromUserId}` |
 
-Progression (`src/match/progression.ts`, pure and unit-tested) is applied by the match handler once when a game ends: XP for participation, placement and wins (halved for games against bots only), and season points on the `season` leaderboard (monthly reset, only for games with at least two humans). Blocking uses Nakama's friends API from the client.
+Progression (`src/match/progression.ts`, pure and unit-tested) is applied by the match handler once when a game ends: XP for participation, placement and wins (halved for games against bots only), and season points on the `season` leaderboard (monthly reset, only for games with at least two humans). Adding, accepting, removing and blocking friends use Nakama's friends API from the client; the social RPCs (`src/match/social.ts`, invite rules unit-tested) only look players up and deliver room invites as Nakama in-app notifications (no push).
 
 ## Match lifecycle
 

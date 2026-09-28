@@ -39,6 +39,9 @@ export const EMOTE_IDS = [
 ];
 export const EMOTE_COOLDOWN_MS = 2000;
 
+/** Notification code of a room invite sent by the invite_friend RPC. */
+export const INVITE_CODE = 100;
+
 export const MATCH_MODULE = 'big_business';
 
 export interface MatchParams {

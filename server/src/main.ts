@@ -1,10 +1,11 @@
 /**
  * Nakama runtime entry point. Registers the Big Business match handler and
- * the room-code, profile, moderation and social RPCs.
+ * the room-code, profile, quest, cosmetic, moderation and social RPCs.
  */
 import { matchInit, matchJoin, matchJoinAttempt, matchLeave, matchLoop, matchSignal, matchTerminate } from './match/handler';
 import { clampStepSeconds, DEFAULT_PARAMS, MATCH_MODULE, TUTORIAL_SEED } from './match/protocol';
-import { claimDaily, emptyProgress, PROFILE_COLLECTION, PROFILE_KEY, SEASON_LEADERBOARD, utcDate, type Progress } from './match/progression';
+import { claimDaily, SEASON_LEADERBOARD, utcDate } from './match/progression';
+import { profileExtras, readProgress, requireUser, rpcClaimQuest, rpcEquipCosmetic, writeProgress } from './match/rpc_quests';
 import { rpcFindPlayer, rpcInviteFriend } from './match/social';
 
 const SYSTEM_USER = '00000000-0000-0000-0000-000000000000';
@@ -85,26 +86,12 @@ const rpcQuickPlay: nkruntime.RpcFunction = (ctx, logger, nk, payload) => {
   return JSON.stringify({ matchId });
 };
 
-function requireUser(ctx: nkruntime.Context): string {
-  if (!ctx.userId) throw Error('unauthenticated');
-  return ctx.userId;
-}
-
-function readProgress(nk: nkruntime.Nakama, userId: string): Progress {
-  const rows = nk.storageRead([{ collection: PROFILE_COLLECTION, key: PROFILE_KEY, userId }]);
-  const row = rows[0];
-  return row ? (row.value as Progress) : emptyProgress();
-}
-
-function writeProgress(nk: nkruntime.Nakama, userId: string, p: Progress): void {
-  nk.storageWrite([{ collection: PROFILE_COLLECTION, key: PROFILE_KEY, userId, value: p, permissionRead: 1, permissionWrite: 0 }]);
-}
-
-/** RPC get_profile: progression plus whether today's daily bonus is available. */
+/** RPC get_profile: progression, the daily bonus flag, and the quest / cosmetic track. */
 const rpcGetProfile: nkruntime.RpcFunction = (ctx, logger, nk, payload) => {
   void logger; void payload;
+  const now = Date.now();
   const p = readProgress(nk, requireUser(ctx));
-  return JSON.stringify({ progress: p, dailyAvailable: p.lastDailyClaim !== utcDate(Date.now()) });
+  return JSON.stringify({ progress: p, dailyAvailable: p.lastDailyClaim !== utcDate(now), ...profileExtras(p, now) });
 };
 
 /** RPC claim_daily: once per UTC day; streak grows on consecutive days. */
@@ -164,6 +151,8 @@ function InitModule(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkrunt
   initializer.registerRpc('quick_play', rpcQuickPlay);
   initializer.registerRpc('get_profile', rpcGetProfile);
   initializer.registerRpc('claim_daily', rpcClaimDaily);
+  initializer.registerRpc('claim_quest', rpcClaimQuest);
+  initializer.registerRpc('equip_cosmetic', rpcEquipCosmetic);
   initializer.registerRpc('report_player', rpcReportPlayer);
   initializer.registerRpc('find_player', rpcFindPlayer);
   initializer.registerRpc('invite_friend', rpcInviteFriend);

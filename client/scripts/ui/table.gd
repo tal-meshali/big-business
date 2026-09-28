@@ -102,14 +102,14 @@ func _build_layout() -> void:
 	set_anchors_preset(Control.PRESET_FULL_RECT)
 	theme = UiTheme.get_theme()
 	var bg := ColorRect.new()
-	bg.color = Companies.TABLE_BG
+	bg.color = Cosmetics.table_bg_color()
 	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
 	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(bg)
 	# Board edge: a darker green frame like the rim of a property board.
 	var frame := ReferenceRect.new()
 	frame.editor_only = false
-	frame.border_color = Companies.TABLE_EDGE
+	frame.border_color = Cosmetics.table_edge_color()
 	frame.border_width = 6.0
 	frame.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	frame.mouse_filter = Control.MOUSE_FILTER_IGNORE

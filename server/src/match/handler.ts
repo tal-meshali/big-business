@@ -73,7 +73,11 @@ function apply(
     }
     throw e;
   }
-  s.log.push({ seq: s.game.seq, seat, action, source });
+  // WHY: coins that came with a Market share are not in the action itself; the
+  // quest stats read them from the log instead of replaying the game.
+  let coins = 0;
+  for (const e of events) if (e.type === 'took_market') coins = e.coins;
+  s.log.push({ seq: s.game.seq, seat, action, source, coins });
 
   // A human who keeps timing out becomes a bot for the rest of the game.
   const seatState = s.game.seats[seat];

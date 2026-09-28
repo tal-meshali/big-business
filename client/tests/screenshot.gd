@@ -64,6 +64,28 @@ func _run() -> void:
 	table._on_view(view)
 	await _settle()
 	await _save(out_dir + "/dividend.png")
+	table.queue_free()
+
+	# Tutorial coach card over the opening position.
+	var tutorial = load("res://scenes/table.tscn").instantiate()
+	root.add_child(tutorial)
+	tutorial.enable_coach()
+	await process_frame
+	var opening := _fake_view()
+	opening["market"] = []
+	opening["drawCost"] = 0
+	opening["legal"] = [{"type": "take_supply"}]
+	for seat in opening["seats"]:
+		seat["portfolio"] = []
+		seat["tokens"] = []
+		seat["bronze"] = 10
+	opening["seats"] = opening["seats"].slice(0, 3)
+	opening["supplyCount"] = 31
+	opening["turn"] = 1
+	opening["deadline"] = 0
+	tutorial._on_view(opening)
+	await _settle()
+	await _save(out_dir + "/tutorial.png")
 	print("SCREENSHOTS OK")
 	quit(0)
 

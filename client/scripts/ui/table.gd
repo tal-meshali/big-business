@@ -41,10 +41,13 @@ var _selected_card: int = -1
 var _pending_events: Array = []
 var _animating: bool = false
 var _last_view: Dictionary = {}
+var coach: Coach = null
 
 
 func _ready() -> void:
 	_build_layout()
+	if Net.tutorial_mode:
+		enable_coach()
 	Net.view_updated.connect(_on_view)
 	Net.events_received.connect(_on_events)
 	Net.server_error.connect(_on_error)
@@ -238,6 +241,14 @@ func _opponent_slots(n: int) -> Array[Vector2]:
 	return slots
 
 
+## Attach the tutorial coach overlay (idempotent).
+func enable_coach() -> void:
+	if coach != null:
+		return
+	coach = Coach.new()
+	add_child(coach)
+
+
 # ---------------------------------------------------------------------------
 # Input handlers
 # ---------------------------------------------------------------------------
@@ -312,6 +323,8 @@ func _on_error(message: String) -> void:
 
 func _on_events(_seq: int, events: Array) -> void:
 	_pending_events.append_array(events)
+	if coach != null:
+		coach.on_events(events)
 
 
 func _on_view(v: Dictionary) -> void:
@@ -367,6 +380,8 @@ func _render() -> void:
 	_render_hand(seats, phase)
 	_update_prompt()
 	_render_result(seats)
+	if coach != null:
+		coach.on_view(view)
 
 
 func _render_status(phase: String, seats: Array, active: int) -> void:

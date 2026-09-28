@@ -68,6 +68,7 @@ func _build() -> void:
 
 	_add_button(box, "Connect", _on_connect_pressed, true)
 	_add_button(box, "Play now", _on_quick_play)
+	_add_button(box, "How to play (tutorial)", _on_tutorial)
 	_add_button(box, "Create private room", _on_create_room)
 
 	var join_row := HBoxContainer.new()
@@ -152,6 +153,11 @@ func _on_failed(reason: String) -> void:
 func _on_quick_play() -> void:
 	_status.text = "Finding a game..."
 	_in_lobby = await Net.quick_play()
+
+
+func _on_tutorial() -> void:
+	_status.text = "Starting the tutorial..."
+	_in_lobby = await Net.start_tutorial()
 
 
 func _on_create_room() -> void:

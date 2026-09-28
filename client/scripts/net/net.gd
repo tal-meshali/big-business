@@ -24,6 +24,8 @@ var socket: NakamaSocket
 var match_id: String = ""
 var user_id: String = ""
 var display_name: String = ""
+## True while the current match is the tutorial (coach overlay on).
+var tutorial_mode: bool = false
 
 
 func _ready() -> void:
@@ -95,12 +97,27 @@ func _persistent_device_id() -> String:
 
 ## Ask the server for an open public game (or a new one) and join it.
 func quick_play() -> bool:
+	tutorial_mode = false
 	var rpc: NakamaAPI.ApiRpc = await client.rpc_async(session, "quick_play", "{}")
 	if rpc.is_exception():
 		server_error.emit("quick play failed: %s" % rpc.get_exception().message)
 		return false
 	var data: Dictionary = JSON.parse_string(rpc.payload)
 	return await _join_match(String(data.get("matchId", "")))
+
+
+## Start a solo tutorial game against two slow bots with no timer.
+func start_tutorial() -> bool:
+	var rpc: NakamaAPI.ApiRpc = await client.rpc_async(session, "quick_play", JSON.stringify({"tutorial": true}))
+	if rpc.is_exception():
+		server_error.emit("tutorial failed: %s" % rpc.get_exception().message)
+		return false
+	var data: Dictionary = JSON.parse_string(rpc.payload)
+	tutorial_mode = true
+	var ok := await _join_match(String(data.get("matchId", "")))
+	if not ok:
+		tutorial_mode = false
+	return ok
 
 
 ## Create a private room. Returns the room code, or "" on failure.
@@ -142,6 +159,7 @@ func leave_match() -> void:
 	if socket != null and not match_id.is_empty():
 		await socket.leave_match_async(match_id)
 	match_id = ""
+	tutorial_mode = false
 	match_left.emit()
 
 

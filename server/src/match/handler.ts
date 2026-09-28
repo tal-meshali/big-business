@@ -23,6 +23,7 @@ import {
 
 const TICK_RATE = 4; // ticks per second
 const BOT_THINK_MS = 900;
+const TUTORIAL_BOT_THINK_MS = 1800;
 const END_LINGER_MS = 45_000;
 const AUTO_MOVES_TO_BOT = 3;
 
@@ -49,6 +50,10 @@ function nowMs(): number {
   return Date.now();
 }
 
+function botThinkMs(s: MatchState): number {
+  return s.params.tutorial ? TUTORIAL_BOT_THINK_MS : BOT_THINK_MS;
+}
+
 function lobbyMessage(s: MatchState): LobbyMessage {
   return {
     roomCode: s.params.roomCode,
@@ -62,7 +67,7 @@ function lobbyMessage(s: MatchState): LobbyMessage {
 
 function label(s: MatchState): string {
   return JSON.stringify({
-    mode: s.params.isPrivate ? 'private' : 'public',
+    mode: s.params.tutorial ? 'tutorial' : s.params.isPrivate ? 'private' : 'public',
     code: s.params.roomCode || '',
     open: s.game === null ? 'yes' : 'no',
     players: s.lobby.length,
@@ -92,15 +97,23 @@ function startGame(s: MatchState, nk: nkruntime.Nakama, logger: nkruntime.Logger
     defs.push({ id: `bot:${botIndex}`, name: BOT_NAMES[botIndex % BOT_NAMES.length] as string, isBot: true });
     botIndex++;
   }
-  const seed = Math.floor(Math.random() * 0x7fffffff);
+  const seed = s.params.seed > 0 ? s.params.seed : Math.floor(Math.random() * 0x7fffffff);
   s.game = createGame(defs, seed, { stepSeconds: s.params.stepSeconds }, nowMs());
+  if (s.params.tutorial) {
+    // The learner always goes first so the coach can explain the opening draw.
+    const humanIdx = s.game.seats.findIndex((seat) => !seat.isBot);
+    if (humanIdx > 0) {
+      const rotated = s.game.seats.slice(humanIdx).concat(s.game.seats.slice(0, humanIdx));
+      s.game.seats = rotated;
+    }
+  }
   s.seatByUser = {};
   for (let i = 0; i < s.game.seats.length; i++) {
     const seat = s.game.seats[i];
     if (seat && !seat.isBot) s.seatByUser[seat.id] = i;
   }
-  s.botActAt = nowMs() + BOT_THINK_MS;
-  logger.info('match started seats=%d seed=%d', s.game.seats.length, seed);
+  s.botActAt = nowMs() + botThinkMs(s);
+  logger.info('match started seats=%d seed=%d tutorial=%s', s.game.seats.length, seed, String(s.params.tutorial));
   dispatcher.matchLabelUpdate(label(s));
   sendViews(s, dispatcher);
   void nk;
@@ -142,7 +155,7 @@ function apply(
     s.endedAt = nowMs();
     dispatcher.matchLabelUpdate(label(s));
   } else {
-    s.botActAt = nowMs() + BOT_THINK_MS;
+    s.botActAt = nowMs() + botThinkMs(s);
   }
   return true;
 }
@@ -155,7 +168,16 @@ export const matchInit: nkruntime.MatchInitFunction<MatchState> = (ctx, logger, 
     maxSeats: Number(params['maxSeats']) || DEFAULT_PARAMS.maxSeats,
     stepSeconds: params['stepSeconds'] === undefined ? DEFAULT_PARAMS.stepSeconds : Number(params['stepSeconds']),
     lobbyWaitSeconds: Number(params['lobbyWaitSeconds']) || DEFAULT_PARAMS.lobbyWaitSeconds,
+    tutorial: params['tutorial'] === true || params['tutorial'] === 'true',
+    seed: Number(params['seed']) || 0,
   };
+  if (p.tutorial) {
+    p.isPrivate = false;
+    p.minSeats = 3;
+    p.maxSeats = 1;
+    p.stepSeconds = 0;
+    p.lobbyWaitSeconds = 0;
+  }
   const state: MatchState = {
     params: p,
     presences: {},
@@ -303,7 +325,8 @@ export const matchLoop: nkruntime.MatchLoopFunction<MatchState> = (ctx, logger, 
   const active = state.game.seats[state.game.active];
   if (active) {
     if (active.isBot && now >= state.botActAt) {
-      apply(state, dispatcher, logger, state.game.active, autoAction(state.game, Math.random()), 'bot');
+      const tieBreak = state.params.tutorial ? 0 : Math.random();
+      apply(state, dispatcher, logger, state.game.active, autoAction(state.game, tieBreak), 'bot');
     } else if (!active.isBot && state.game.deadline > 0 && now >= state.game.deadline) {
       apply(state, dispatcher, logger, state.game.active, autoAction(state.game), 'timeout');
     }

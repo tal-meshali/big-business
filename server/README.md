@@ -48,6 +48,7 @@ Payloads are JSON strings.
 
 ## Match lifecycle
 
+0. `quick_play` with `{"tutorial": true}` creates a solo tutorial match: one human seat, two bots with a longer think delay and deterministic tie-breaks, no step timer, a fixed seed, and the learner always seated first. Its label mode is `tutorial`, so public quick play never joins it.
 1. `quick_play` RPC returns an open public match id (or creates one). Public lobbies start when full (5 seats) or 20 seconds after the first player joins, filling empty seats with bots to reach 3.
 2. `create_room` RPC returns a 6-character code and a private match id; `join_room` resolves a code. Private rooms start when everyone has sent `OP_READY` and there are at least 2 humans (a bot fills the third seat).
 3. During play the server applies bot moves after a short delay and auto-moves a human seat when its deadline passes. Three consecutive timeouts convert a seat to a bot; rejoining reclaims it.

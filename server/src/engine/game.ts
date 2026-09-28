@@ -517,7 +517,18 @@ export function autoAction(state: GameState, tieBreak = 0): Action {
     return legal[0] as Action;
   }
 
-  // Play step: keep the company we hold most of; tie -> larger company.
+  // Play step. Minority shares cost coins on dividend day, so a lone share of
+  // a company we are not collecting is sold to the Market (when allowed and
+  // the Market is not crowded). Otherwise keep the company we hold most of;
+  // tie -> larger company.
+  if (state.market.length < 4) {
+    let dump: Card | null = null;
+    for (const card of me.hand) {
+      if (card.company === state.tookCompany) continue;
+      if (heldCount(me, card.company) === 1 && (dump === null || card.company < dump.company)) dump = card;
+    }
+    if (dump) return { type: 'play_market', cardId: dump.id };
+  }
   let best: Card | null = null;
   let bestScore = -1;
   for (const card of me.hand) {

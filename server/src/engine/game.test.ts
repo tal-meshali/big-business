@@ -424,6 +424,17 @@ describe('full games with auto-moves', () => {
     }
   });
 
+  it('autoAction sells a lone share of a company it is not collecting', () => {
+    const s = fixture();
+    s.seats[0]!.hand = [card(10, 1), card(11, 1), card(12, 3)];
+    s.seats[0]!.portfolio = [card(13, 1)];
+    let r = applyAction(s, 0, { type: 'take_supply' }); // takes company 5 (lone, but just taken)
+    const a = autoAction(r.state);
+    expect(a).toEqual({ type: 'play_market', cardId: 12 }); // company 3 is the lone sellable share
+    r = applyAction(r.state, 0, a);
+    expect(r.state.market.length).toBe(1);
+  });
+
   it('autoAction always returns a legal action', () => {
     let state = createGame(seats(5), 77, { stepSeconds: 0 });
     for (let i = 0; i < 200 && state.phase !== 'ended'; i++) {

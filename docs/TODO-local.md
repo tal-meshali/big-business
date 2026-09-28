@@ -20,6 +20,16 @@ Tick items off as they are done.
 - [ ] Check the fan of 4 cards during the play step on a narrow phone (older iPhone SE width). Adjust `HAND_SCALE` in `client/scripts/ui/table.gd` if cards overflow.
 - [ ] Test app backgrounding for 30 seconds mid-game and returning: the socket should reconnect and the seat should be reclaimed. If not, add auto-rejoin in `client/scripts/net/net.gd` (`_on_socket_closed` currently only reports the disconnect).
 
+## B2. Tutorial on a device
+
+The tutorial exists (lobby: "How to play"): a solo game against two slow bots with no timer, a fixed seed so every learner sees the same opening, and a coach overlay that explains each rule the first time it comes up (welcome, take, play, coins on the Market, the regulator token, your token blocking a share, the end approaching, dividend day). Text lives in `client/scripts/ui/coach.gd`.
+
+- [ ] Run the tutorial on a phone and time it. Target: under 6 minutes to dividend day. If bots feel slow, lower `TUTORIAL_BOT_THINK_MS` in `server/src/match/handler.ts`.
+- [ ] Hand the phone to someone who has never seen the game. Note which coach card they re-read, which rule they still got wrong, and whether any card appears at a confusing moment (for example a bot's payment card popping up while they were choosing).
+- [ ] Check card readability on a small screen: body text is 19 px; the card is 620 px wide on the 720 px design width.
+- [ ] Decide whether the first "Play now" should route new players into the tutorial automatically (a "tutorial done" flag saved in `user://net.cfg`).
+- [ ] With the fixed seed, script two extra coach lines that name the actual opening cards, once the card art exists.
+
 ## C. Playtest with people (answers the key Phase 1 question)
 
 - [ ] Deploy the server to a VPS following `docs/deploy.md` so friends can join from anywhere. Put the domain in the lobby host field with scheme https (add a scheme toggle to the lobby if needed).
@@ -47,7 +57,7 @@ Tick items off as they are done.
 
 ## G. Deferred engineering (Phase 2, listed so nothing is lost)
 
-- [ ] Interactive tutorial (scripted first game against bots with forced choices).
+- [ ] Tutorial v2: forced choices on the first two turns (only the coached action enabled) and a replayable "rules reference" screen.
 - [ ] Reconnect flow polish: automatic socket reconnect with backoff, "reconnecting..." overlay, rejoin by stored match id.
 - [ ] Turn-timer sound and screen glow under 5 seconds.
 - [ ] Emotes and preset phrases (no free text: all-ages decision D4).

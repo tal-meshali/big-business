@@ -41,6 +41,8 @@ In the app, keep the host as `127.0.0.1`, press Connect, then Play now. Open two
 
 Phase 0 complete: decisions, theme, rules spec, engine with tests, match handler, client spike.
 
+Tutorial: "How to play" in the lobby starts a solo game against two slow bots with no timer and a coach overlay that explains each rule as it first matters. Covered by the smoke test, a headless end-to-end run, and CI.
+
 Phase 1 (playable core), cloud-doable parts complete: live end-to-end tests against Nakama (Node client and the real Godot client), a designed portrait table with seat oval, hand fan, contextual actions, event animations and a dividend-day sequence, production deployment files, and CI that runs the whole stack. Placeholder renders are in `docs/screenshots/`.
 
 What still needs a real machine (phone builds, playtesting, store accounts, art) is listed in `docs/TODO-local.md`.

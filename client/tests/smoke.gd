@@ -100,8 +100,119 @@ func _run() -> void:
 	root.add_child(main)
 	await process_frame
 
+	failures += await _coach_checks()
+
 	if failures == 0:
 		print("SMOKE OK")
 	else:
 		print("SMOKE FAILED: %d" % failures)
 	quit(failures)
+
+
+## Coach: steps fire once each, in the right situations, and skip disables it.
+func _coach_checks() -> int:
+	var failures := 0
+	var table = load("res://scenes/table.tscn").instantiate()
+	root.add_child(table)
+	table.enable_coach()
+	await process_frame
+	var shown: Array = []
+	table.coach.step_shown.connect(func(id: String) -> void: shown.append(id))
+
+	var v := {
+		"you": 0,
+		"seats": [
+			{"id": "a", "name": "You", "isBot": false, "connected": true, "handCount": 3,
+			 "hand": [{"id": 1, "company": 0}, {"id": 2, "company": 3}, {"id": 3, "company": 5}],
+			 "portfolio": [], "bronze": 10, "gold": 0, "tokens": []},
+			{"id": "b", "name": "Broker Bo", "isBot": true, "connected": true, "handCount": 3, "portfolio": [], "bronze": 10, "gold": 0, "tokens": []},
+			{"id": "c", "name": "Analyst Avi", "isBot": true, "connected": true, "handCount": 3, "portfolio": [], "bronze": 10, "gold": 0, "tokens": []},
+		],
+		"market": [], "supplyCount": 31, "removedCount": 5, "active": 0, "phase": "take", "turn": 1,
+		"tookCompany": null, "tokens": [null, null, null, null, null, null], "seq": 0, "deadline": 0,
+		"drawCost": 0, "legal": [{"type": "take_supply"}], "result": null,
+	}
+	table._on_view(v)
+	await process_frame
+	if shown != ["welcome"]:
+		push_error("coach should open with welcome, got %s" % [shown])
+		failures += 1
+	if not table.coach.visible:
+		push_error("coach card should be visible")
+		failures += 1
+	table.coach._on_got_it()
+	await process_frame
+	if shown != ["welcome", "first_take"]:
+		push_error("first_take should follow welcome on an empty market, got %s" % [shown])
+		failures += 1
+	table.coach._on_got_it()
+
+	# Play step.
+	v["phase"] = "play"
+	v["tookCompany"] = 5
+	v["drawCost"] = null
+	v["legal"] = [{"type": "play_portfolio", "cardId": 1}, {"type": "play_market", "cardId": 1}]
+	table._on_view(v)
+	await process_frame
+	if shown.back() != "first_play":
+		push_error("first_play should fire on the first play step, got %s" % [shown])
+		failures += 1
+	table.coach._on_got_it()
+
+	# A bot pays coins onto the market, and a token moves. Steps queue and show one at a time.
+	table._on_events(2, [{"type": "took_supply", "seat": 1, "cost": 1}, {"type": "token_moved", "company": 2, "from": null, "to": 1}])
+	await process_frame
+	if not table.coach.seen.has("bot_paid") or not table.coach.seen.has("token_first"):
+		push_error("bot_paid and token_first should fire from events, seen %s" % [table.coach.seen.keys()])
+		failures += 1
+	if shown.back() != "bot_paid" or not table.coach._body.text.contains("Broker Bo"):
+		push_error("bot_paid should show first and name the bot")
+		failures += 1
+	table.coach._on_got_it()
+	await process_frame
+	if shown.back() != "token_first" or not table.coach._body.text.contains("Tidewater Freight"):
+		push_error("token_first should follow and name the company, got %s" % [shown])
+		failures += 1
+	table.coach._on_got_it()
+
+	# My take step with coins in the market and a token of mine blocking a share.
+	v["phase"] = "take"
+	v["active"] = 0
+	v["market"] = [{"card": {"id": 20, "company": 1}, "coins": 2}, {"card": {"id": 21, "company": 5}, "coins": 0}]
+	v["seats"][0]["tokens"] = [5]
+	v["supplyCount"] = 2
+	v["legal"] = [{"type": "take_supply"}, {"type": "take_market", "cardId": 20}]
+	table._on_view(v)
+	# Queued events animate before the view renders; wait for that to finish.
+	for i in 120:
+		await process_frame
+		if not table._animating and not table._pending_events.size():
+			break
+	await process_frame
+	for id in ["endgame_near", "token_blocks", "take_with_coins"]:
+		if not table.coach.seen.has(id):
+			push_error("%s should fire, seen %s" % [id, table.coach.seen.keys()])
+			failures += 1
+	while table.coach.visible:
+		table.coach._on_got_it()
+		await process_frame
+	# Same view again must not re-fire anything.
+	var count_before := shown.size()
+	table._on_view(v)
+	await process_frame
+	if shown.size() != count_before or table.coach.visible:
+		push_error("steps must fire only once")
+		failures += 1
+
+	# Skip disables everything, including dividend day.
+	table.coach._on_skip()
+	v["phase"] = "ended"
+	v["legal"] = []
+	v["result"] = {"companies": [], "scores": []}
+	table._on_view(v)
+	await process_frame
+	if shown.has("dividend") or table.coach.visible:
+		push_error("skip should silence the coach")
+		failures += 1
+	table.queue_free()
+	return failures

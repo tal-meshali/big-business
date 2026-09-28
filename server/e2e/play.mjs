@@ -176,9 +176,40 @@ async function testQuickPlay() {
   solo.socket.disconnect(true);
 }
 
+async function testTutorial() {
+  log('--- tutorial: solo, starts immediately, no timer, deterministic');
+  const learner = await makePlayer('Learner');
+  const t0 = Date.now();
+  const created = await rpc(learner, 'quick_play', { tutorial: true });
+  if (!created.tutorial) fail('quick_play {tutorial:true} should return a tutorial match');
+  await join(learner, created.matchId);
+  while (!learner.view && Date.now() - t0 < 8000) await sleep(100);
+  if (!learner.view) fail('tutorial did not start');
+  const v = learner.view;
+  log('tutorial started after', ((Date.now() - t0) / 1000).toFixed(1), 's');
+  if (Date.now() - t0 > 5000) fail('tutorial should start within a few seconds');
+  if (v.seats.length !== 3 || v.seats.filter((s) => s.isBot).length !== 2) fail('tutorial needs 1 human + 2 bots');
+  if (v.you !== 0 || v.active !== 0) fail('the learner should take the first turn');
+  if (v.deadline !== 0) fail('tutorial must have no turn timer');
+  // Deterministic: a second tutorial deals the same opening hand.
+  const other = await makePlayer('Learner2');
+  const created2 = await rpc(other, 'quick_play', { tutorial: true });
+  await join(other, created2.matchId);
+  while (!other.view && Date.now() - t0 < 12000) await sleep(100);
+  if (JSON.stringify(other.view.seats[0].hand) !== JSON.stringify(v.seats[0].hand)) fail('tutorial seed should be fixed');
+  // Public quick play must never land in a tutorial match.
+  const pub = await rpc(learner, 'quick_play');
+  if (pub.matchId === created.matchId || pub.matchId === created2.matchId) fail('public quick play joined a tutorial match');
+  const final = await playOut([learner], { maxMs: 360000 }); // tutorial bots think slowly on purpose
+  log('tutorial game ended after', final.turn, 'turns');
+  learner.socket.disconnect(true);
+  other.socket.disconnect(true);
+}
+
 try {
   await testPrivateRoom();
   await testQuickPlay();
+  await testTutorial();
   log('E2E OK');
   process.exit(0);
 } catch (e) {

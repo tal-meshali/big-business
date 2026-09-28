@@ -3,7 +3,7 @@
  * room-code RPCs and the matchmaker hook.
  */
 import { matchInit, matchJoin, matchJoinAttempt, matchLeave, matchLoop, matchSignal, matchTerminate } from './match/handler';
-import { DEFAULT_PARAMS, MATCH_MODULE } from './match/protocol';
+import { DEFAULT_PARAMS, MATCH_MODULE, TUTORIAL_SEED } from './match/protocol';
 
 const ROOM_COLLECTION = 'rooms';
 const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no 0/O/1/I
@@ -60,9 +60,16 @@ const rpcJoinRoom: nkruntime.RpcFunction = (ctx, logger, nk, payload) => {
 /**
  * RPC quick_play: finds an open public lobby with room or creates one.
  * Simpler than the matchmaker for a turn-based game with bot fill.
+ * With {"tutorial": true} it creates a solo tutorial match instead.
  */
 const rpcQuickPlay: nkruntime.RpcFunction = (ctx, logger, nk, payload) => {
-  void ctx; void payload;
+  void ctx;
+  const req = payload ? (JSON.parse(payload) as { tutorial?: boolean }) : {};
+  if (req.tutorial) {
+    const tutorialId = nk.matchCreate(MATCH_MODULE, { tutorial: true, seed: TUTORIAL_SEED });
+    logger.info('tutorial created %s', tutorialId);
+    return JSON.stringify({ matchId: tutorialId, tutorial: true });
+  }
   const query = '+label.mode:public +label.open:yes';
   const matches = nk.matchList(10, true, null, 0, DEFAULT_PARAMS.maxSeats - 1, query);
   const open = matches[0];

@@ -21,6 +21,10 @@ export interface MatchParams {
   stepSeconds: number;
   /** Seconds to wait in a public lobby before filling with bots. */
   lobbyWaitSeconds: number;
+  /** Tutorial: one human, two slow deterministic bots, no timer, fixed seed. */
+  tutorial: boolean;
+  /** Fixed seed (tutorial only); 0 means random. */
+  seed: number;
 }
 
 export interface LobbySeat {
@@ -45,6 +49,10 @@ export const DEFAULT_PARAMS: MatchParams = {
   maxSeats: 5,
   stepSeconds: 30,
   lobbyWaitSeconds: 20,
+  tutorial: false,
+  seed: 0,
 };
+
+export const TUTORIAL_SEED = 20260928;
 
 export const BOT_NAMES = ['Intern Ivy', 'Analyst Avi', 'Broker Bo', 'Auditor Ada', 'CEO Cal', 'Investor Ines'];

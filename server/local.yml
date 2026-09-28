@@ -1,5 +1,5 @@
 # Nakama config for local development only. Change every key before deploying.
-name: big-business-local
+name: bigbiz-local
 data_dir: /nakama/data
 
 logger:

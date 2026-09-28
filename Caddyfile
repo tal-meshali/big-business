@@ -1,0 +1,9 @@
+# API + realtime socket on the public domain (HTTPS/WSS via automatic certificates).
+{$DOMAIN} {
+	reverse_proxy nakama:7350
+}
+
+# Admin console on a subdomain; restrict access before exposing it publicly.
+console.{$DOMAIN} {
+	reverse_proxy nakama:7351
+}

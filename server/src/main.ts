@@ -63,8 +63,8 @@ const rpcJoinRoom: nkruntime.RpcFunction = (ctx, logger, nk, payload) => {
  */
 const rpcQuickPlay: nkruntime.RpcFunction = (ctx, logger, nk, payload) => {
   void ctx; void payload;
-  const query = '+label.mode:public +label.open:1';
-  const matches = nk.matchList(10, true, '', 0, DEFAULT_PARAMS.maxSeats - 1, query);
+  const query = '+label.mode:public +label.open:yes';
+  const matches = nk.matchList(10, true, null, 0, DEFAULT_PARAMS.maxSeats - 1, query);
   const open = matches[0];
   if (open) return JSON.stringify({ matchId: open.matchId });
   const matchId = nk.matchCreate(MATCH_MODULE, { isPrivate: false });

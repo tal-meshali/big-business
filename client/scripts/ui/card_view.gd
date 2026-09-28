@@ -17,6 +17,15 @@ var selectable: bool = true:
 		selectable = value
 		disabled = not value
 		modulate = Color(1, 1, 1, 1) if value else Color(0.75, 0.75, 0.75, 1)
+var selected: bool = false:
+	set(value):
+		if selected == value:
+			return
+		selected = value
+		var tw := create_tween().set_ease(Tween.EASE_OUT).set_trans(Tween.TRANS_BACK)
+		tw.tween_property(self, "position:y", _rest_y - (18.0 if value else 0.0), 0.18)
+		queue_redraw()
+var _rest_y: float = 0.0
 
 
 func _init() -> void:
@@ -34,6 +43,12 @@ func setup(p_card_id: int, p_company: int, p_coins: int = 0, p_face_up: bool = t
 	queue_redraw()
 
 
+## Remember the resting y so the selection lift can return to it.
+func set_rest_position(pos: Vector2) -> void:
+	position = pos
+	_rest_y = pos.y
+
+
 func _draw() -> void:
 	var rect := Rect2(Vector2.ZERO, size)
 	var radius := 12
@@ -49,8 +64,11 @@ func _draw() -> void:
 
 	var color := Companies.color_of(company)
 	style.bg_color = Companies.CARD_FACE
-	style.border_color = color
-	style.set_border_width_all(3)
+	style.border_color = Companies.GOLD if selected else color
+	style.set_border_width_all(4 if selected else 3)
+	if selected:
+		style.shadow_color = Color(Companies.GOLD, 0.45)
+		style.shadow_size = 10
 	draw_style_box(style, rect)
 
 	# Corner cluster: share count + icon.

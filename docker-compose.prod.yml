@@ -1,0 +1,62 @@
+# Single-VPS production stack: Postgres + Nakama + Caddy (automatic TLS, wss).
+# Copy .env.example to .env and fill every value before `docker compose -f docker-compose.prod.yml up -d`.
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: nakama
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "postgres", "-d", "nakama"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  nakama:
+    build: .
+    restart: unless-stopped
+    entrypoint:
+      - "/bin/sh"
+      - "-ec"
+      - >
+        /nakama/nakama migrate up --database.address postgres:${POSTGRES_PASSWORD}@postgres:5432/nakama &&
+        exec /nakama/nakama
+        --name bigbiz
+        --database.address postgres:${POSTGRES_PASSWORD}@postgres:5432/nakama
+        --runtime.js_entrypoint index.js
+        --socket.server_key ${NAKAMA_SERVER_KEY}
+        --session.encryption_key ${NAKAMA_SESSION_KEY}
+        --session.refresh_encryption_key ${NAKAMA_REFRESH_KEY}
+        --console.username ${NAKAMA_CONSOLE_USER}
+        --console.password ${NAKAMA_CONSOLE_PASSWORD}
+        --console.signing_key ${NAKAMA_CONSOLE_SIGNING_KEY}
+        --logger.level INFO
+    depends_on:
+      postgres:
+        condition: service_healthy
+    expose:
+      - "7350"
+      - "7351"
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - nakama
+
+volumes:
+  pgdata:
+  caddy_data:
+  caddy_config:

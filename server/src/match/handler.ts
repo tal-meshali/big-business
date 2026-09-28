@@ -35,7 +35,9 @@ interface MatchState {
   /** Seat index by user id once the game has started. */
   seatByUser: { [userId: string]: number };
   game: GameState | null;
-  lobbyOpenedAt: number;
+  /** Epoch ms of the last join or leave; used to expire empty lobbies. */
+  lastActivity: number;
+  /** Epoch ms when a public lobby auto-starts (bots fill), 0 if unset. */
   startsAt: number;
   endedAt: number;
   botActAt: number;
@@ -62,7 +64,7 @@ function label(s: MatchState): string {
   return JSON.stringify({
     mode: s.params.isPrivate ? 'private' : 'public',
     code: s.params.roomCode || '',
-    open: s.game === null ? 1 : 0,
+    open: s.game === null ? 'yes' : 'no',
     players: s.lobby.length,
     max: s.params.maxSeats,
   });
@@ -160,7 +162,7 @@ export const matchInit: nkruntime.MatchInitFunction<MatchState> = (ctx, logger, 
     lobby: [],
     seatByUser: {},
     game: null,
-    lobbyOpenedAt: nowMs(),
+    lastActivity: nowMs(),
     startsAt: 0,
     endedAt: 0,
     botActAt: 0,
@@ -205,10 +207,12 @@ export const matchJoin: nkruntime.MatchJoinFunction<MatchState> = (ctx, logger, 
     for (const l of state.lobby) if (l.userId === p.userId) present = true;
     if (!present) state.lobby.push({ userId: p.userId, name: p.username, ready: false });
   }
+  state.lastActivity = nowMs();
   if (state.game) {
     sendViews(state, dispatcher);
   } else {
-    if (!state.params.isPrivate && state.lobby.length >= state.params.minSeats && state.startsAt === 0) {
+    // Public lobbies count down from the first human's arrival.
+    if (!state.params.isPrivate && state.lobby.length > 0 && state.startsAt === 0) {
       state.startsAt = nowMs() + state.params.lobbyWaitSeconds * 1000;
     }
     dispatcher.matchLabelUpdate(label(state));
@@ -230,9 +234,10 @@ export const matchLeave: nkruntime.MatchLeaveFunction<MatchState> = (ctx, logger
       }
     } else {
       state.lobby = state.lobby.filter((l) => l.userId !== p.userId);
-      if (state.lobby.length < state.params.minSeats) state.startsAt = 0;
+      if (state.lobby.length === 0) state.startsAt = 0;
     }
   }
+  state.lastActivity = nowMs();
   if (state.game) {
     sendViews(state, dispatcher);
   } else {
@@ -257,14 +262,14 @@ export const matchLoop: nkruntime.MatchLoopFunction<MatchState> = (ctx, logger, 
     const allReady = humans > 0 && state.lobby.every((l) => l.ready);
     const enough = humans >= state.params.minSeats;
     const full = humans >= state.params.maxSeats;
-    const timedOut = state.startsAt > 0 && now >= state.startsAt;
-    // Public: start when full, or when the wait elapses with at least one
-    // human (bots fill the rest). Private: host readiness starts it.
-    const publicStart = !state.params.isPrivate && (full || timedOut || (humans > 0 && now - state.lobbyOpenedAt >= state.params.lobbyWaitSeconds * 1000));
+    const timedOut = humans > 0 && state.startsAt > 0 && now >= state.startsAt;
+    // Public: start when full, or when the wait since the first human elapses
+    // (bots fill the rest). Private: everyone ready starts it.
+    const publicStart = !state.params.isPrivate && (full || timedOut);
     const privateStart = state.params.isPrivate && allReady && (enough || humans >= 2);
     if (publicStart || privateStart) {
       startGame(state, nk, logger, dispatcher);
-    } else if (humans === 0 && now - state.lobbyOpenedAt > 5 * 60_000) {
+    } else if (humans === 0 && now - state.lastActivity > 5 * 60_000) {
       return null; // empty room expired
     } else {
       send(dispatcher, OP_LOBBY, lobbyMessage(state));

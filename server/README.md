@@ -18,6 +18,21 @@ docker compose up    # Postgres + Nakama 3.28 with build/ mounted as the module 
 
 Nakama console: http://127.0.0.1:7351 (admin / password). API on port 7350 with server key `defaultkey`. All keys in `local.yml` are development values.
 
+## End-to-end tests
+
+With Nakama running (Docker Compose, or a local binary against Postgres):
+
+```
+node e2e/play.mjs                       # Node client: private room + quick play, ~2 minutes
+godot --headless --path ../client --script res://tests/e2e_client.gd   # real Godot client vs bots
+```
+
+`e2e/play.mjs` verifies room codes, ready gating, hidden information, illegal-action rejection, timeout auto-move, leave and rejoin, coin conservation on every state, dividend day, and quick play filling with bots after the lobby wait. Both scripts exit non-zero on failure.
+
+## Production
+
+`Dockerfile` bakes `build/index.js` into the official Nakama image. `docker-compose.prod.yml` plus `Caddyfile` run Postgres, Nakama and automatic TLS on one VPS; see `docs/deploy.md`.
+
 ## Wire protocol
 
 Payloads are JSON strings.

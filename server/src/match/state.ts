@@ -24,8 +24,8 @@ export interface MatchState {
   awarded: boolean;
   /** Last emote time per user id, for the cooldown. */
   lastEmoteAt: { [userId: string]: number };
-  /** Append-only log of accepted actions for replay / reconnection. */
-  log: Array<{ seq: number; seat: number; action: Action; source: string }>;
+  /** Append-only log of accepted actions for replay / reconnection. `coins` is what a Market share paid (quest stats). */
+  log: Array<{ seq: number; seat: number; action: Action; source: string; coins?: number }>;
 }
 
 export function nowMs(): number {

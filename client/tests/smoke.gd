@@ -102,6 +102,7 @@ func _run() -> void:
 
 	failures += await _coach_checks()
 	failures += await _social_checks()
+	failures += await _juice_checks()
 
 	if failures == 0:
 		print("SMOKE OK")
@@ -278,4 +279,69 @@ func _social_checks() -> int:
 		push_error("xp bar bounds wrong: %s %s %s" % [main._xp_bar.min_value, main._xp_bar.max_value, main._xp_bar.value])
 		failures += 1
 	main.queue_free()
+	return failures
+
+
+## Juice: synthesized sounds exist, the sound toggle is a real no-op, the
+## timer glow follows my deadline, and the emote bar uses drawn icons.
+func _juice_checks() -> int:
+	var failures := 0
+	var sfx: Node = root.get_node("Sfx")
+	for name in sfx.NAMES:
+		var stream = sfx.streams.get(name)
+		if stream == null or not (stream is AudioStreamWAV) or stream.data.size() == 0:
+			push_error("Sfx stream %s should exist and be non-empty" % name)
+			failures += 1
+	var was_enabled: bool = sfx.enabled
+	sfx.enabled = false
+	var played_before: int = sfx.played_count
+	if sfx.play("turn_chime") or sfx.played_count != played_before:
+		push_error("Sfx.play must be a no-op while disabled")
+		failures += 1
+	sfx.enabled = true
+	if not sfx.play("turn_chime") or sfx.played_count != played_before + 1:
+		push_error("Sfx.play should accept a known sound while enabled")
+		failures += 1
+	sfx.enabled = was_enabled
+
+	var table = load("res://scenes/table.tscn").instantiate()
+	root.add_child(table)
+	await process_frame
+	var v := {
+		"you": 0,
+		"seats": [
+			{"id": "me", "name": "You", "isBot": false, "connected": true, "handCount": 3, "hand": [{"id": 1, "company": 0}], "portfolio": [], "bronze": 10, "gold": 0, "tokens": []},
+			{"id": "bot:0", "name": "Analyst Avi", "isBot": true, "connected": true, "handCount": 3, "portfolio": [], "bronze": 10, "gold": 0, "tokens": []},
+		],
+		"market": [], "supplyCount": 20, "removedCount": 5, "active": 0, "phase": "take", "turn": 2,
+		"tookCompany": null, "tokens": [null, null, null, null, null, null], "seq": 3, "deadline": 0, "drawCost": 0,
+		"legal": [{"type": "take_supply"}], "result": null,
+	}
+	table._on_view(v)
+	await process_frame
+	if table._timer_glow.visible:
+		push_error("timer glow must stay hidden with no deadline")
+		failures += 1
+	v["deadline"] = Time.get_unix_time_from_system() * 1000.0 + 3000.0
+	table._on_view(v)
+	await process_frame
+	if not table._timer_glow.visible:
+		push_error("timer glow should show when my deadline is 3 s away")
+		failures += 1
+	v["active"] = 1
+	table._on_view(v)
+	await process_frame
+	if table._timer_glow.visible:
+		push_error("timer glow must not show on an opponent's turn")
+		failures += 1
+	var icons := 0
+	for node in table._emote_bar.find_children("*", "EmoteIcon", true, false):
+		icons += 1
+	if icons != 6:
+		push_error("emote bar should hold 6 drawn icons, found %d" % icons)
+		failures += 1
+	if table._sound_button.button_pressed != sfx.enabled:
+		push_error("sound button should mirror Sfx.enabled")
+		failures += 1
+	table.queue_free()
 	return failures

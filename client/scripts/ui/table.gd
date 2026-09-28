@@ -12,6 +12,8 @@ extends Control
 const FLY_TIME := 0.35
 const COIN_TIME := 0.3
 const HAND_SCALE := 1.35
+## Seconds left on my turn at which the edge glow and ticks start.
+const GLOW_SECONDS := 5
 
 var view: Dictionary = {}
 var _my_seat: int = -1
@@ -49,6 +51,13 @@ var _seat_menu: PopupMenu
 var _seat_menu_target: int = -1
 var _reconnect_overlay: ColorRect
 var _reconnect_label: Label
+var _sound_button: Button
+var _timer_glow: TimerGlow
+## Turn-timer juice state: chime once when the turn becomes mine, tick once
+## per remaining second under GLOW_SECONDS, fanfare once per dividend day.
+var _was_my_turn: bool = false
+var _last_tick_second: int = -1
+var _fanfare_played: bool = false
 
 
 func _ready() -> void:
@@ -103,10 +112,18 @@ func _build_layout() -> void:
 	_timer_label.add_theme_font_size_override("font_size", 22)
 	_timer_label.add_theme_color_override("font_color", Companies.ALERT)
 	top.add_child(_timer_label)
+	_sound_button = Button.new()
+	_sound_button.text = "Sound"
+	_sound_button.toggle_mode = true
+	_sound_button.button_pressed = Sfx.enabled
+	_sound_button.tooltip_text = "Sound on/off"
+	_sound_button.toggled.connect(func(on: bool) -> void: Sfx.enabled = on)
+	top.add_child(_sound_button)
 	_emote_button = Button.new()
-	_emote_button.text = "😊"
 	_emote_button.tooltip_text = "Emotes"
+	_emote_button.custom_minimum_size = Vector2(52, 48)
 	_emote_button.pressed.connect(_toggle_emote_bar)
+	_emote_button.add_child(_make_emote_icon("laugh", 30.0))
 	top.add_child(_emote_button)
 	var leave := Button.new()
 	leave.text = "Leave"
@@ -199,6 +216,10 @@ func _build_layout() -> void:
 	_fx_layer.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_fx_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_fx_layer)
+	# Turn-timer glow: red vignette along the edges under GLOW_SECONDS.
+	_timer_glow = TimerGlow.new()
+	_timer_glow.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	add_child(_timer_glow)
 	_build_social_layer()
 
 	# Result panel (dividend day): dimmed backdrop + centered deed-style panel.
@@ -252,11 +273,14 @@ func _build_social_layer() -> void:
 	_emote_bar.add_child(grid)
 	for e in Protocol.EMOTES:
 		var b := Button.new()
-		b.text = e["text"]
+		var id: String = e["id"]
+		if Protocol.is_icon(id):
+			b.add_child(_make_emote_icon(id, 32.0))
+		else:
+			b.text = e["text"]
 		b.custom_minimum_size = Vector2(0, 44)
 		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		b.add_theme_font_size_override("font_size", 15)
-		var id: String = e["id"]
 		b.pressed.connect(func() -> void:
 			Net.send_emote(id)
 			_emote_bar.visible = false)
@@ -292,19 +316,35 @@ func _toggle_emote_bar() -> void:
 	_emote_bar.visible = not _emote_bar.visible
 
 
+## A drawn emote centred inside a button. It ignores the mouse so the
+## button underneath still gets the tap.
+func _make_emote_icon(id: String, px: float) -> EmoteIcon:
+	var icon := EmoteIcon.new(id)
+	icon.custom_minimum_size = Vector2(px, px)
+	# WHY: explicit offsets rather than set_anchors_and_offsets_preset, whose
+	# MINSIZE mode ignores custom_minimum_size on a plain Control and would
+	# leave the icon in the button's bottom-right quadrant.
+	icon.set_anchors_preset(Control.PRESET_CENTER)
+	icon.offset_left = -px / 2.0
+	icon.offset_top = -px / 2.0
+	icon.offset_right = px / 2.0
+	icon.offset_bottom = px / 2.0
+	return icon
+
+
 func _on_emote_shown(seat: int, emote: String) -> void:
 	var seats: Array = view.get("seats", [])
 	if seat < 0 or seat >= seats.size():
 		return
 	if Net.is_muted(String(seats[seat].get("id", ""))):
 		return
-	var text := Protocol.emote_text(emote)
-	if text.is_empty():
+	if not Protocol.is_emote(emote):
 		return
-	_show_bubble(seat, text)
+	_show_bubble(seat, emote)
 
 
-func _show_bubble(seat: int, text: String) -> void:
+## A speech bubble over a seat: a drawn icon for icon emotes, text for phrases.
+func _show_bubble(seat: int, emote: String) -> void:
 	var old = _emote_bubbles.get(seat)
 	if old != null and is_instance_valid(old):
 		old.queue_free()
@@ -317,10 +357,13 @@ func _show_bubble(seat: int, text: String) -> void:
 	style.set_content_margin_all(8)
 	bubble.add_theme_stylebox_override("panel", style)
 	bubble.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var label := Label.new()
-	label.text = text
-	label.add_theme_font_size_override("font_size", 20)
-	bubble.add_child(label)
+	if Protocol.is_icon(emote):
+		bubble.add_child(EmoteIcon.new(emote))
+	else:
+		var label := Label.new()
+		label.text = Protocol.emote_text(emote)
+		label.add_theme_font_size_override("font_size", 20)
+		bubble.add_child(label)
 	_fx_layer.add_child(bubble)
 	var anchor := _seat_anchor(seat)
 	bubble.global_position = anchor + Vector2(30, -54)
@@ -458,6 +501,7 @@ func _on_cancel_pressed() -> void:
 
 
 func _on_leave() -> void:
+	Sfx.stop_all()
 	await Net.leave_match()
 	get_tree().change_scene_to_file("res://scenes/main.tscn")
 
@@ -508,9 +552,23 @@ func _process(_delta: float) -> void:
 	var deadline := float(view.get("deadline", 0))
 	if deadline <= 0 or view.get("phase") == "ended":
 		_timer_label.text = ""
+		_set_glow(false)
 		return
 	var remaining := int(ceil((deadline - Time.get_unix_time_from_system() * 1000.0) / 1000.0))
 	_timer_label.text = "%ds" % maxi(remaining, 0)
+	# Under GLOW_SECONDS on my turn: pulse the edge glow and tick once per second.
+	var urgent := _is_my_turn() and remaining > 0 and remaining <= GLOW_SECONDS
+	_set_glow(urgent)
+	if urgent and remaining != _last_tick_second:
+		_last_tick_second = remaining
+		Sfx.play("timer_tick")
+
+
+func _set_glow(on: bool) -> void:
+	if _timer_glow.visible != on:
+		_timer_glow.visible = on
+	if not on:
+		_last_tick_second = -1
 
 
 func _is_my_turn() -> bool:
@@ -539,6 +597,7 @@ func _render() -> void:
 	_selected_card = -1
 
 	_render_status(phase, seats, active)
+	_notify_turn_start()
 	_render_seats(seats, active, phase)
 	_render_market(phase)
 	_render_hand(seats, phase)
@@ -546,6 +605,17 @@ func _render() -> void:
 	_render_result(seats)
 	if coach != null:
 		coach.on_view(view)
+
+
+## Chime and a short buzz when the active seat becomes mine.
+## WHY: compared against a flag, not _last_view, because the same view
+## dictionary may be re-rendered (tests, reconnect) and must not re-chime.
+func _notify_turn_start() -> void:
+	var mine := _is_my_turn()
+	if mine and not _was_my_turn:
+		Sfx.play("turn_chime")
+		Input.vibrate_handheld(40)
+	_was_my_turn = mine
 
 
 func _render_status(phase: String, seats: Array, active: int) -> void:
@@ -683,7 +753,11 @@ func _render_result(seats: Array) -> void:
 	var result = view.get("result")
 	_result_backdrop.visible = result != null
 	if result == null:
+		_fanfare_played = false
 		return
+	if not _fanfare_played:
+		_fanfare_played = true
+		Sfx.play("dividend_fanfare")
 	var lines := PackedStringArray()
 	for div in result.get("companies", []):
 		var company := int(div.get("company", 0))
@@ -699,7 +773,7 @@ func _render_result(seats: Array) -> void:
 	for sc in result.get("scores", []):
 		var seat: Dictionary = seats[int(sc.get("seat", 0))]
 		var rank := int(sc.get("rank", 1))
-		var medal: String = ["🥇", "🥈", "🥉"][rank - 1] if rank <= 3 else "  "
+		var medal: String = ["1st", "2nd", "3rd"][rank - 1] if rank <= 3 else "   "
 		lines.append("%s %s  %d  (%d bronze + %d gold)" % [medal, seat.get("name", "?"), int(sc.get("score", 0)), int(sc.get("bronze", 0)), int(sc.get("gold", 0))])
 	_result_label.text = "\n".join(lines)
 
@@ -746,16 +820,19 @@ func _play_events_then_render() -> void:
 						if cv is CardView:
 							_fly_coin(_seat_anchor(seat), cv.global_position + Vector2(CardView.W / 2.0, CardView.H / 2.0))
 					await get_tree().create_timer(COIN_TIME).timeout
+				Sfx.play("card_deal")
 				await _fly_card(_supply_pile.global_position, _target_for_seat(seat), 0, false)
 			"took_market":
 				var seat := int(e.get("seat", 0))
 				var card: Dictionary = e.get("card", {})
+				Sfx.play("card_deal")
 				await _fly_card(_market_card_anchor(int(card.get("id", -1))), _target_for_seat(seat), int(card.get("company", 0)), true)
 			"played":
 				var seat := int(e.get("seat", 0))
 				var card: Dictionary = e.get("card", {})
 				var from := _hand_anchor(int(card.get("id", -1))) if seat == _my_seat else _seat_anchor(seat) - Vector2(CardView.W / 2.0, CardView.H / 2.0)
 				var to := _seat_anchor(seat) - Vector2(CardView.W / 2.0, CardView.H / 2.0) if e.get("to") == "portfolio" else _market_row.global_position + Vector2(_market_row.size.x, 0)
+				Sfx.play("card_place")
 				await _fly_card(from, to, int(card.get("company", 0)), true)
 			"game_ended":
 				await _animate_dividends(e.get("result", {}))
@@ -793,6 +870,7 @@ func _fly_coin(from: Vector2, to: Vector2, gold: bool = false) -> void:
 	coin.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_fx_layer.add_child(coin)
 	coin.global_position = from - Vector2(8, 8)
+	Sfx.play("coin_gold" if gold else "coin_slide")
 	var tw := create_tween().set_ease(Tween.EASE_IN_OUT).set_trans(Tween.TRANS_QUAD)
 	tw.tween_property(coin, "global_position", to - Vector2(8, 8), COIN_TIME)
 	tw.parallel().tween_property(coin, "rotation", TAU, COIN_TIME)

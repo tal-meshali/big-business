@@ -86,6 +86,23 @@ func _run() -> void:
 	tutorial._on_view(opening)
 	await _settle()
 	await _save(out_dir + "/tutorial.png")
+	tutorial.queue_free()
+
+	# Emote bar open and bubbles on two opponents.
+	var social = load("res://scenes/table.tscn").instantiate()
+	root.add_child(social)
+	await process_frame
+	var mid := _fake_view()
+	mid["active"] = 1
+	mid["drawCost"] = null
+	mid["legal"] = []
+	social._on_view(mid)
+	await _settle()
+	social._on_emote_shown(1, "good_move")
+	social._on_emote_shown(3, "wave")
+	social._toggle_emote_bar()
+	await _settle()
+	await _save(out_dir + "/emotes.png")
 	print("SCREENSHOTS OK")
 	quit(0)
 

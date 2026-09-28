@@ -16,7 +16,7 @@ const HOST = process.env.NAKAMA_HOST || '127.0.0.1';
 const PORT = process.env.NAKAMA_PORT || '7350';
 const KEY = process.env.NAKAMA_KEY || 'defaultkey';
 
-const OP_ACTION = 1, OP_READY = 2, OP_VIEW = 10, OP_EVENTS = 11, OP_LOBBY = 12, OP_ERROR = 13;
+const OP_ACTION = 1, OP_READY = 2, OP_EMOTE = 3, OP_VIEW = 10, OP_EVENTS = 11, OP_LOBBY = 12, OP_ERROR = 13, OP_EMOTE_SHOWN = 14;
 const STARTING_COINS = 10;
 
 const log = (...a) => console.log(new Date().toISOString().slice(11, 19), ...a);
@@ -31,13 +31,14 @@ async function makePlayer(name) {
   const session = await client.authenticateDevice(`e2e-${name}-${Date.now()}`, true, `${name}${Date.now() % 100000}`);
   const socket = client.createSocket(false, false);
   await socket.connect(session, true);
-  const p = { name, client, session, socket, view: null, lobby: null, errors: [], events: [], matchId: null, userId: session.user_id };
+  const p = { name, client, session, socket, view: null, lobby: null, errors: [], events: [], emotes: [], matchId: null, userId: session.user_id };
   socket.onmatchdata = (m) => {
     const data = JSON.parse(m.data instanceof Uint8Array ? new TextDecoder().decode(m.data) : m.data);
     if (m.op_code === OP_VIEW) p.view = data;
     else if (m.op_code === OP_EVENTS) p.events.push(...data.events);
     else if (m.op_code === OP_LOBBY) p.lobby = data;
     else if (m.op_code === OP_ERROR) p.errors.push(data);
+    else if (m.op_code === OP_EMOTE_SHOWN) p.emotes.push(data);
   };
   socket.ondisconnect = () => { p.disconnected = true; };
   return p;
@@ -137,6 +138,22 @@ async function testPrivateRoom() {
   if (a.view.seq === seqBefore) fail('server should auto-move after the step deadline');
   log('timeout auto-move observed, seq', seqBefore, '->', a.view.seq);
 
+  // Emotes: valid ids relay to everyone, unknown ids are dropped, and a
+  // second emote inside the cooldown is dropped.
+  await send(a, OP_EMOTE, { emote: 'wave' });
+  await send(a, OP_EMOTE, { emote: 'laugh' });
+  await send(b, OP_EMOTE, { emote: 'not_an_emote' });
+  await sleep(600);
+  if (c.emotes.length !== 1 || c.emotes[0].emote !== 'wave' || c.emotes[0].seat !== a.view.you) fail(`emote relay wrong: ${JSON.stringify(c.emotes)}`);
+  log('emote relayed with cooldown');
+
+  // Report: files into the moderation queue; self-report rejected.
+  const rep = await rpc(a, 'report_player', { userId: b.userId, reason: 'behaviour', matchId: a.matchId, note: 'e2e test report' });
+  if (!rep.ok) fail('report_player should succeed');
+  let selfRejected = false;
+  try { await rpc(a, 'report_player', { userId: a.userId, reason: 'other' }); } catch (e) { selfRejected = true; }
+  if (!selfRejected) fail('self report should be rejected');
+
   // Leave and rejoin mid-game.
   const leaver = b;
   await leaver.socket.leaveMatch(leaver.matchId);
@@ -155,6 +172,31 @@ async function testPrivateRoom() {
   if (final.supplyCount !== 0) fail('supply should be empty at the end');
   for (const s of final.seats) if (!s.hand || s.hand.length !== 0) fail('hands should be merged into portfolios');
   if (!a.events.some((e) => e.type === 'game_ended')) fail('game_ended event missing');
+
+  // Progression: XP and a season record for a game with humans.
+  await sleep(800);
+  const prof = await rpc(a, 'get_profile');
+  if (prof.progress.gamesPlayed !== 1 || prof.progress.xp <= 0) fail(`profile not awarded: ${JSON.stringify(prof)}`);
+  const winner = final.result.scores.find((s) => s.rank === 1);
+  const winnerPlayer = [a, b, c].find((p) => p.userId === final.seats[winner.seat].id);
+  const wp = await rpc(winnerPlayer, 'get_profile');
+  if (wp.progress.wins !== 1 || wp.progress.bestRank !== 1) fail('winner should have a win');
+  // Last place earns no season points, so a 3-seat game writes 2 records; the winner leads.
+  const lb = await a.client.listLeaderboardRecords(a.session, 'season', [a.userId, b.userId, c.userId], 10);
+  const mine = (lb.records || []).filter((r) => [a.userId, b.userId, c.userId].includes(r.owner_id));
+  if (mine.length !== 2) fail(`season leaderboard should have 2 records for this game, got ${JSON.stringify(lb.records)}`);
+  const top = mine.sort((x, y) => Number(y.score) - Number(x.score))[0];
+  if (top.owner_id !== winnerPlayer.userId || Number(top.subscore) !== 1) fail('winner should lead the season records with a win');
+  log('progression: xp', prof.progress.xp, 'level', prof.progress.level, '; season records', lb.records.length);
+
+  // Daily bonus: once per day, streak starts at 1.
+  const d1 = await rpc(a, 'claim_daily');
+  if (!d1.claimed || d1.progress.streak !== 1 || d1.xpAwarded !== 15) fail(`daily claim wrong: ${JSON.stringify(d1)}`);
+  const d2 = await rpc(a, 'claim_daily');
+  if (d2.claimed) fail('daily claim should be once per day');
+  const prof2 = await rpc(a, 'get_profile');
+  if (prof2.dailyAvailable) fail('dailyAvailable should be false after claiming');
+  log('daily bonus claimed, streak', d1.progress.streak);
   for (const p of [a, b, c]) p.socket.disconnect(true);
 }
 

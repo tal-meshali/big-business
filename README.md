@@ -15,6 +15,7 @@ The mechanics are a re-themed implementation of a well-known share-collecting ca
 | `server/` | Nakama runtime: pure TypeScript rules engine with tests, authoritative match handler, room-code RPCs, Docker Compose for local play |
 | `client/` | Godot 4.6 project: Nakama connection, lobby, table, headless smoke, screenshot and end-to-end tests |
 | `docs/deploy.md` | Single-VPS deployment with Docker Compose and automatic TLS |
+| `docs/conventions.md` | Dependency-graph rules enforced by `tools/graph_check.py` (pre-push hook and CI) |
 | `docs/TODO-local.md` | Work that needs a local machine: phone builds, playtests, store accounts, art |
 
 ## Run it locally
@@ -44,5 +45,9 @@ Phase 0 complete: decisions, theme, rules spec, engine with tests, match handler
 Tutorial: "How to play" in the lobby starts a solo game against two slow bots with no timer and a coach overlay that explains each rule as it first matters. Covered by the smoke test, a headless end-to-end run, and CI.
 
 Phase 1 (playable core), cloud-doable parts complete: live end-to-end tests against Nakama (Node client and the real Godot client), a designed portrait table with seat oval, hand fan, contextual actions, event animations and a dividend-day sequence, production deployment files, and CI that runs the whole stack. Placeholder renders are in `docs/screenshots/`.
+
+Phase 2 (soft-launch features), cloud-doable parts complete: preset emotes and phrases with mute, report and block (no free-text chat: all-ages decision), XP and levels awarded at game end, a daily bonus with a streak, a monthly season leaderboard for games with other people, and automatic reconnect with seat rejoin. The look is a title-deed theme on a board-green table.
+
+Code conventions (acyclic, layered dependency graph checked with graphify on every push and in CI) are in `docs/conventions.md`.
 
 What still needs a real machine (phone builds, playtesting, store accounts, art) is listed in `docs/TODO-local.md`.

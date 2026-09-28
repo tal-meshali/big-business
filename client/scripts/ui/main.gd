@@ -10,6 +10,11 @@ var _buttons: Array[Button] = []
 var _ready_button: Button
 var _copy_button: Button
 var _room_code := ""
+var _profile_label: Label
+var _xp_bar: ProgressBar
+var _daily_button: Button
+var _board_button: Button
+var _board_label: Label
 var _connected := false
 var _in_lobby := false
 
@@ -77,6 +82,54 @@ func _build() -> void:
 	_status.text = "Not connected"
 	_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	box.add_child(_status)
+
+	# Profile card: level, XP bar, streak and the daily bonus.
+	var profile := UiTheme.deed_panel(Companies.CHEST, "Your portfolio", Color.WHITE)
+	profile["title"].add_theme_font_size_override("font_size", 20)
+	var pbox := VBoxContainer.new()
+	pbox.add_theme_constant_override("separation", 8)
+	profile["body"].add_child(pbox)
+	_profile_label = Label.new()
+	_profile_label.text = "Level 1"
+	_profile_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_profile_label.add_theme_font_size_override("font_size", 16)
+	pbox.add_child(_profile_label)
+	_xp_bar = ProgressBar.new()
+	_xp_bar.custom_minimum_size = Vector2(0, 14)
+	_xp_bar.show_percentage = false
+	var fill := StyleBoxFlat.new()
+	fill.bg_color = Companies.GOLD
+	fill.set_corner_radius_all(6)
+	var track := StyleBoxFlat.new()
+	track.bg_color = Color("#E8E8E8")
+	track.border_color = Companies.INK
+	track.set_border_width_all(1)
+	track.set_corner_radius_all(6)
+	_xp_bar.add_theme_stylebox_override("fill", fill)
+	_xp_bar.add_theme_stylebox_override("background", track)
+	pbox.add_child(_xp_bar)
+	var prow := HBoxContainer.new()
+	prow.add_theme_constant_override("separation", 10)
+	pbox.add_child(prow)
+	_daily_button = Button.new()
+	_daily_button.text = "Claim daily bonus"
+	_daily_button.custom_minimum_size = Vector2(0, 48)
+	_daily_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_daily_button.disabled = true
+	_daily_button.pressed.connect(_on_claim_daily)
+	prow.add_child(_daily_button)
+	_board_button = Button.new()
+	_board_button.text = "Season standings"
+	_board_button.custom_minimum_size = Vector2(0, 48)
+	_board_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_board_button.disabled = true
+	_board_button.pressed.connect(_on_show_board)
+	prow.add_child(_board_button)
+	_board_label = Label.new()
+	_board_label.visible = false
+	_board_label.add_theme_font_size_override("font_size", 15)
+	pbox.add_child(_board_label)
+	box.add_child(profile["panel"])
 
 	_add_button(box, "Connect", _on_connect_pressed, true)
 	_add_button(box, "Play now", _on_quick_play)
@@ -154,6 +207,59 @@ func _on_connected() -> void:
 	_connected = true
 	_status.text = "Connected as %s" % Net.display_name
 	_set_online_buttons(true)
+	_board_button.disabled = false
+	_refresh_profile()
+
+
+func _refresh_profile() -> void:
+	var data: Dictionary = await Net.get_profile()
+	if data.is_empty():
+		return
+	_apply_progress(data.get("progress", {}), bool(data.get("dailyAvailable", false)))
+
+
+func _apply_progress(p: Dictionary, daily_available: bool) -> void:
+	var level := int(p.get("level", 1))
+	var xp := int(p.get("xp", 0))
+	var floor_xp := 50 * (level - 1) * (level - 1)
+	var next_xp := 50 * level * level
+	_profile_label.text = "Level %d  •  %d / %d XP  •  %d games, %d wins  •  streak %d" % [
+		level, xp, next_xp, int(p.get("gamesPlayed", 0)), int(p.get("wins", 0)), int(p.get("streak", 0))]
+	_xp_bar.min_value = floor_xp
+	_xp_bar.max_value = next_xp
+	_xp_bar.value = xp
+	_daily_button.disabled = not daily_available
+	_daily_button.text = "Claim daily bonus" if daily_available else "Daily bonus claimed"
+
+
+func _on_claim_daily() -> void:
+	_daily_button.disabled = true
+	var res: Dictionary = await Net.claim_daily()
+	if res.is_empty():
+		_daily_button.disabled = false
+		return
+	if res.get("claimed", false):
+		_status.text = "+%d XP  (day %d streak)" % [int(res.get("xpAwarded", 0)), int(res.get("progress", {}).get("streak", 1))]
+	_apply_progress(res.get("progress", {}), false)
+
+
+func _on_show_board() -> void:
+	_board_label.visible = not _board_label.visible
+	if not _board_label.visible:
+		return
+	_board_label.text = "Loading..."
+	var rows: Array = await Net.season_leaderboard(10)
+	if rows.is_empty():
+		_board_label.text = "No season games yet. Points come from games with other people."
+		return
+	var lines := PackedStringArray()
+	lines.append("Season standings (resets monthly)")
+	for r in rows:
+		if r.get("mine", false) and int(r.get("rank", 0)) > 10:
+			lines.append("…")
+		var me := "  ← you" if r.get("userId", "") == Net.user_id else ""
+		lines.append("#%d  %s  %d pts, %d wins%s" % [int(r.get("rank", 0)), r.get("name", "?"), int(r.get("score", 0)), int(r.get("wins", 0)), me])
+	_board_label.text = "\n".join(lines)
 
 
 func _on_failed(reason: String) -> void:

@@ -30,6 +30,23 @@ The tutorial exists (lobby: "How to play"): a solo game against two slow bots wi
 - [ ] Decide whether the first "Play now" should route new players into the tutorial automatically (a "tutorial done" flag saved in `user://net.cfg`).
 - [ ] With the fixed seed, script two extra coach lines that name the actual opening cards, once the card art exists.
 
+## B3. Social features on a device
+
+Emotes, mute, report and block exist. Tap the smiley in the top bar for the emote strip; tap an opponent's seat panel for Mute / Report / Block.
+
+- [ ] Emoji emotes render as placeholder glyphs with Godot's fallback font (see `docs/screenshots/emotes.png`). Either bundle an emoji font (Noto Color Emoji, add it as a fallback in the project theme) or replace the six emoji with small drawn icons.
+- [ ] Check the seat tap target on a phone: the seat panel is 200x96 at design size; taps near the timer arc must still open the menu.
+- [ ] Confirm blocked players' emotes stay hidden after the app restarts (mute is in-memory; block is server-side via Nakama friends). If not, persist the mute list in `user://net.cfg`.
+- [ ] Apple guideline 1.2 needs published contact info: add a support email and a privacy policy link to the lobby (a "Help" button) before submission.
+- [ ] Review the 14 preset emotes and phrases with someone outside the project for tone; all-ages means no sarcastic or taunting phrases.
+- [ ] Decide the moderation routine: reports land in the Nakama console (storage collection `reports`); pick who checks it and how often (the store expectation is action within 24 hours).
+
+## B4. Progression and season
+
+- [ ] Play two games on a phone and confirm the profile card updates (level, XP bar, wins) and the daily bonus button behaves across a UTC midnight.
+- [ ] Decide whether season points should also reward last place with 1 point (currently 0) after seeing a few real standings.
+- [ ] Verify the season leaderboard reset on the 1st of a month (Nakama cron `0 0 1 * *`).
+
 ## C. Playtest with people (answers the key Phase 1 question)
 
 - [ ] Deploy the server to a VPS following `docs/deploy.md` so friends can join from anywhere. Put the domain in the lobby host field with scheme https (add a scheme toggle to the lobby if needed).
@@ -58,10 +75,9 @@ The tutorial exists (lobby: "How to play"): a solo game against two slow bots wi
 ## G. Deferred engineering (Phase 2, listed so nothing is lost)
 
 - [ ] Tutorial v2: forced choices on the first two turns (only the coached action enabled) and a replayable "rules reference" screen.
-- [ ] Reconnect flow polish: automatic socket reconnect with backoff, "reconnecting..." overlay, rejoin by stored match id.
 - [ ] Turn-timer sound and screen glow under 5 seconds.
-- [ ] Emotes and preset phrases (no free text: all-ages decision D4).
-- [ ] Profiles, friends, invites; push notification "your turn" via FCM.
-- [ ] Daily reward, quests, ranked season (see `docs/research/03-engagement-monetization.md`).
+- [ ] Friends list and invites (Nakama friends API is already used for block); push notification "your turn" via FCM.
+- [ ] Daily and weekly quests feeding a free cosmetic track (daily bonus and the season board exist).
+- [ ] Curated card skins sold a la carte through RevenueCat (see `docs/research/03-engagement-monetization.md`).
 - [ ] Designer unlock and custom card upload (see `docs/research/05-custom-card-upload.md`).
 - [ ] Better bots: the current auto-move policy is a placeholder (`autoAction` in `server/src/engine/game.ts`).

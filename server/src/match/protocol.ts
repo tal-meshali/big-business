@@ -3,12 +3,26 @@
 /** Client -> server opcodes. */
 export const OP_ACTION = 1;
 export const OP_READY = 2;
+/** {"emote": "<id from EMOTE_IDS>"}; relayed to the table as OP_EMOTE_SHOWN. */
+export const OP_EMOTE = 3;
 
 /** Server -> client opcodes. */
 export const OP_VIEW = 10;
 export const OP_EVENTS = 11;
 export const OP_LOBBY = 12;
 export const OP_ERROR = 13;
+/** {"seat": n, "emote": "<id>"} */
+export const OP_EMOTE_SHOWN = 14;
+
+/**
+ * The only chat there is: preset emotes and phrases (all-ages decision D4).
+ * Ids are stable; the client owns the text and artwork.
+ */
+export const EMOTE_IDS = [
+  'wave', 'think', 'laugh', 'wow', 'cry', 'clap',
+  'hello', 'good_move', 'oops', 'thanks', 'gg', 'hurry_up', 'nice', 'no_way',
+];
+export const EMOTE_COOLDOWN_MS = 2000;
 
 export const MATCH_MODULE = 'big_business';
 

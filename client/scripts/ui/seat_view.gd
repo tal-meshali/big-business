@@ -4,6 +4,8 @@ extends Control
 ## portfolio pips per company, regulator tokens, turn ring with timer arc.
 ## White panel with an ink border; the active seat gets a warm highlight.
 
+signal seat_pressed(seat_index: int, at: Vector2)
+
 const W := 200.0
 const H := 96.0
 
@@ -18,7 +20,12 @@ var step_ms: float = 0.0
 func _init() -> void:
 	custom_minimum_size = Vector2(W, H)
 	size = Vector2(W, H)
-	mouse_filter = Control.MOUSE_FILTER_IGNORE
+	mouse_filter = Control.MOUSE_FILTER_STOP
+
+
+func _gui_input(event: InputEvent) -> void:
+	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
+		seat_pressed.emit(seat_index, get_global_mouse_position())
 
 
 func update(p_index: int, p_data: Dictionary, p_active: bool, p_me: bool, p_deadline: float, p_step_seconds: float) -> void:

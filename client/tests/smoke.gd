@@ -101,6 +101,7 @@ func _run() -> void:
 	await process_frame
 
 	failures += await _coach_checks()
+	failures += await _social_checks()
 
 	if failures == 0:
 		print("SMOKE OK")
@@ -215,4 +216,66 @@ func _coach_checks() -> int:
 		push_error("skip should silence the coach")
 		failures += 1
 	table.queue_free()
+	return failures
+
+
+## Emotes render as bubbles unless the sender is muted; the profile card applies progress.
+func _social_checks() -> int:
+	var failures := 0
+	var table = load("res://scenes/table.tscn").instantiate()
+	root.add_child(table)
+	await process_frame
+	var v := {
+		"you": 0,
+		"seats": [
+			{"id": "me", "name": "You", "isBot": false, "connected": true, "handCount": 3, "hand": [], "portfolio": [], "bronze": 10, "gold": 0, "tokens": []},
+			{"id": "u-bo", "name": "Bo", "isBot": false, "connected": true, "handCount": 3, "portfolio": [], "bronze": 10, "gold": 0, "tokens": []},
+			{"id": "bot:0", "name": "Analyst Avi", "isBot": true, "connected": true, "handCount": 3, "portfolio": [], "bronze": 10, "gold": 0, "tokens": []},
+		],
+		"market": [], "supplyCount": 20, "removedCount": 5, "active": 1, "phase": "take", "turn": 2,
+		"tookCompany": null, "tokens": [null, null, null, null, null, null], "seq": 3, "deadline": 0, "drawCost": null, "legal": [], "result": null,
+	}
+	table._on_view(v)
+	await process_frame
+	var before: int = table._fx_layer.get_child_count()
+	table._on_emote_shown(1, "wave")
+	await process_frame
+	if table._fx_layer.get_child_count() != before + 1:
+		push_error("an emote should add a bubble")
+		failures += 1
+	if table._emote_bar.visible:
+		push_error("emote bar starts hidden")
+		failures += 1
+	table._toggle_emote_bar()
+	if not table._emote_bar.visible or table._emote_bar.get_child(0).get_child_count() != Protocol.EMOTES.size():
+		push_error("emote bar should list every preset")
+		failures += 1
+	table._toggle_emote_bar()
+	var net: Node = root.get_node("Net")
+	net.mute_player("u-bo", true)
+	var count: int = table._fx_layer.get_child_count()
+	table._on_emote_shown(1, "laugh")
+	await process_frame
+	if table._fx_layer.get_child_count() != count:
+		push_error("muted players must not show bubbles")
+		failures += 1
+	net.mute_player("u-bo", false)
+	table._on_emote_shown(2, "nonsense")
+	await process_frame
+	if table._fx_layer.get_child_count() != count:
+		push_error("unknown emote ids are ignored")
+		failures += 1
+	table.queue_free()
+
+	var main = load("res://scenes/main.tscn").instantiate()
+	root.add_child(main)
+	await process_frame
+	main._apply_progress({"xp": 120, "level": 2, "gamesPlayed": 3, "wins": 1, "streak": 4}, true)
+	if not main._profile_label.text.contains("Level 2") or main._daily_button.disabled:
+		push_error("profile card should show level and enable the daily bonus")
+		failures += 1
+	if main._xp_bar.min_value != 50 or main._xp_bar.max_value != 200 or main._xp_bar.value != 120:
+		push_error("xp bar bounds wrong: %s %s %s" % [main._xp_bar.min_value, main._xp_bar.max_value, main._xp_bar.value])
+		failures += 1
+	main.queue_free()
 	return failures

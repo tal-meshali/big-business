@@ -41,10 +41,25 @@ Payloads are JSON strings.
 |---|---|---|
 | client -> server | 1 `OP_ACTION` | `{"type":"take_supply"}` / `{"type":"take_market","cardId":n}` / `{"type":"play_portfolio","cardId":n}` / `{"type":"play_market","cardId":n}` |
 | client -> server | 2 `OP_READY` | empty; marks the sender ready in a private lobby |
+| client -> server | 3 `OP_EMOTE` | `{"emote":"<id>"}` from `EMOTE_IDS`; 2 s cooldown per player, unknown ids dropped |
 | server -> client | 10 `OP_VIEW` | `PlayerView` for that seat (see `src/engine/types.ts`), sent after every accepted action, join and leave |
 | server -> client | 11 `OP_EVENTS` | `{seq, events: GameEvent[]}` for animations |
 | server -> client | 12 `OP_LOBBY` | `LobbyMessage` while waiting to start |
 | server -> client | 13 `OP_ERROR` | `{message, action?}` |
+| server -> client | 14 `OP_EMOTE_SHOWN` | `{seat, emote}` relayed to everyone at the table |
+
+## RPCs
+
+| RPC | Payload | Returns |
+|---|---|---|
+| `quick_play` | `{}` or `{"tutorial": true}` | `{matchId}` (open public lobby or a new one; tutorial match when asked) |
+| `create_room` | `{stepSeconds?, maxSeats?}` | `{code, matchId}` |
+| `join_room` | `{code}` | `{code, matchId}` |
+| `get_profile` | `{}` | `{progress: {xp, level, gamesPlayed, wins, streak, lastDailyClaim, bestRank}, dailyAvailable}` |
+| `claim_daily` | `{}` | `{claimed, xpAwarded, progress}`; once per UTC day, streak grows on consecutive days |
+| `report_player` | `{userId, reason, matchId?, note?}` | `{ok}`; written to the `reports` storage collection (system user, console-only) |
+
+Progression (`src/match/progression.ts`, pure and unit-tested) is applied by the match handler once when a game ends: XP for participation, placement and wins (halved for games against bots only), and season points on the `season` leaderboard (monthly reset, only for games with at least two humans). Blocking uses Nakama's friends API from the client.
 
 ## Match lifecycle
 

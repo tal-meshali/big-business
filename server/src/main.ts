@@ -4,6 +4,11 @@
  */
 import { matchInit, matchJoin, matchJoinAttempt, matchLeave, matchLoop, matchSignal, matchTerminate } from './match/handler';
 import { DEFAULT_PARAMS, MATCH_MODULE, TUTORIAL_SEED } from './match/protocol';
+import { claimDaily, emptyProgress, PROFILE_COLLECTION, PROFILE_KEY, SEASON_LEADERBOARD, utcDate, type Progress } from './match/progression';
+
+const SYSTEM_USER = '00000000-0000-0000-0000-000000000000';
+const REPORT_COLLECTION = 'reports';
+const REPORT_REASONS = ['name', 'behaviour', 'cheating', 'other'];
 
 const ROOM_COLLECTION = 'rooms';
 const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no 0/O/1/I
@@ -79,8 +84,71 @@ const rpcQuickPlay: nkruntime.RpcFunction = (ctx, logger, nk, payload) => {
   return JSON.stringify({ matchId });
 };
 
+function requireUser(ctx: nkruntime.Context): string {
+  if (!ctx.userId) throw Error('unauthenticated');
+  return ctx.userId;
+}
+
+function readProgress(nk: nkruntime.Nakama, userId: string): Progress {
+  const rows = nk.storageRead([{ collection: PROFILE_COLLECTION, key: PROFILE_KEY, userId }]);
+  const row = rows[0];
+  return row ? (row.value as Progress) : emptyProgress();
+}
+
+function writeProgress(nk: nkruntime.Nakama, userId: string, p: Progress): void {
+  nk.storageWrite([{ collection: PROFILE_COLLECTION, key: PROFILE_KEY, userId, value: p, permissionRead: 1, permissionWrite: 0 }]);
+}
+
+/** RPC get_profile: progression plus whether today's daily bonus is available. */
+const rpcGetProfile: nkruntime.RpcFunction = (ctx, logger, nk, payload) => {
+  void logger; void payload;
+  const p = readProgress(nk, requireUser(ctx));
+  return JSON.stringify({ progress: p, dailyAvailable: p.lastDailyClaim !== utcDate(Date.now()) });
+};
+
+/** RPC claim_daily: once per UTC day; streak grows on consecutive days. */
+const rpcClaimDaily: nkruntime.RpcFunction = (ctx, logger, nk, payload) => {
+  void logger; void payload;
+  const userId = requireUser(ctx);
+  const result = claimDaily(readProgress(nk, userId), Date.now());
+  if (result.claimed) writeProgress(nk, userId, result.progress);
+  return JSON.stringify({ claimed: result.claimed, xpAwarded: result.xpAwarded, progress: result.progress });
+};
+
+/**
+ * RPC report_player: files a report into a moderation queue that only the
+ * console can read (Apple 1.2 / Play UGC). Blocking is done client-side
+ * through Nakama's friends API.
+ */
+const rpcReportPlayer: nkruntime.RpcFunction = (ctx, logger, nk, payload) => {
+  const reporter = requireUser(ctx);
+  const req = JSON.parse(payload || '{}') as { userId?: string; reason?: string; matchId?: string; note?: string };
+  if (!req.userId || req.userId === reporter) throw Error('invalid user');
+  const reason = REPORT_REASONS.indexOf(req.reason || '') >= 0 ? (req.reason as string) : 'other';
+  const key = `${Date.now()}-${reporter.slice(0, 8)}`;
+  nk.storageWrite([
+    {
+      collection: REPORT_COLLECTION,
+      key,
+      userId: SYSTEM_USER,
+      value: { reporter, reported: req.userId, reason, matchId: req.matchId || '', note: (req.note || '').slice(0, 200), at: Date.now() },
+      permissionRead: 0,
+      permissionWrite: 0,
+    },
+  ]);
+  logger.info('report filed %s by %s against %s (%s)', key, reporter, req.userId, reason);
+  return JSON.stringify({ ok: true });
+};
+
 function InitModule(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, initializer: nkruntime.Initializer): void {
-  void ctx; void nk;
+  void ctx;
+  // Monthly season: authoritative, descending, points accumulate, resets on the 1st.
+  try {
+    // nkruntime is types only at runtime, so pass the enum string values.
+    nk.leaderboardCreate(SEASON_LEADERBOARD, true, 'descending' as nkruntime.SortOrder, 'increment' as nkruntime.Operator, '0 0 1 * *');
+  } catch (e) {
+    logger.warn('leaderboard create: %s', String(e));
+  }
   initializer.registerMatch(MATCH_MODULE, {
     matchInit,
     matchJoinAttempt,
@@ -93,6 +161,9 @@ function InitModule(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkrunt
   initializer.registerRpc('create_room', rpcCreateRoom);
   initializer.registerRpc('join_room', rpcJoinRoom);
   initializer.registerRpc('quick_play', rpcQuickPlay);
+  initializer.registerRpc('get_profile', rpcGetProfile);
+  initializer.registerRpc('claim_daily', rpcClaimDaily);
+  initializer.registerRpc('report_player', rpcReportPlayer);
   logger.info('Big Business runtime loaded');
 }
 

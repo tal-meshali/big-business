@@ -10,6 +10,9 @@ signal view_updated(view: Dictionary)
 signal events_received(seq: int, events: Array)
 signal server_error(message: String)
 signal match_left
+signal emote_shown(seat: int, emote: String)
+signal reconnecting(attempt: int)
+signal reconnected
 
 const SETTINGS_PATH := "user://net.cfg"
 
@@ -26,6 +29,10 @@ var user_id: String = ""
 var display_name: String = ""
 ## True while the current match is the tutorial (coach overlay on).
 var tutorial_mode: bool = false
+## Players muted locally (user id -> true). Not persisted across launches.
+var muted: Dictionary = {}
+var _reconnect_attempts: int = 0
+var _closing: bool = false
 
 
 func _ready() -> void:
@@ -81,6 +88,7 @@ func connect_to_server() -> bool:
 	socket.received_match_state.connect(_on_match_state)
 	socket.received_match_presence.connect(_on_match_presence)
 	socket.closed.connect(_on_socket_closed)
+	_reconnect_attempts = 0
 	connected.emit()
 	return true
 
@@ -175,6 +183,66 @@ func send_action(action: Dictionary) -> void:
 	socket.send_match_state_async(match_id, Protocol.OP_ACTION, JSON.stringify(action))
 
 
+func send_emote(emote_id: String) -> void:
+	if match_id.is_empty():
+		return
+	socket.send_match_state_async(match_id, Protocol.OP_EMOTE, JSON.stringify({"emote": emote_id}))
+
+
+## Progression: {progress: {...}, dailyAvailable: bool}, or {} on failure.
+func get_profile() -> Dictionary:
+	var rpc: NakamaAPI.ApiRpc = await client.rpc_async(session, "get_profile", "{}")
+	if rpc.is_exception():
+		return {}
+	return JSON.parse_string(rpc.payload)
+
+
+## Daily bonus: {claimed: bool, xpAwarded: int, progress: {...}}, or {} on failure.
+func claim_daily() -> Dictionary:
+	var rpc: NakamaAPI.ApiRpc = await client.rpc_async(session, "claim_daily", "{}")
+	if rpc.is_exception():
+		return {}
+	return JSON.parse_string(rpc.payload)
+
+
+## Top season records plus the caller's own. Returns [] on failure.
+func season_leaderboard(limit: int = 20) -> Array:
+	var res: NakamaAPI.ApiLeaderboardRecordList = await client.list_leaderboard_records_async(session, "season", [user_id], null, limit)
+	if res.is_exception():
+		return []
+	var rows: Array = []
+	for r in res.records:
+		rows.append({"userId": r.owner_id, "name": r.username, "score": int(r.score), "rank": int(r.rank), "wins": int(r.subscore)})
+	for r in res.owner_records:
+		rows.append({"userId": r.owner_id, "name": r.username, "score": int(r.score), "rank": int(r.rank), "wins": int(r.subscore), "mine": true})
+	return rows
+
+
+## Files a report into the server's moderation queue.
+func report_player(target_user_id: String, reason: String, note: String = "") -> bool:
+	var payload := JSON.stringify({"userId": target_user_id, "reason": reason, "matchId": match_id, "note": note})
+	var rpc: NakamaAPI.ApiRpc = await client.rpc_async(session, "report_player", payload)
+	return not rpc.is_exception()
+
+
+## Blocks a player server-side (they can no longer friend or message you) and mutes them locally.
+func block_player(target_user_id: String) -> bool:
+	muted[target_user_id] = true
+	var res: NakamaAsyncResult = await client.block_friends_async(session, [target_user_id])
+	return not res.is_exception()
+
+
+func mute_player(target_user_id: String, on: bool = true) -> void:
+	if on:
+		muted[target_user_id] = true
+	else:
+		muted.erase(target_user_id)
+
+
+func is_muted(target_user_id: String) -> bool:
+	return muted.has(target_user_id)
+
+
 func _on_match_state(state: NakamaRTAPI.MatchData) -> void:
 	var data = JSON.parse_string(state.data)
 	if data == null:
@@ -188,6 +256,8 @@ func _on_match_state(state: NakamaRTAPI.MatchData) -> void:
 			lobby_updated.emit(data)
 		Protocol.OP_ERROR:
 			server_error.emit(String(data.get("message", "error")))
+		Protocol.OP_EMOTE_SHOWN:
+			emote_shown.emit(int(data.get("seat", -1)), String(data.get("emote", "")))
 
 
 func _on_match_presence(_event: NakamaRTAPI.MatchPresenceEvent) -> void:
@@ -195,5 +265,28 @@ func _on_match_presence(_event: NakamaRTAPI.MatchPresenceEvent) -> void:
 
 
 func _on_socket_closed() -> void:
+	if _closing:
+		return
+	_try_reconnect()
+
+
+## Reconnect with backoff and rejoin the match we were in; the server keeps
+## the seat and sends a fresh view on rejoin.
+func _try_reconnect() -> void:
+	var previous_match := match_id
+	var previous_tutorial := tutorial_mode
+	for attempt in range(1, 6):
+		_reconnect_attempts = attempt
+		reconnecting.emit(attempt)
+		await get_tree().create_timer(minf(1.0 * attempt, 5.0)).timeout
+		if await connect_to_server():
+			if not previous_match.is_empty():
+				tutorial_mode = previous_tutorial
+				if await _join_match(previous_match):
+					reconnected.emit()
+					return
+			match_id = ""
+			reconnected.emit()
+			return
 	match_id = ""
 	connection_failed.emit("disconnected")

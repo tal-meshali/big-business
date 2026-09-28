@@ -42,6 +42,13 @@ var _pending_events: Array = []
 var _animating: bool = false
 var _last_view: Dictionary = {}
 var coach: Coach = null
+var _emote_button: Button
+var _emote_bar: PanelContainer
+var _emote_bubbles: Dictionary = {}
+var _seat_menu: PopupMenu
+var _seat_menu_target: int = -1
+var _reconnect_overlay: ColorRect
+var _reconnect_label: Label
 
 
 func _ready() -> void:
@@ -51,7 +58,10 @@ func _ready() -> void:
 	Net.view_updated.connect(_on_view)
 	Net.events_received.connect(_on_events)
 	Net.server_error.connect(_on_error)
-	Net.connection_failed.connect(func(reason: String) -> void: _status.text = reason)
+	Net.connection_failed.connect(_on_connection_failed)
+	Net.emote_shown.connect(_on_emote_shown)
+	Net.reconnecting.connect(_on_reconnecting)
+	Net.reconnected.connect(_on_reconnected)
 
 
 # ---------------------------------------------------------------------------
@@ -93,6 +103,11 @@ func _build_layout() -> void:
 	_timer_label.add_theme_font_size_override("font_size", 22)
 	_timer_label.add_theme_color_override("font_color", Companies.ALERT)
 	top.add_child(_timer_label)
+	_emote_button = Button.new()
+	_emote_button.text = "😊"
+	_emote_button.tooltip_text = "Emotes"
+	_emote_button.pressed.connect(_toggle_emote_bar)
+	top.add_child(_emote_button)
 	var leave := Button.new()
 	leave.text = "Leave"
 	leave.pressed.connect(_on_leave)
@@ -103,7 +118,7 @@ func _build_layout() -> void:
 	_seats_layer.set_anchors_and_offsets_preset(Control.PRESET_TOP_WIDE)
 	_seats_layer.offset_top = 72
 	_seats_layer.offset_bottom = 72 + 430
-	_seats_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_seats_layer.mouse_filter = Control.MOUSE_FILTER_PASS
 	add_child(_seats_layer)
 
 	# Market strip.
@@ -181,9 +196,10 @@ func _build_layout() -> void:
 
 	# Effects overlay (flying cards and coins).
 	_fx_layer = Control.new()
-	_fx_layer.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_fx_layer.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_fx_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_fx_layer)
+	_build_social_layer()
 
 	# Result panel (dividend day): dimmed backdrop + centered deed-style panel.
 	_result_backdrop = ColorRect.new()
@@ -211,6 +227,157 @@ func _build_layout() -> void:
 	result_box.add_child(result_buttons)
 	_make_button(result_buttons, "Play again", _on_play_again).visible = true
 	_make_button(result_buttons, "Leave", _on_leave).visible = true
+
+
+func _build_social_layer() -> void:
+	# Emote bar: a deed-style strip of preset emotes and phrases under the top bar.
+	_emote_bar = PanelContainer.new()
+	_emote_bar.set_anchors_and_offsets_preset(Control.PRESET_TOP_WIDE)
+	_emote_bar.offset_left = 16
+	_emote_bar.offset_right = -16
+	_emote_bar.offset_top = 70
+	_emote_bar.visible = false
+	var bar_style := StyleBoxFlat.new()
+	bar_style.bg_color = Companies.PANEL
+	bar_style.border_color = Companies.INK
+	bar_style.set_border_width_all(2)
+	bar_style.set_corner_radius_all(8)
+	bar_style.set_content_margin_all(8)
+	_emote_bar.add_theme_stylebox_override("panel", bar_style)
+	add_child(_emote_bar)
+	var grid := GridContainer.new()
+	grid.columns = 7
+	grid.add_theme_constant_override("h_separation", 6)
+	grid.add_theme_constant_override("v_separation", 6)
+	_emote_bar.add_child(grid)
+	for e in Protocol.EMOTES:
+		var b := Button.new()
+		b.text = e["text"]
+		b.custom_minimum_size = Vector2(0, 44)
+		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		b.add_theme_font_size_override("font_size", 15)
+		var id: String = e["id"]
+		b.pressed.connect(func() -> void:
+			Net.send_emote(id)
+			_emote_bar.visible = false)
+		grid.add_child(b)
+
+	# Seat menu: mute, report, block. Opened by tapping an opponent's seat.
+	_seat_menu = PopupMenu.new()
+	_seat_menu.add_item("Mute", 0)
+	_seat_menu.add_item("Report", 1)
+	_seat_menu.add_item("Block", 2)
+	_seat_menu.id_pressed.connect(_on_seat_menu)
+	add_child(_seat_menu)
+
+	# Reconnect overlay.
+	_reconnect_overlay = ColorRect.new()
+	_reconnect_overlay.color = Color(0, 0, 0, 0.5)
+	_reconnect_overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_reconnect_overlay.visible = false
+	add_child(_reconnect_overlay)
+	var rc := CenterContainer.new()
+	rc.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_reconnect_overlay.add_child(rc)
+	var deed := UiTheme.deed_panel(Companies.CHEST, "Reconnecting", Color.WHITE)
+	deed["panel"].custom_minimum_size = Vector2(480, 0)
+	_reconnect_label = Label.new()
+	_reconnect_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_reconnect_label.add_theme_font_size_override("font_size", 18)
+	deed["body"].add_child(_reconnect_label)
+	rc.add_child(deed["panel"])
+
+
+func _toggle_emote_bar() -> void:
+	_emote_bar.visible = not _emote_bar.visible
+
+
+func _on_emote_shown(seat: int, emote: String) -> void:
+	var seats: Array = view.get("seats", [])
+	if seat < 0 or seat >= seats.size():
+		return
+	if Net.is_muted(String(seats[seat].get("id", ""))):
+		return
+	var text := Protocol.emote_text(emote)
+	if text.is_empty():
+		return
+	_show_bubble(seat, text)
+
+
+func _show_bubble(seat: int, text: String) -> void:
+	var old = _emote_bubbles.get(seat)
+	if old != null and is_instance_valid(old):
+		old.queue_free()
+	var bubble := PanelContainer.new()
+	var style := StyleBoxFlat.new()
+	style.bg_color = Companies.PANEL
+	style.border_color = Companies.INK
+	style.set_border_width_all(2)
+	style.set_corner_radius_all(12)
+	style.set_content_margin_all(8)
+	bubble.add_theme_stylebox_override("panel", style)
+	bubble.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var label := Label.new()
+	label.text = text
+	label.add_theme_font_size_override("font_size", 20)
+	bubble.add_child(label)
+	_fx_layer.add_child(bubble)
+	var anchor := _seat_anchor(seat)
+	bubble.global_position = anchor + Vector2(30, -54)
+	bubble.modulate.a = 0.0
+	_emote_bubbles[seat] = bubble
+	var tw := create_tween()
+	tw.tween_property(bubble, "modulate:a", 1.0, 0.15)
+	tw.tween_interval(2.2)
+	tw.tween_property(bubble, "modulate:a", 0.0, 0.3)
+	tw.tween_callback(bubble.queue_free)
+
+
+func _on_seat_pressed(seat_idx: int, at: Vector2) -> void:
+	if seat_idx == _my_seat:
+		return
+	var seats: Array = view.get("seats", [])
+	if seat_idx >= seats.size() or seats[seat_idx].get("isBot", false):
+		return
+	_seat_menu_target = seat_idx
+	var uid := String(seats[seat_idx].get("id", ""))
+	_seat_menu.set_item_text(0, "Unmute" if Net.is_muted(uid) else "Mute")
+	_seat_menu.position = Vector2i(at)
+	_seat_menu.popup()
+
+
+func _on_seat_menu(id: int) -> void:
+	var seats: Array = view.get("seats", [])
+	if _seat_menu_target < 0 or _seat_menu_target >= seats.size():
+		return
+	var uid := String(seats[_seat_menu_target].get("id", ""))
+	var who := String(seats[_seat_menu_target].get("name", "player"))
+	match id:
+		0:
+			Net.mute_player(uid, not Net.is_muted(uid))
+			_status.text = "%s %s" % [who, "muted" if Net.is_muted(uid) else "unmuted"]
+		1:
+			var ok: bool = await Net.report_player(uid, "behaviour")
+			_status.text = "Report sent. Thank you." if ok else "Report failed, try again"
+		2:
+			await Net.block_player(uid)
+			_status.text = "%s blocked" % who
+
+
+func _on_reconnecting(attempt: int) -> void:
+	_reconnect_overlay.visible = true
+	_reconnect_label.text = "Connection lost. Trying again (%d/5)..." % attempt
+
+
+func _on_reconnected() -> void:
+	_reconnect_overlay.visible = false
+	if Net.match_id.is_empty():
+		_status.text = "Could not rejoin the game"
+
+
+func _on_connection_failed(reason: String) -> void:
+	_reconnect_overlay.visible = false
+	_status.text = reason
 
 
 func _make_button(parent: Control, text: String, handler: Callable) -> Button:
@@ -401,6 +568,7 @@ func _render_seats(seats: Array, active: int, phase: String) -> void:
 	var slots := _opponent_slots(order.size())
 	while _seat_views.size() < n:
 		var sv := SeatView.new()
+		sv.seat_pressed.connect(_on_seat_pressed)
 		_seats_layer.add_child(sv)
 		_seat_views.append(sv)
 	for sv in _seat_views:

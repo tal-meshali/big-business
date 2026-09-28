@@ -11,6 +11,9 @@ const OP_LOBBY := 12
 const OP_ERROR := 13
 const OP_EMOTE_SHOWN := 14
 
+## Nakama notification code of a room invite (INVITE_CODE on the server).
+const INVITE_CODE := 100
+
 ## Preset emotes and phrases: the only chat there is (all-ages decision D4).
 ## Ids must match EMOTE_IDS in server/src/match/protocol.ts.
 const EMOTES := [

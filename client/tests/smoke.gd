@@ -102,6 +102,7 @@ func _run() -> void:
 
 	failures += await _coach_checks()
 	failures += await _social_checks()
+	failures += await _friends_checks()
 
 	if failures == 0:
 		print("SMOKE OK")
@@ -278,4 +279,96 @@ func _social_checks() -> int:
 		push_error("xp bar bounds wrong: %s %s %s" % [main._xp_bar.min_value, main._xp_bar.max_value, main._xp_bar.value])
 		failures += 1
 	main.queue_free()
+	return failures
+
+
+## Friends panel: rows render with the right buttons, the Invite button
+## follows the room code, an invite row shows and its Join fires the signal.
+func _friends_checks() -> int:
+	var failures := 0
+	# WHY: loaded by path, not by class_name: the panel uses the Net autoload,
+	# which does not exist yet when this test script is compiled.
+	var panel = load("res://scripts/ui/friends_panel.gd").new()
+	root.add_child(panel)
+	await process_frame
+	panel.set_friends([
+		{"userId": "u-bo", "name": "Bo", "online": true, "state": 0},
+		{"userId": "u-ada", "name": "Ada", "online": false, "state": 2},
+		{"userId": "u-cal", "name": "Cal", "online": false, "state": 1},
+	])
+	await process_frame
+	if panel._list.get_child_count() != 3:
+		push_error("expected 3 friend rows, got %d" % panel._list.get_child_count())
+		failures += 1
+		panel.queue_free()
+		return failures
+	var bo_row: HBoxContainer = panel._list.get_child(0)
+	if bo_row.get_child(0).get_theme_color("font_color") != panel.ONLINE:
+		push_error("online friend should have a green dot")
+		failures += 1
+	if bo_row.get_child(1).text != "Bo":
+		push_error("friend row should show the name")
+		failures += 1
+	var invite: Button = bo_row.get_child(2)
+	if invite.text != "Invite" or invite.visible:
+		push_error("Invite must be hidden outside a private room")
+		failures += 1
+	if panel._list.get_child(1).get_child(2).text != "Accept":
+		push_error("a received request should offer Accept")
+		failures += 1
+	if panel._list.get_child(2).get_child(2).text != "Pending":
+		push_error("a sent request should read Pending")
+		failures += 1
+	if bo_row.get_child(3).text != "Remove":
+		push_error("each friend row needs a Remove button")
+		failures += 1
+
+	panel.room_code = "ABC234"
+	await process_frame
+	invite = panel._list.get_child(0).get_child(2)
+	if not invite.visible:
+		push_error("Invite should show once the lobby is in a private room")
+		failures += 1
+	if panel._list.get_child(0).get_child(0).get_theme_color("font_color") != panel.ONLINE or panel._list.get_child(1).get_child(0).get_theme_color("font_color") != panel.OFFLINE:
+		push_error("online dots wrong after re-render")
+		failures += 1
+	for b in [invite, panel._list.get_child(0).get_child(3), panel._add_button, panel._name_edit]:
+		if b.custom_minimum_size.y < 48:
+			push_error("%s is under the 48 px touch target" % b.get_class())
+			failures += 1
+
+	var joined: Array = []
+	panel.join_requested.connect(func(code: String) -> void: joined.append(code))
+	panel.visible = false
+	panel.show_invite("Cara", "XYZ789")
+	await process_frame
+	if not panel.visible:
+		push_error("an invite should open the panel")
+		failures += 1
+	if panel._invites.get_child_count() != 1:
+		push_error("expected 1 invite row, got %d" % panel._invites.get_child_count())
+		failures += 1
+	else:
+		var row: HBoxContainer = panel._invites.get_child(0)
+		if not row.get_child(0).text.contains("Cara invited you to room XYZ789"):
+			push_error("invite text wrong: %s" % row.get_child(0).text)
+			failures += 1
+		var join: Button = row.get_child(1)
+		if join.text != "Join" or join.custom_minimum_size.y < 48:
+			push_error("invite row needs a 48 px Join button")
+			failures += 1
+		join.pressed.emit()
+		await process_frame
+		if joined != ["XYZ789"]:
+			push_error("Join should request the invite's code, got %s" % [joined])
+			failures += 1
+		if panel._invites.get_child_count() != 0:
+			push_error("a used invite should disappear")
+			failures += 1
+	# Empty list shows a hint instead of nothing.
+	panel.set_friends([])
+	if panel._list.get_child_count() != 1 or not (panel._list.get_child(0) is Label):
+		push_error("empty friends list should show a hint")
+		failures += 1
+	panel.queue_free()
 	return failures

@@ -254,7 +254,8 @@ async function testFriendsAndInvites() {
   log('--- friends: add both ways, invite to a private room, strangers refused');
   const [host, guest, stranger] = await Promise.all([makePlayer('Host'), makePlayer('Guest'), makePlayer('Stranger')]);
   const invites = [];
-  guest.socket.onnotification = (n) => { invites.push(n); };
+  // Nakama also pushes its own friend-request notices (code -2); keep only room invites.
+  guest.socket.onnotification = (n) => { if (Number(n.code) === INVITE_CODE) invites.push(n); };
 
   // find_player: exact username, never the caller, unknown names rejected.
   const found = await rpc(host, 'find_player', { name: guest.session.username });

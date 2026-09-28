@@ -699,9 +699,9 @@ func _quests_checks() -> int:
 	var table = load("res://scenes/table.tscn").instantiate()
 	root.add_child(table)
 	await process_frame
-	var felt: ColorRect = table.get_child(0)
-	if felt.color != Cosmetics.table_bg_color() or felt.color == green:
-		push_error("table background should use the picked felt")
+	var felt: Color = table._surface.felt
+	if felt != Cosmetics.table_bg_color() or felt == green:
+		push_error("table felt should use the picked felt")
 		failures += 1
 	table.queue_free()
 

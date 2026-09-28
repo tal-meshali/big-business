@@ -16,8 +16,9 @@ Tick items off as they are done.
 
 - [ ] Android: install Android SDK + export templates in Godot, create an Android export preset (portrait, min SDK 24), enable USB debugging, "Remote Deploy" from the editor to a phone. Point the host field at your computer's LAN IP (not 127.0.0.1).
 - [ ] iOS: Xcode + Apple developer account, iOS export preset, run on a device via Xcode. Same LAN host note.
-- [ ] Check touch targets: hand cards, market cards, Keep / Sell buttons. Anything under ~48 px tall gets enlarged.
-- [ ] Check the fan of 4 cards during the play step on a narrow phone (older iPhone SE width). Adjust `HAND_SCALE` in `client/scripts/ui/table.gd` if cards overflow.
+- [ ] Check touch targets: hand cards, Market cards, Keep / Sell buttons. Market shares on the tilted table are about 47×55 CSS px on a 390-wide phone; if they feel small, raise `MARKET_SCALE` in `client/scripts/ui/table.gd`.
+- [ ] Check the fan of 4 cards during the play step on a narrow phone (older iPhone SE width), and that the hand clears the bottom bar on a 16:9 phone (the stage shrinks to `STAGE_MIN_SCALE` on short screens). Adjust `HAND_SCALE` / `HAND_V` in `client/scripts/ui/table.gd` if cards overflow.
+- [ ] Look at the perspective table on a real screen: the tilt and camera distance are `TILT_DEG` / `DIST` in `client/scripts/ui/table_surface.gd`; the design used 32° at 900 px.
 - [ ] Test app backgrounding for 30 seconds mid-game and returning: the socket should reconnect and the seat should be reclaimed (auto-rejoin with backoff is implemented in `client/scripts/net/net.gd`; this checks it on a real phone).
 
 ## B2. Tutorial on a device
@@ -34,7 +35,7 @@ The tutorial exists (lobby: "How to play"): a solo game against two slow bots wi
 
 Emotes, mute, report and block exist. Tap the smiley in the top bar for the emote strip; tap an opponent's seat panel for Mute / Report / Block.
 
-- [x] Emoji emotes rendered as placeholder glyphs. Done in the cloud: the six emoji are drawn icons (`client/scripts/ui/emote_icon.gd`); no emoji font needed. `docs/screenshots/emotes.png` still shows the old glyphs until the screenshots are regenerated.
+- [x] Emoji emotes rendered as placeholder glyphs. Done in the cloud: the six emoji are drawn icons (`client/scripts/ui/emote_icon.gd`); no emoji font needed.
 - [ ] Check the seat tap target on a phone: the seat panel is 200x96 at design size; taps near the timer arc must still open the menu.
 - [ ] Confirm blocked players' emotes stay hidden after the app restarts on a phone. The mute list is now persisted in `user://net.cfg` (`[social] muted`); block is server-side via Nakama friends.
 - [ ] Apple guideline 1.2 needs published contact info. The lobby has a Help screen with "Contact support" and "Privacy policy" buttons; replace the placeholder values in `client/scripts/game/app_info.gd` with the real email and URL before submission.
@@ -68,7 +69,7 @@ Emotes, mute, report and block exist. Tap the smiley in the top bar for the emot
 
 ## F. Art and sound (can be commissioned in parallel)
 
-- [ ] Six company illustrations for the card art window (see `docs/design/theme.md`), a card back with the BB monogram, table background, coin sprites (bronze and gold), regulator token icon.
+- [ ] Six company illustrations for the card art window (see `docs/design/theme.md`); the drawn silhouettes in `client/scripts/ui/glyphs.gd` are the placeholders. A card back with the BB monogram, coin sprites (bronze and gold) and a regulator token icon can replace the drawn ones the same way. Fonts are done (Archivo and Nunito Sans, OFL, in `client/assets/fonts/`).
 - [ ] App icon and store screenshots (the cloud session's placeholder renders are in `docs/screenshots/`).
 - [ ] Sound set: card deal, card place, coin slide, coin flip to gold, turn chime, dividend fanfare. Haptics on card place and on your turn.
 

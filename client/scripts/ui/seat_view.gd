@@ -1,18 +1,28 @@
 class_name SeatView
 extends Control
-## One opponent (or the local player) at the table: avatar, name, coins,
-## portfolio pips per company, regulator tokens, turn ring with timer arc.
-## White panel with an ink border; the active seat gets a warm highlight.
+## A player's plate, after the design canvas: white with an ink border and a
+## hard shadow; avatar with initial, name (plus a "bot" badge), capital, and
+## one colour pip per company held with an R bubble for a regulator token.
+## The active seat's plate turns warm with a yellow ring and lifts. In
+## `compact` mode (the local player's row inside the bottom bar) it draws a
+## single borderless row instead. A timer arc runs around the active avatar.
 
 signal seat_pressed(seat_index: int, at: Vector2)
 
-const W := 200.0
-const H := 96.0
+const W := 218.0
+const H := 118.0
+const COMPACT_H := 52.0
+## Avatar fills, one per seat position, in the design's pastels.
+const AVATAR_FILLS := [Color("#FFD98A"), Color("#9ED9B5"), Color("#A9C5F5"), Color("#F5B8A0"), Color("#D9C5F5"), Color("#F5E1A0"), Color("#B5E0E8")]
 
 var seat_index: int = -1
 var data: Dictionary = {}
 var is_active: bool = false
 var is_me: bool = false
+var compact: bool = false:
+	set(value):
+		compact = value
+		queue_redraw()
 var deadline_ms: float = 0.0
 var step_ms: float = 0.0
 
@@ -44,88 +54,160 @@ func _process(_delta: float) -> void:
 
 
 func avatar_center() -> Vector2:
-	return global_position + Vector2(34, H / 2.0)
+	if compact:
+		return global_position + Vector2(UiTheme.px(13), size.y / 2.0)
+	return global_position + Vector2(UiTheme.px(6 + 15), UiTheme.px(6 + 15) - _lift())
+
+
+func _lift() -> float:
+	return UiTheme.px(3) if (is_active and not compact) else 0.0
 
 
 func _draw() -> void:
-	var font := ThemeDB.fallback_font
+	var p := UiTheme.SCALE
 	var connected: bool = data.get("connected", true) or data.get("isBot", false)
-	var panel := StyleBoxFlat.new()
-	panel.bg_color = Companies.HIGHLIGHT if is_active else Companies.PANEL
-	panel.set_corner_radius_all(10)
-	panel.border_color = Companies.INK
-	panel.set_border_width_all(3 if is_active else 1.5)
-	panel.shadow_color = Color(0, 0, 0, 0.18)
-	panel.shadow_size = 4
-	panel.shadow_offset = Vector2(0, 2)
-	draw_style_box(panel, Rect2(Vector2.ZERO, size))
-
-	# Avatar circle with initials.
-	var c := Vector2(34, H / 2.0)
+	var lift := _lift()
 	var name_text := String(data.get("name", "?"))
-	var hue := float(abs(name_text.hash()) % 360) / 360.0
-	var avatar_color := Color.from_hsv(hue, 0.55, 0.8)
+	var fill: Color = AVATAR_FILLS[maxi(seat_index, 0) % AVATAR_FILLS.size()]
 	if not connected:
-		avatar_color = avatar_color.lerp(Color.GRAY, 0.6)
-	draw_circle(c, 25, Companies.INK)
-	draw_circle(c, 23, avatar_color)
-	var initials := name_text.substr(0, 1).to_upper()
-	var iw := font.get_string_size(initials, HORIZONTAL_ALIGNMENT_CENTER, -1, 22).x
-	draw_string(font, c + Vector2(-iw / 2.0, 8), initials, HORIZONTAL_ALIGNMENT_LEFT, -1, 22, Color.WHITE)
+		fill = fill.lerp(Color.GRAY, 0.6)
 
-	# Timer arc around the avatar.
+	if compact:
+		_draw_row(Vector2(0, 0), size.x, 13 * p, name_text, fill, connected)
+		return
+
+	# Plate: ring first (active), then the hard-shadow box.
+	var rect := Rect2(Vector2(0, -lift), size)
+	if is_active:
+		var ring := StyleBoxFlat.new()
+		ring.bg_color = Companies.PRIMARY
+		ring.set_corner_radius_all(int(15 * p))
+		ring.anti_aliasing = true
+		draw_style_box(ring, rect.grow(4 * p))
+	var box := HardBox.new(Companies.PLATE_ON if is_active else Companies.PANEL, 12 * p, 3 * p)
+	box.border_width = 2 * p
+	box.draw(get_canvas_item(), rect)
+
+	var pad := 6 * p
+	_draw_row(Vector2(pad, pad - lift), size.x - 2 * pad, 15 * p, name_text, fill, connected)
+	_draw_pips(Vector2(pad, pad + 30 * p + 5 * p - lift), size.x - 2 * pad)
+
+
+## Avatar, name with badges, coins. `r` is the avatar radius.
+func _draw_row(at: Vector2, width: float, r: float, name_text: String, fill: Color, connected: bool) -> void:
+	var p := UiTheme.SCALE
+	var c := at + Vector2(r, r)
+	draw_circle(c, r, Companies.INK)
+	draw_circle(c, r - 2 * p, fill)
+	var initial := name_text.substr(0, 1).to_upper()
+	_centered(UiTheme.display_heavy(), initial, c, int(r * 0.95), Companies.INK)
+
+	# Timer arc around the avatar while this seat is on the clock.
 	if is_active and deadline_ms > 0 and step_ms > 0:
 		var remaining := (deadline_ms - Time.get_unix_time_from_system() * 1000.0) / step_ms
 		remaining = clampf(remaining, 0.0, 1.0)
 		var arc_color := Companies.GOLD if remaining > 0.3 else Companies.ALERT
-		draw_arc(c, 29, -PI / 2, -PI / 2 + TAU * remaining, 40, arc_color, 4.0, true)
-	elif is_active:
-		draw_arc(c, 29, 0, TAU, 40, Companies.GOLD, 3.0, true)
+		draw_arc(c, r + 4 * p, -PI / 2, -PI / 2 + TAU * remaining, 40, arc_color, 3 * p, true)
 
-	# Name + badges.
-	var label := name_text
-	if is_me:
-		label += " (you)"
+	var x := at.x + 2 * r + 7 * p
+	var name_font := UiTheme.bold()
+	var name_px := int(12 * p)
+	var label := "You" if is_me else name_text
+	var name_w := name_font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, name_px).x
+	var max_name: float = width - (x - at.x) - (0.0 if is_me else 8.0 * p)
+	if compact:
+		draw_string(name_font, Vector2(x, c.y + name_px * 0.36), label, HORIZONTAL_ALIGNMENT_LEFT, max_name, name_px, Companies.INK if connected else Companies.INK_SOFT)
+		x += minf(name_w, max_name) + 8 * p
+		_draw_coins(Vector2(x, c.y), true)
+		var pip_w := _pips_width()
+		_draw_pips(Vector2(at.x + width - pip_w, c.y - 9 * p), pip_w)
+		return
+	var name_y := at.y + 4 * p + name_px * 0.9
+	draw_string(name_font, Vector2(x, name_y), label, HORIZONTAL_ALIGNMENT_LEFT, max_name, name_px, Companies.INK if connected else Companies.INK_SOFT)
+	var badge := ""
 	if data.get("isBot", false):
-		label += " • bot"
+		badge = "bot"
 	elif not connected:
-		label += " • away"
-	draw_string(font, Vector2(68, 24), label, HORIZONTAL_ALIGNMENT_LEFT, W - 72, 15, Companies.INK if connected else Companies.INK_SOFT)
+		badge = "away"
+	if badge != "":
+		var bx := x + minf(name_w, max_name) + 4 * p
+		var bpx := int(9 * p)
+		var bw := name_font.get_string_size(badge, HORIZONTAL_ALIGNMENT_LEFT, -1, bpx).x + 6 * p
+		if bx + bw <= at.x + width:
+			var brect := Rect2(bx, name_y - name_px * 0.85, bw, bpx + 4 * p)
+			draw_rect(brect, Companies.INK, false, 1.0 * p)
+			draw_string(name_font, Vector2(bx + 3 * p, brect.get_center().y + bpx * 0.36), badge, HORIZONTAL_ALIGNMENT_LEFT, -1, bpx, Companies.INK)
+	_draw_coins(Vector2(x, at.y + 30 * p - 7 * p), width > 150 * p)
 
-	# Coins and hand count.
+
+## Bronze count (and gold when any) after a small coin icon.
+func _draw_coins(at: Vector2, with_word: bool) -> void:
+	var p := UiTheme.SCALE
+	var font := UiTheme.bold()
+	var px := int(12 * p)
 	var bronze := int(data.get("bronze", 0))
 	var gold := int(data.get("gold", 0))
-	draw_circle(Vector2(76, 42), 8, Companies.INK)
-	draw_circle(Vector2(76, 42), 6.5, Companies.BRONZE)
-	draw_string(font, Vector2(88, 47), str(bronze), HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Companies.INK)
+	var x := at.x
+	Glyphs.coin(self, Vector2(x + 6 * p, at.y), 6 * p, false)
+	x += 16 * p
+	var text := str(bronze) + (" capital" if with_word and gold == 0 else "")
+	draw_string(font, Vector2(x, at.y + px * 0.36), text, HORIZONTAL_ALIGNMENT_LEFT, -1, px, Companies.INK)
 	if gold > 0:
-		draw_circle(Vector2(122, 42), 8, Companies.INK)
-		draw_circle(Vector2(122, 42), 6.5, Companies.GOLD)
-		draw_string(font, Vector2(134, 47), str(gold), HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Companies.INK)
-	var hand_count := int(data.get("handCount", 0))
-	for i in hand_count:
-		draw_rect(Rect2(W - 30 + i * 6, 34, 8, 12), Companies.CARD_FACE, true)
-		draw_rect(Rect2(W - 30 + i * 6, 34, 8, 12), Companies.INK, false, 1.0)
+		x += font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, px).x + 6 * p
+		Glyphs.coin(self, Vector2(x + 6 * p, at.y), 6 * p, true)
+		draw_string(font, Vector2(x + 16 * p, at.y + px * 0.36), str(gold), HORIZONTAL_ALIGNMENT_LEFT, -1, px, Companies.INK)
 
-	# Portfolio pips: one colour block per company held, like a deed's band.
+
+func _counts() -> Array:
 	var counts := [0, 0, 0, 0, 0, 0]
 	for card in data.get("portfolio", []):
 		counts[int(card.get("company", 0))] += 1
-	var x := 68.0
+	return counts
+
+
+func _pips_width() -> float:
+	var p := UiTheme.SCALE
+	var n := 0
+	var counts := _counts()
+	var tokens: Array = data.get("tokens", [])
 	for company in 6:
-		if counts[company] == 0:
+		if counts[company] > 0 or tokens.has(company):
+			n += 1
+	return maxf(0.0, n * 18 * p + maxi(n - 1, 0) * 5 * p)
+
+
+## One deed-band pip per company held; an R bubble marks a regulator token.
+func _draw_pips(at: Vector2, width: float) -> void:
+	var p := UiTheme.SCALE
+	var counts := _counts()
+	var tokens: Array = data.get("tokens", [])
+	var x := at.x
+	var pip_w := 18 * p
+	var font := UiTheme.display_heavy()
+	for company in 6:
+		var tok: bool = tokens.has(company)
+		if counts[company] == 0 and not tok:
 			continue
-		var col := Companies.color_of(company)
-		var pip := Rect2(x, 58, 22, 26)
-		draw_rect(pip, col, true)
-		draw_rect(pip, Companies.INK, false, 1.0)
-		var txt := str(counts[company])
-		var tw := font.get_string_size(txt, HORIZONTAL_ALIGNMENT_CENTER, -1, 14).x
-		draw_string(font, Vector2(x + 11 - tw / 2.0, 77), txt, HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Companies.band_text_color(company))
-		# Regulator token: small "R" ring on the pip.
-		if data.get("tokens", []).has(company):
-			draw_circle(Vector2(x + 20, 60), 7.5, Companies.INK)
-			draw_circle(Vector2(x + 20, 60), 6, Color.WHITE)
-			var rw := font.get_string_size("R", HORIZONTAL_ALIGNMENT_CENTER, -1, 9).x
-			draw_string(font, Vector2(x + 20 - rw / 2.0, 63.5), "R", HORIZONTAL_ALIGNMENT_LEFT, -1, 9, Companies.INK)
-		x += 26
+		if x + pip_w > at.x + width + 1:
+			break
+		var pip := Rect2(x, at.y, pip_w, 18 * p)
+		var s := StyleBoxFlat.new()
+		s.bg_color = Companies.color_of(company)
+		s.border_color = Companies.INK
+		s.set_border_width_all(int(1.5 * p))
+		s.set_corner_radius_all(int(3 * p))
+		s.anti_aliasing = true
+		draw_style_box(s, pip)
+		_centered(font, str(counts[company]), pip.get_center(), int(11 * p), Companies.band_text_color(company))
+		if tok:
+			var tc := Vector2(pip.end.x, pip.position.y)
+			draw_circle(tc, 7 * p, Companies.INK)
+			draw_circle(tc, 5.5 * p, Companies.CARD_FACE)
+			_centered(font, "R", tc, int(8 * p), Companies.INK)
+		x += pip_w + 5 * p
+
+
+func _centered(font: Font, text: String, at: Vector2, px: int, color: Color) -> void:
+	px = maxi(px, 3)
+	var w := font.get_string_size(text, HORIZONTAL_ALIGNMENT_CENTER, -1, px).x
+	draw_string(font, at + Vector2(-w / 2.0, px * 0.36), text, HORIZONTAL_ALIGNMENT_LEFT, -1, px, color)

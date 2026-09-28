@@ -48,6 +48,8 @@ Phase 1 (playable core), cloud-doable parts complete: live end-to-end tests agai
 
 Phase 2 (soft-launch features), cloud-doable parts complete: preset emotes and phrases with mute, report and block (no free-text chat: all-ages decision), XP and levels awarded at game end, a daily bonus with a streak, a monthly season leaderboard for games with other people, and automatic reconnect with seat rejoin. The look is a title-deed theme on a board-green table.
 
+Visual redesign (2026-09-28) from the "3D table" design canvas: the table is drawn in perspective (tilted felt with the supply, Market, Portfolio and opponents' hands on it, your hand held upright in front), deed-style buttons and plates with hard shadows, the Archivo / Nunito Sans type pair, a start page with a floating card fan, and a tutorial coach that spotlights what it explains. Renders of every screen are in `docs/screenshots/`.
+
 Phase 2 follow-ups, cloud-doable parts complete: the tutorial guides the first two turns (only the coached action is enabled) and a Help screen holds a replayable rules reference plus support and privacy links; the first "Play now" routes new players into the tutorial; friends list and private-room invites (Nakama notifications); daily and weekly quests feeding a free cosmetic track (card backs and table felts); a placeholder sound set synthesized in code, a timer glow under 5 seconds and haptics; drawn emote icons instead of emoji; the lobby host field accepts https URLs; and a heuristic bot with one-ply lookahead for public games (the tutorial and timeouts keep the simple auto-move).
 
 Code conventions (acyclic, layered dependency graph checked with graphify on every push and in CI) are in `docs/conventions.md`.

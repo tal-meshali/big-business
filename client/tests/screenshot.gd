@@ -2,7 +2,7 @@ extends SceneTree
 ## Renders the lobby and a mid-game table with a fake view and saves PNGs.
 ## Needs a display (use xvfb-run on Linux):
 ##   xvfb-run -a godot --rendering-driver opengl3 --path client --script res://tests/screenshot.gd -- out_dir
-## Output: <out_dir>/lobby.png, <out_dir>/table.png, <out_dir>/dividend.png
+## Output: lobby, table, play_step, dividend, tutorial, tutorial_step and emotes PNGs in <out_dir>
 
 
 func _init() -> void:
@@ -86,6 +86,10 @@ func _run() -> void:
 	tutorial._on_view(opening)
 	await _settle()
 	await _save(out_dir + "/tutorial.png")
+	# Second card: a guided move with the spotlight on the supply.
+	tutorial.coach._on_got_it()
+	await _settle()
+	await _save(out_dir + "/tutorial_step.png")
 	tutorial.queue_free()
 
 	# Emote bar open and bubbles on two opponents.
@@ -108,7 +112,7 @@ func _run() -> void:
 
 
 func _settle() -> void:
-	for i in 6:
+	for i in 24:
 		await process_frame
 
 

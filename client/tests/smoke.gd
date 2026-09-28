@@ -42,8 +42,11 @@ func _run() -> void:
 	if table._market_row.get_child_count() != 2:
 		push_error("expected 2 market cards, got %d" % table._market_row.get_child_count())
 		failures += 1
-	if table._hand_row.get_child_count() != 3:
-		push_error("expected 3 hand cards, got %d" % table._hand_row.get_child_count())
+	if table._hand_cards.size() != 3:
+		push_error("expected 3 hand cards, got %d" % table._hand_cards.size())
+		failures += 1
+	if table._seat_views.filter(func(sv): return sv.visible).size() != 3:
+		push_error("expected 3 visible seat views")
 		failures += 1
 	if table._draw_button.disabled:
 		push_error("draw button should be enabled on my take step")
@@ -62,11 +65,35 @@ func _run() -> void:
 		{"type": "play_market", "cardId": 1}, {"type": "play_market", "cardId": 2},
 	]
 	table._on_view(fake_view)
-	table._toggle_mode()
 	await process_frame
-	var hand: Array = table._hand_row.get_children()
-	if hand.size() == 3 and not hand[2].disabled:
+	if table._keep_button.visible:
+		push_error("keep/sell buttons must stay hidden until a card is selected")
+		failures += 1
+	table._on_hand_card_pressed(3)  # company 5, the company just taken
+	await process_frame
+	if not table._keep_button.visible or table._keep_button.disabled:
+		push_error("keep must be offered for the selected card")
+		failures += 1
+	if not table._sell_button.disabled:
 		push_error("card of the company just taken must not be sellable to the market")
+		failures += 1
+	table._on_hand_card_pressed(1)
+	await process_frame
+	if table._sell_button.disabled:
+		push_error("a different company must be sellable")
+		failures += 1
+
+	# Dividend day renders the result panel.
+	fake_view["phase"] = "ended"
+	fake_view["legal"] = []
+	fake_view["result"] = {
+		"companies": [{"company": 5, "majority": 0, "payments": [{"from": 1, "to": 0, "coins": 2}]}, {"company": 2, "majority": null, "payments": []}],
+		"scores": [{"seat": 0, "bronze": 9, "gold": 2, "score": 15, "rank": 1}, {"seat": 1, "bronze": 8, "gold": 0, "score": 8, "rank": 3}, {"seat": 2, "bronze": 11, "gold": 0, "score": 11, "rank": 2}],
+	}
+	table._on_view(fake_view)
+	await process_frame
+	if not table._result_backdrop.visible or not table._result_label.text.contains("collects 2"):
+		push_error("result panel should show the dividend breakdown")
 		failures += 1
 
 	var main = main_scene.instantiate()

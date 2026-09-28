@@ -1,20 +1,46 @@
 extends Control
-## The game table. Renders a PlayerView from the server and sends intents.
-## Layout is built in code for the spike; a designed scene replaces it later.
+## The game table (portrait). Renders a PlayerView from the server, animates
+## the events that precede each view, and sends intents.
+##
+## Layout (720x1280 design size, scales with canvas_items stretch):
+##   top bar        status + timer + leave
+##   seat oval      opponents on a vertical oval, you at the bottom seat slot
+##   market strip   supply pile | market cards (scrollable)
+##   action area    contextual prompt (draw / keep / sell)
+##   hand fan       your 3-4 cards
+
+const FLY_TIME := 0.35
+const COIN_TIME := 0.3
+const HAND_SCALE := 1.35
 
 var view: Dictionary = {}
 var _my_seat: int = -1
+var _step_seconds: float = 30.0
+
+# Widgets
 var _status: Label
-var _market_row: HBoxContainer
-var _hand_row: HBoxContainer
-var _seats_box: VBoxContainer
-var _supply_label: Label
-var _draw_button: Button
-var _leave_button: Button
-var _play_mode: String = "portfolio"
-var _mode_button: Button
-var _result_label: Label
 var _timer_label: Label
+var _seats_layer: Control
+var _seat_views: Array[SeatView] = []
+var _market_row: HBoxContainer
+var _supply_pile: CardView
+var _supply_count: Label
+var _hand_layer: Control
+var _hand_cards: Array[CardView] = []
+var _draw_button: Button
+var _prompt: Label
+var _keep_button: Button
+var _sell_button: Button
+var _cancel_button: Button
+var _fx_layer: Control
+var _result_panel: PanelContainer
+var _result_backdrop: ColorRect
+var _result_label: Label
+
+var _selected_card: int = -1
+var _pending_events: Array = []
+var _animating: bool = false
+var _last_view: Dictionary = {}
 
 
 func _ready() -> void:
@@ -22,109 +48,285 @@ func _ready() -> void:
 	Net.view_updated.connect(_on_view)
 	Net.events_received.connect(_on_events)
 	Net.server_error.connect(_on_error)
-	set_process(true)
+	Net.connection_failed.connect(func(reason: String) -> void: _status.text = reason)
 
+
+# ---------------------------------------------------------------------------
+# Layout
+# ---------------------------------------------------------------------------
 
 func _build_layout() -> void:
 	set_anchors_preset(Control.PRESET_FULL_RECT)
 	var bg := ColorRect.new()
 	bg.color = Companies.TABLE_BG
 	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
+	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(bg)
 
-	var root := VBoxContainer.new()
-	root.set_anchors_preset(Control.PRESET_FULL_RECT)
-	root.offset_left = 16
-	root.offset_right = -16
-	root.offset_top = 24
-	root.offset_bottom = -24
-	root.add_theme_constant_override("separation", 12)
-	add_child(root)
-
+	# Top bar.
 	var top := HBoxContainer.new()
-	root.add_child(top)
+	top.set_anchors_and_offsets_preset(Control.PRESET_TOP_WIDE)
+	top.offset_left = 16
+	top.offset_right = -16
+	top.offset_top = 16
+	top.custom_minimum_size = Vector2(0, 48)
+	add_child(top)
 	_status = Label.new()
 	_status.text = "Connecting..."
 	_status.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_status.add_theme_font_size_override("font_size", 22)
+	_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	top.add_child(_status)
 	_timer_label = Label.new()
 	_timer_label.add_theme_font_size_override("font_size", 22)
+	_timer_label.add_theme_color_override("font_color", Companies.GOLD)
 	top.add_child(_timer_label)
-	_leave_button = Button.new()
-	_leave_button.text = "Leave"
-	_leave_button.pressed.connect(_on_leave)
-	top.add_child(_leave_button)
+	var leave := Button.new()
+	leave.text = "Leave"
+	leave.pressed.connect(_on_leave)
+	top.add_child(leave)
 
-	_seats_box = VBoxContainer.new()
-	_seats_box.add_theme_constant_override("separation", 4)
-	root.add_child(_seats_box)
+	# Seat oval.
+	_seats_layer = Control.new()
+	_seats_layer.set_anchors_and_offsets_preset(Control.PRESET_TOP_WIDE)
+	_seats_layer.offset_top = 72
+	_seats_layer.offset_bottom = 72 + 430
+	_seats_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(_seats_layer)
 
+	# Market strip.
+	var market_box := VBoxContainer.new()
+	market_box.set_anchors_and_offsets_preset(Control.PRESET_TOP_WIDE)
+	market_box.offset_left = 16
+	market_box.offset_right = -16
+	market_box.offset_top = 520
+	add_child(market_box)
 	var market_title := Label.new()
 	market_title.text = "The Market"
-	market_title.add_theme_font_size_override("font_size", 18)
-	root.add_child(market_title)
+	market_title.add_theme_font_size_override("font_size", 16)
+	market_title.add_theme_color_override("font_color", Color(1, 1, 1, 0.7))
+	market_box.add_child(market_title)
+	var strip := HBoxContainer.new()
+	strip.add_theme_constant_override("separation", 12)
+	market_box.add_child(strip)
+
+	var supply_box := VBoxContainer.new()
+	supply_box.alignment = BoxContainer.ALIGNMENT_CENTER
+	strip.add_child(supply_box)
+	_supply_pile = CardView.new()
+	_supply_pile.setup(-1, 0, 0, false)
+	_supply_pile.selectable = false
+	supply_box.add_child(_supply_pile)
+	_supply_count = Label.new()
+	_supply_count.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_supply_count.add_theme_font_size_override("font_size", 14)
+	supply_box.add_child(_supply_count)
+
+	var sep := ColorRect.new()
+	sep.color = Color(1, 1, 1, 0.15)
+	sep.custom_minimum_size = Vector2(2, CardView.H)
+	strip.add_child(sep)
 
 	var market_scroll := ScrollContainer.new()
-	market_scroll.custom_minimum_size = Vector2(0, CardView.H + 16)
+	market_scroll.custom_minimum_size = Vector2(0, CardView.H + 12)
+	market_scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	market_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
 	market_scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	root.add_child(market_scroll)
+	strip.add_child(market_scroll)
 	_market_row = HBoxContainer.new()
 	_market_row.add_theme_constant_override("separation", 8)
 	market_scroll.add_child(_market_row)
 
-	var supply_row := HBoxContainer.new()
-	root.add_child(supply_row)
-	_supply_label = Label.new()
-	_supply_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	supply_row.add_child(_supply_label)
-	_draw_button = Button.new()
-	_draw_button.text = "Draw from supply"
-	_draw_button.custom_minimum_size = Vector2(0, 56)
-	_draw_button.pressed.connect(func() -> void: Net.send_action(Protocol.take_supply()))
-	supply_row.add_child(_draw_button)
+	# Action area.
+	var actions := VBoxContainer.new()
+	actions.set_anchors_and_offsets_preset(Control.PRESET_TOP_WIDE)
+	actions.offset_left = 16
+	actions.offset_right = -16
+	actions.offset_top = 740
+	actions.add_theme_constant_override("separation", 8)
+	add_child(actions)
+	_prompt = Label.new()
+	_prompt.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_prompt.add_theme_font_size_override("font_size", 18)
+	_prompt.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	actions.add_child(_prompt)
+	var buttons := HBoxContainer.new()
+	buttons.alignment = BoxContainer.ALIGNMENT_CENTER
+	buttons.add_theme_constant_override("separation", 12)
+	actions.add_child(buttons)
+	_draw_button = _make_button(buttons, "Draw from supply", _on_draw_pressed)
+	_keep_button = _make_button(buttons, "Keep", _on_keep_pressed)
+	_sell_button = _make_button(buttons, "Sell to Market", _on_sell_pressed)
+	_cancel_button = _make_button(buttons, "Cancel", _on_cancel_pressed)
 
+	# Hand fan.
+	_hand_layer = Control.new()
+	_hand_layer.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_WIDE)
+	_hand_layer.offset_top = -CardView.H * HAND_SCALE - 90
+	_hand_layer.offset_bottom = -24
+	_hand_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(_hand_layer)
+
+	# Effects overlay (flying cards and coins).
+	_fx_layer = Control.new()
+	_fx_layer.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_fx_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(_fx_layer)
+
+	# Result panel (dividend day): dimmed backdrop + centered panel.
+	_result_backdrop = ColorRect.new()
+	_result_backdrop.color = Color(0, 0, 0, 0.55)
+	_result_backdrop.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_result_backdrop.visible = false
+	add_child(_result_backdrop)
+	var center := CenterContainer.new()
+	center.set_anchors_preset(Control.PRESET_FULL_RECT)
+	center.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_result_backdrop.add_child(center)
+	_result_panel = PanelContainer.new()
+	_result_panel.custom_minimum_size = Vector2(600, 0)
+	var panel_style := StyleBoxFlat.new()
+	panel_style.bg_color = Color("#1E2A44")
+	panel_style.border_color = Companies.GOLD
+	panel_style.set_border_width_all(2)
+	panel_style.set_corner_radius_all(20)
+	panel_style.set_content_margin_all(24)
+	_result_panel.add_theme_stylebox_override("panel", panel_style)
+	center.add_child(_result_panel)
+	var result_box := VBoxContainer.new()
+	result_box.add_theme_constant_override("separation", 12)
+	_result_panel.add_child(result_box)
+	var result_title := Label.new()
+	result_title.text = "Dividend day"
+	result_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	result_title.add_theme_font_size_override("font_size", 32)
+	result_title.add_theme_color_override("font_color", Companies.GOLD)
+	result_box.add_child(result_title)
 	_result_label = Label.new()
-	_result_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_result_label.visible = false
-	root.add_child(_result_label)
-
-	var spacer := Control.new()
-	spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	root.add_child(spacer)
-
-	var hand_title_row := HBoxContainer.new()
-	root.add_child(hand_title_row)
-	var hand_title := Label.new()
-	hand_title.text = "Your hand"
-	hand_title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	hand_title.add_theme_font_size_override("font_size", 18)
-	hand_title_row.add_child(hand_title)
-	_mode_button = Button.new()
-	_mode_button.custom_minimum_size = Vector2(0, 48)
-	_mode_button.pressed.connect(_toggle_mode)
-	hand_title_row.add_child(_mode_button)
-	_update_mode_button()
-
-	_hand_row = HBoxContainer.new()
-	_hand_row.add_theme_constant_override("separation", 8)
-	_hand_row.alignment = BoxContainer.ALIGNMENT_CENTER
-	root.add_child(_hand_row)
+	_result_label.add_theme_font_size_override("font_size", 18)
+	result_box.add_child(_result_label)
+	var result_buttons := HBoxContainer.new()
+	result_buttons.alignment = BoxContainer.ALIGNMENT_CENTER
+	result_buttons.add_theme_constant_override("separation", 12)
+	result_box.add_child(result_buttons)
+	_make_button(result_buttons, "Play again", _on_play_again).visible = true
+	_make_button(result_buttons, "Leave", _on_leave).visible = true
 
 
-func _toggle_mode() -> void:
-	_play_mode = "market" if _play_mode == "portfolio" else "portfolio"
-	_update_mode_button()
-	_render()
+func _make_button(parent: Control, text: String, handler: Callable) -> Button:
+	var b := Button.new()
+	b.text = text
+	b.custom_minimum_size = Vector2(150, 56)
+	b.add_theme_font_size_override("font_size", 18)
+	b.pressed.connect(handler)
+	b.visible = false
+	parent.add_child(b)
+	return b
 
 
-func _update_mode_button() -> void:
-	_mode_button.text = "Tap a card to: Keep" if _play_mode == "portfolio" else "Tap a card to: Sell to Market"
+## Seat slot positions (fractions of the seats layer) for N opponents.
+## Index 0 is the slot directly opposite you; slots fan out around the oval.
+func _opponent_slots(n: int) -> Array[Vector2]:
+	var slots: Array[Vector2] = []
+	match n:
+		1: slots = [Vector2(0.5, 0.15)]
+		2: slots = [Vector2(0.28, 0.15), Vector2(0.72, 0.15)]
+		3: slots = [Vector2(0.18, 0.55), Vector2(0.5, 0.12), Vector2(0.82, 0.55)]
+		4: slots = [Vector2(0.18, 0.62), Vector2(0.3, 0.14), Vector2(0.7, 0.14), Vector2(0.82, 0.62)]
+		5: slots = [Vector2(0.16, 0.72), Vector2(0.2, 0.36), Vector2(0.5, 0.1), Vector2(0.8, 0.36), Vector2(0.84, 0.72)]
+		_: slots = [Vector2(0.16, 0.78), Vector2(0.16, 0.44), Vector2(0.32, 0.12), Vector2(0.68, 0.12), Vector2(0.84, 0.44), Vector2(0.84, 0.78)]
+	return slots
+
+
+# ---------------------------------------------------------------------------
+# Input handlers
+# ---------------------------------------------------------------------------
+
+func _on_draw_pressed() -> void:
+	Net.send_action(Protocol.take_supply())
+	_set_buttons_enabled(false)
+
+
+func _on_market_card_pressed(card_id: int) -> void:
+	if not _is_my_turn() or view.get("phase") != "take":
+		return
+	Net.send_action(Protocol.take_market(card_id))
+	_set_buttons_enabled(false)
+
+
+func _on_hand_card_pressed(card_id: int) -> void:
+	if not _is_my_turn() or view.get("phase") != "play":
+		return
+	_selected_card = -1 if _selected_card == card_id else card_id
+	for cv in _hand_cards:
+		cv.selected = cv.card_id == _selected_card
+	_update_prompt()
+
+
+func _on_keep_pressed() -> void:
+	if _selected_card >= 0:
+		Net.send_action(Protocol.play_portfolio(_selected_card))
+		_set_buttons_enabled(false)
+
+
+func _on_sell_pressed() -> void:
+	if _selected_card >= 0:
+		Net.send_action(Protocol.play_market(_selected_card))
+		_set_buttons_enabled(false)
+
+
+func _on_cancel_pressed() -> void:
+	_selected_card = -1
+	for cv in _hand_cards:
+		cv.selected = false
+	_update_prompt()
+
+
+func _on_leave() -> void:
+	await Net.leave_match()
+	get_tree().change_scene_to_file("res://scenes/main.tscn")
+
+
+func _on_play_again() -> void:
+	await Net.leave_match()
+	_status.text = "Finding a new game..."
+	_result_backdrop.visible = false
+	var ok: bool = await Net.quick_play()
+	if not ok:
+		get_tree().change_scene_to_file("res://scenes/main.tscn")
+
+
+func _set_buttons_enabled(enabled: bool) -> void:
+	for b in [_draw_button, _keep_button, _sell_button, _cancel_button]:
+		b.disabled = not enabled
+
+
+# ---------------------------------------------------------------------------
+# Server messages
+# ---------------------------------------------------------------------------
+
+func _on_error(message: String) -> void:
+	_status.text = "Error: %s" % message
+	_set_buttons_enabled(true)
+
+
+func _on_events(_seq: int, events: Array) -> void:
+	_pending_events.append_array(events)
+
+
+func _on_view(v: Dictionary) -> void:
+	_last_view = view
+	view = v
+	_my_seat = int(v.get("you", -1)) if v.get("you") != null else -1
+	if not _last_view.is_empty() and not _pending_events.is_empty():
+		_play_events_then_render()
+	else:
+		_pending_events.clear()
+		_render()
 
 
 func _process(_delta: float) -> void:
-	if view.is_empty() or _timer_label == null:
+	if view.is_empty():
 		return
 	var deadline := float(view.get("deadline", 0))
 	if deadline <= 0 or view.get("phase") == "ended":
@@ -132,28 +334,6 @@ func _process(_delta: float) -> void:
 		return
 	var remaining := int(ceil((deadline - Time.get_unix_time_from_system() * 1000.0) / 1000.0))
 	_timer_label.text = "%ds" % maxi(remaining, 0)
-
-
-func _on_view(v: Dictionary) -> void:
-	view = v
-	_my_seat = int(v.get("you", -1)) if v.get("you") != null else -1
-	_render()
-
-
-func _on_events(_seq: int, events: Array) -> void:
-	# Animation hooks go here. For the spike, only log big moments.
-	for e in events:
-		if e.get("type") == "game_ended":
-			print("game ended")
-
-
-func _on_error(message: String) -> void:
-	_status.text = "Error: %s" % message
-
-
-func _on_leave() -> void:
-	await Net.leave_match()
-	get_tree().change_scene_to_file("res://scenes/main.tscn")
 
 
 func _is_my_turn() -> bool:
@@ -169,51 +349,69 @@ func _legal(type: String, card_id: int = -1) -> bool:
 	return false
 
 
+# ---------------------------------------------------------------------------
+# Rendering
+# ---------------------------------------------------------------------------
+
 func _render() -> void:
 	if view.is_empty():
 		return
 	var phase := String(view.get("phase", ""))
 	var seats: Array = view.get("seats", [])
 	var active := int(view.get("active", 0))
+	_selected_card = -1
 
-	# Status line.
+	_render_status(phase, seats, active)
+	_render_seats(seats, active, phase)
+	_render_market(phase)
+	_render_hand(seats, phase)
+	_update_prompt()
+	_render_result(seats)
+
+
+func _render_status(phase: String, seats: Array, active: int) -> void:
 	if phase == "ended":
 		_status.text = "Dividend day!"
 	elif _is_my_turn():
-		_status.text = "Your turn: %s" % ("take a share" if phase == "take" else "play a share")
+		_status.text = "Your turn"
 	else:
 		var who: Dictionary = seats[active] if active < seats.size() else {}
-		_status.text = "%s is %s" % [who.get("name", "?"), "taking" if phase == "take" else "playing"]
+		_status.text = "%s is %s..." % [who.get("name", "?"), "choosing a share" if phase == "take" else "playing"]
 
-	# Seats.
-	for child in _seats_box.get_children():
-		child.queue_free()
-	for i in seats.size():
-		var s: Dictionary = seats[i]
-		var line := Label.new()
-		var counts := [0, 0, 0, 0, 0, 0]
-		for c in s.get("portfolio", []):
-			counts[int(c.get("company", 0))] += 1
-		var pips := ""
-		for c in 6:
-			if counts[c] > 0:
-				pips += " %s:%d" % [Companies.short_name_of(c), counts[c]]
-		var tokens := ""
-		for t in s.get("tokens", []):
-			tokens += " [R:%s]" % Companies.short_name_of(int(t))
-		var marker := "> " if i == active and phase != "ended" else "  "
-		var you := " (you)" if i == _my_seat else ""
-		var bot := " [bot]" if s.get("isBot", false) else ""
-		var offline := "" if s.get("connected", true) or s.get("isBot", false) else " (away)"
-		line.text = "%s%s%s%s%s  coins %d/%d  hand %d %s%s" % [
-			marker, s.get("name", "?"), you, bot, offline,
-			int(s.get("bronze", 0)), int(s.get("gold", 0)), int(s.get("handCount", 0)), pips, tokens]
-		line.add_theme_font_size_override("font_size", 16)
-		if i == active and phase != "ended":
-			line.add_theme_color_override("font_color", Companies.GOLD)
-		_seats_box.add_child(line)
 
-	# Market.
+func _render_seats(seats: Array, active: int, phase: String) -> void:
+	# Opponents are listed clockwise starting after me so the oval reads in turn order.
+	var order: Array[int] = []
+	var n := seats.size()
+	var start := _my_seat if _my_seat >= 0 else 0
+	for k in range(1, n):
+		order.append((start + k) % n)
+	var slots := _opponent_slots(order.size())
+	while _seat_views.size() < n:
+		var sv := SeatView.new()
+		_seats_layer.add_child(sv)
+		_seat_views.append(sv)
+	for sv in _seat_views:
+		sv.visible = false
+	var layer_size := _seats_layer.size
+	if layer_size.x <= 0:
+		layer_size = Vector2(720, 430)
+	for i in order.size():
+		var seat_idx := order[i]
+		var sv := _seat_views[i]
+		var slot := slots[i]
+		sv.position = Vector2(slot.x * layer_size.x - SeatView.W / 2.0, slot.y * layer_size.y)
+		sv.visible = true
+		sv.update(seat_idx, seats[seat_idx], seat_idx == active and phase != "ended", false, float(view.get("deadline", 0)), _step_seconds)
+	# My own seat card sits just above the hand.
+	if _my_seat >= 0 and _my_seat < n:
+		var me := _seat_views[order.size()]
+		me.position = Vector2(layer_size.x / 2.0 - SeatView.W / 2.0, layer_size.y - SeatView.H - 4)
+		me.visible = true
+		me.update(_my_seat, seats[_my_seat], _my_seat == active and phase != "ended", true, float(view.get("deadline", 0)), _step_seconds)
+
+
+func _render_market(phase: String) -> void:
 	for child in _market_row.get_children():
 		_market_row.remove_child(child)
 		child.queue_free()
@@ -222,45 +420,222 @@ func _render() -> void:
 		var cv := CardView.new()
 		cv.setup(int(card.get("id", -1)), int(card.get("company", 0)), int(slot.get("coins", 0)))
 		cv.selectable = _is_my_turn() and phase == "take" and _legal("take_market", cv.card_id)
-		cv.card_pressed.connect(func(id: int) -> void: Net.send_action(Protocol.take_market(id)))
+		cv.card_pressed.connect(_on_market_card_pressed)
 		_market_row.add_child(cv)
+	var supply := int(view.get("supplyCount", 0))
+	_supply_count.text = "%d left" % supply
+	_supply_pile.modulate = Color(1, 1, 1, 1 if supply > 0 else 0.3)
 
-	# Supply and draw button.
-	var cost = view.get("drawCost")
-	_supply_label.text = "Supply: %d shares" % int(view.get("supplyCount", 0))
-	if cost != null:
-		_supply_label.text += "   (draw costs %d)" % int(cost)
-	_draw_button.disabled = not (_is_my_turn() and phase == "take" and _legal("take_supply"))
-	_draw_button.visible = phase != "ended"
-	_mode_button.visible = phase != "ended"
 
-	# Hand.
-	for child in _hand_row.get_children():
-		_hand_row.remove_child(child)
-		child.queue_free()
-	if _my_seat >= 0 and _my_seat < seats.size():
-		var me: Dictionary = seats[_my_seat]
-		for card in me.get("hand", []):
-			var cv := CardView.new()
-			cv.setup(int(card.get("id", -1)), int(card.get("company", 0)))
-			var action_type := "play_portfolio" if _play_mode == "portfolio" else "play_market"
-			cv.selectable = _is_my_turn() and phase == "play" and _legal(action_type, cv.card_id)
-			cv.card_pressed.connect(_on_hand_card_pressed)
-			_hand_row.add_child(cv)
+func _render_hand(seats: Array, phase: String) -> void:
+	for cv in _hand_cards:
+		_hand_layer.remove_child(cv)
+		cv.queue_free()
+	_hand_cards.clear()
+	if _my_seat < 0 or _my_seat >= seats.size():
+		return
+	var me: Dictionary = seats[_my_seat]
+	var hand: Array = me.get("hand", [])
+	var count := hand.size()
+	if count == 0:
+		return
+	var layer_w := _hand_layer.size.x if _hand_layer.size.x > 0 else 720.0
+	var card_w := CardView.W * HAND_SCALE
+	var spacing := minf(card_w + 12, (layer_w - 48) / count)
+	var total := spacing * (count - 1) + card_w
+	var x0 := (layer_w - total) / 2.0
+	for i in count:
+		var card: Dictionary = hand[i]
+		var cv := CardView.new()
+		cv.setup(int(card.get("id", -1)), int(card.get("company", 0)))
+		cv.scale = Vector2(HAND_SCALE, HAND_SCALE)
+		cv.pivot_offset = Vector2(CardView.W / 2.0, CardView.H)
+		var t := 0.0 if count == 1 else (float(i) / (count - 1) - 0.5)
+		cv.rotation = deg_to_rad(t * 12.0)
+		cv.set_rest_position(Vector2(x0 + i * spacing, 50 + abs(t) * 20))
+		var can_play := _is_my_turn() and phase == "play"
+		cv.selectable = can_play
+		cv.card_pressed.connect(_on_hand_card_pressed)
+		_hand_layer.add_child(cv)
+		_hand_cards.append(cv)
 
-	# Result.
+
+func _update_prompt() -> void:
+	var phase := String(view.get("phase", ""))
+	var mine := _is_my_turn()
+	_draw_button.visible = false
+	_keep_button.visible = false
+	_sell_button.visible = false
+	_cancel_button.visible = false
+	_set_buttons_enabled(true)
+	if phase == "ended":
+		_prompt.text = ""
+		return
+	if not mine:
+		_prompt.text = "Waiting for your turn"
+		return
+	if phase == "take":
+		var cost = view.get("drawCost")
+		var cost_text := ""
+		if cost != null:
+			cost_text = "free" if int(cost) == 0 else "%d coin%s onto the Market" % [int(cost), "" if int(cost) == 1 else "s"]
+		_prompt.text = "Take a share from the Market, or draw from the supply (%s)" % cost_text
+		_draw_button.visible = true
+		_draw_button.disabled = not _legal("take_supply")
+		return
+	# Play step.
+	if _selected_card < 0:
+		_prompt.text = "Tap a card in your hand"
+		return
+	var company := -1
+	for cv in _hand_cards:
+		if cv.card_id == _selected_card:
+			company = cv.company
+	_prompt.text = "%s: keep it in your portfolio or sell it to the Market?" % Companies.name_of(company)
+	_keep_button.visible = true
+	_sell_button.visible = true
+	_cancel_button.visible = true
+	_keep_button.disabled = not _legal("play_portfolio", _selected_card)
+	_sell_button.disabled = not _legal("play_market", _selected_card)
+
+
+func _render_result(seats: Array) -> void:
 	var result = view.get("result")
-	_result_label.visible = result != null
-	if result != null:
-		var lines := PackedStringArray()
-		for sc in result.get("scores", []):
-			var seat: Dictionary = seats[int(sc.get("seat", 0))]
-			lines.append("#%d %s: %d  (bronze %d, gold %d)" % [int(sc.get("rank", 0)), seat.get("name", "?"), int(sc.get("score", 0)), int(sc.get("bronze", 0)), int(sc.get("gold", 0))])
-		_result_label.text = "\n".join(lines)
+	_result_backdrop.visible = result != null
+	if result == null:
+		return
+	var lines := PackedStringArray()
+	for div in result.get("companies", []):
+		var company := int(div.get("company", 0))
+		var majority = div.get("majority")
+		if majority == null:
+			lines.append("%s: no majority, no dividend" % Companies.name_of(company))
+		else:
+			var paid := 0
+			for p in div.get("payments", []):
+				paid += int(p.get("coins", 0))
+			lines.append("%s: %s collects %d" % [Companies.name_of(company), seats[int(majority)].get("name", "?"), paid])
+	lines.append("")
+	for sc in result.get("scores", []):
+		var seat: Dictionary = seats[int(sc.get("seat", 0))]
+		var rank := int(sc.get("rank", 1))
+		var medal: String = ["🥇", "🥈", "🥉"][rank - 1] if rank <= 3 else "  "
+		lines.append("%s %s  %d  (%d bronze + %d gold)" % [medal, seat.get("name", "?"), int(sc.get("score", 0)), int(sc.get("bronze", 0)), int(sc.get("gold", 0))])
+	_result_label.text = "\n".join(lines)
 
 
-func _on_hand_card_pressed(id: int) -> void:
-	if _play_mode == "portfolio":
-		Net.send_action(Protocol.play_portfolio(id))
-	else:
-		Net.send_action(Protocol.play_market(id))
+# ---------------------------------------------------------------------------
+# Animations: play the events between the previous and the current view,
+# then render the new view. Positions come from the previous layout.
+# ---------------------------------------------------------------------------
+
+func _seat_anchor(seat_idx: int) -> Vector2:
+	for sv in _seat_views:
+		if sv.visible and sv.seat_index == seat_idx:
+			return sv.avatar_center()
+	return _seats_layer.global_position + _seats_layer.size / 2.0
+
+
+func _market_card_anchor(card_id: int) -> Vector2:
+	for cv in _market_row.get_children():
+		if cv is CardView and cv.card_id == card_id:
+			return cv.global_position
+	return _supply_pile.global_position
+
+
+func _hand_anchor(card_id: int) -> Vector2:
+	for cv in _hand_cards:
+		if cv.card_id == card_id:
+			return cv.global_position
+	return _hand_layer.global_position + Vector2(_hand_layer.size.x / 2.0 - CardView.W / 2.0, 40)
+
+
+func _play_events_then_render() -> void:
+	if _animating:
+		return
+	_animating = true
+	var events := _pending_events.duplicate()
+	_pending_events.clear()
+	for e in events:
+		match String(e.get("type", "")):
+			"took_supply":
+				var seat := int(e.get("seat", 0))
+				var cost := int(e.get("cost", 0))
+				if cost > 0:
+					for cv in _market_row.get_children():
+						if cv is CardView:
+							_fly_coin(_seat_anchor(seat), cv.global_position + Vector2(CardView.W / 2.0, CardView.H / 2.0))
+					await get_tree().create_timer(COIN_TIME).timeout
+				await _fly_card(_supply_pile.global_position, _target_for_seat(seat), 0, false)
+			"took_market":
+				var seat := int(e.get("seat", 0))
+				var card: Dictionary = e.get("card", {})
+				await _fly_card(_market_card_anchor(int(card.get("id", -1))), _target_for_seat(seat), int(card.get("company", 0)), true)
+			"played":
+				var seat := int(e.get("seat", 0))
+				var card: Dictionary = e.get("card", {})
+				var from := _hand_anchor(int(card.get("id", -1))) if seat == _my_seat else _seat_anchor(seat) - Vector2(CardView.W / 2.0, CardView.H / 2.0)
+				var to := _seat_anchor(seat) - Vector2(CardView.W / 2.0, CardView.H / 2.0) if e.get("to") == "portfolio" else _market_row.global_position + Vector2(_market_row.size.x, 0)
+				await _fly_card(from, to, int(card.get("company", 0)), true)
+			"game_ended":
+				await _animate_dividends(e.get("result", {}))
+	_animating = false
+	_render()
+	if not _pending_events.is_empty():
+		_play_events_then_render()
+
+
+func _target_for_seat(seat: int) -> Vector2:
+	if seat == _my_seat:
+		return _hand_layer.global_position + Vector2(_hand_layer.size.x / 2.0 - CardView.W / 2.0, 40)
+	return _seat_anchor(seat) - Vector2(CardView.W / 2.0, CardView.H / 2.0)
+
+
+func _fly_card(from: Vector2, to: Vector2, company: int, face_up: bool) -> void:
+	var ghost := CardView.new()
+	ghost.setup(-1, company, 0, face_up)
+	ghost.selectable = false
+	ghost.modulate = Color(1, 1, 1, 1)
+	_fx_layer.add_child(ghost)
+	ghost.global_position = from
+	var tw := create_tween().set_ease(Tween.EASE_IN_OUT).set_trans(Tween.TRANS_CUBIC)
+	tw.tween_property(ghost, "global_position", to, FLY_TIME)
+	tw.parallel().tween_property(ghost, "scale", Vector2(0.9, 0.9), FLY_TIME)
+	await tw.finished
+	ghost.queue_free()
+
+
+func _fly_coin(from: Vector2, to: Vector2, gold: bool = false) -> void:
+	var coin := ColorRect.new()
+	coin.color = Companies.GOLD if gold else Companies.BRONZE
+	coin.size = Vector2(16, 16)
+	coin.pivot_offset = Vector2(8, 8)
+	coin.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_fx_layer.add_child(coin)
+	coin.global_position = from - Vector2(8, 8)
+	var tw := create_tween().set_ease(Tween.EASE_IN_OUT).set_trans(Tween.TRANS_QUAD)
+	tw.tween_property(coin, "global_position", to - Vector2(8, 8), COIN_TIME)
+	tw.parallel().tween_property(coin, "rotation", TAU, COIN_TIME)
+	tw.tween_callback(coin.queue_free)
+
+
+## Dividend day: for each company, coins fly from every payer to the
+## majority holder, flipping to gold on arrival.
+func _animate_dividends(result: Dictionary) -> void:
+	var seats: Array = view.get("seats", [])
+	for div in result.get("companies", []):
+		var majority = div.get("majority")
+		if majority == null:
+			continue
+		var company := int(div.get("company", 0))
+		_status.text = "%s pays out to %s" % [Companies.name_of(company), seats[int(majority)].get("name", "?")]
+		var to := _seat_anchor(int(majority))
+		var any := false
+		for p in div.get("payments", []):
+			for i in mini(int(p.get("coins", 0)), 8):
+				_fly_coin(_seat_anchor(int(p.get("from", 0))), to, true)
+				any = true
+				await get_tree().create_timer(0.05).timeout
+		if any:
+			await get_tree().create_timer(0.45).timeout
+	_status.text = "Dividend day!"

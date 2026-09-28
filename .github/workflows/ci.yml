@@ -41,3 +41,57 @@ jobs:
         run: ./godot --headless --path client --import
       - name: Smoke test
         run: ./godot --headless --path client --script res://tests/smoke.gd
+
+  e2e:
+    name: End-to-end (Nakama + Node client + Godot client)
+    runs-on: ubuntu-latest
+    needs: [server, client]
+    env:
+      GODOT_VERSION: 4.6-stable
+      NAKAMA_VERSION: 3.28.0
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: nakama
+          POSTGRES_PASSWORD: localdb
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d nakama"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+      - name: Build runtime
+        working-directory: server
+        run: npm ci && npm run build
+      - name: Download Nakama and Godot
+        run: |
+          curl -sSL -o nakama.tgz "https://github.com/heroiclabs/nakama/releases/download/v${NAKAMA_VERSION}/nakama-${NAKAMA_VERSION}-linux-amd64.tar.gz"
+          mkdir nakama && tar xzf nakama.tgz -C nakama
+          curl -sSL -o godot.zip "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}/Godot_v${GODOT_VERSION}_linux.x86_64.zip"
+          unzip -q godot.zip && mv Godot_v${GODOT_VERSION}_linux.x86_64 godot && chmod +x godot
+      - name: Start Nakama
+        run: |
+          mkdir -p data/modules && cp server/build/index.js data/modules/
+          ./nakama/nakama migrate up --database.address postgres:localdb@127.0.0.1:5432/nakama
+          nohup ./nakama/nakama --config server/local.yml --data_dir "$PWD/data" --runtime.path "$PWD/data/modules" --database.address postgres:localdb@127.0.0.1:5432/nakama > nakama.log 2>&1 &
+          for i in $(seq 1 30); do curl -sf http://127.0.0.1:7350/ >/dev/null && break; sleep 1; done
+          grep -q "Big Business runtime loaded" nakama.log
+      - name: Node client end-to-end
+        working-directory: server
+        run: node e2e/play.mjs
+      - name: Godot client end-to-end
+        run: |
+          ./godot --headless --path client --import
+          ./godot --headless --path client --script res://tests/e2e_client.gd
+      - name: Nakama log on failure
+        if: failure()
+        run: tail -n 200 nakama.log

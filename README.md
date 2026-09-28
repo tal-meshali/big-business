@@ -13,7 +13,9 @@ The mechanics are a re-themed implementation of a well-known share-collecting ca
 | `docs/design/theme.md` | The six companies, vocabulary, card layout, table look |
 | `docs/design/rules-spec.md` | Authoritative rules, including every ruling the engine implements |
 | `server/` | Nakama runtime: pure TypeScript rules engine with tests, authoritative match handler, room-code RPCs, Docker Compose for local play |
-| `client/` | Godot 4.6 project: Nakama connection, lobby, table, headless smoke test |
+| `client/` | Godot 4.6 project: Nakama connection, lobby, table, headless smoke, screenshot and end-to-end tests |
+| `docs/deploy.md` | Single-VPS deployment with Docker Compose and automatic TLS |
+| `docs/TODO-local.md` | Work that needs a local machine: phone builds, playtests, store accounts, art |
 
 ## Run it locally
 
@@ -37,4 +39,8 @@ In the app, keep the host as `127.0.0.1`, press Connect, then Play now. Open two
 
 ## Status
 
-Phase 0 complete: decisions, theme, rules spec, engine with tests, match handler, client spike. Next is Phase 1 (playable core) per `docs/research/README.md` section 7.
+Phase 0 complete: decisions, theme, rules spec, engine with tests, match handler, client spike.
+
+Phase 1 (playable core), cloud-doable parts complete: live end-to-end tests against Nakama (Node client and the real Godot client), a designed portrait table with seat oval, hand fan, contextual actions, event animations and a dividend-day sequence, production deployment files, and CI that runs the whole stack. Placeholder renders are in `docs/screenshots/`.
+
+What still needs a real machine (phone builds, playtesting, store accounts, art) is listed in `docs/TODO-local.md`.

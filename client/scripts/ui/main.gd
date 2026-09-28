@@ -8,6 +8,8 @@ var _status: Label
 var _lobby_label: Label
 var _buttons: Array[Button] = []
 var _ready_button: Button
+var _copy_button: Button
+var _room_code := ""
 var _connected := false
 var _in_lobby := false
 
@@ -19,6 +21,8 @@ func _ready() -> void:
 	Net.lobby_updated.connect(_on_lobby)
 	Net.view_updated.connect(_on_first_view, CONNECT_ONE_SHOT)
 	Net.server_error.connect(func(m: String) -> void: _status.text = m)
+	if not Net.is_connected_to_server():
+		_on_connect_pressed.call_deferred()
 
 
 func _build() -> void:
@@ -84,7 +88,17 @@ func _build() -> void:
 
 	_lobby_label = Label.new()
 	_lobby_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_lobby_label.add_theme_font_size_override("font_size", 18)
 	box.add_child(_lobby_label)
+
+	_copy_button = Button.new()
+	_copy_button.text = "Copy room code"
+	_copy_button.custom_minimum_size = Vector2(0, 56)
+	_copy_button.visible = false
+	_copy_button.pressed.connect(func() -> void:
+		DisplayServer.clipboard_set(_room_code)
+		_copy_button.text = "Copied!")
+	box.add_child(_copy_button)
 
 	_ready_button = Button.new()
 	_ready_button.text = "I'm ready"
@@ -146,7 +160,9 @@ func _on_create_room() -> void:
 	if code.is_empty():
 		return
 	_in_lobby = true
-	_status.text = "Room code: %s  (share it with friends)" % code
+	_room_code = code
+	_status.text = "Room code: %s" % code
+	_copy_button.visible = true
 	_ready_button.visible = true
 
 
@@ -158,14 +174,19 @@ func _on_join_room() -> void:
 
 
 func _on_lobby(lobby: Dictionary) -> void:
-	var names := PackedStringArray()
-	for s in lobby.get("seats", []):
-		names.append("%s%s" % [s.get("name", "?"), " (ready)" if s.get("ready", false) else ""])
+	var lines := PackedStringArray()
+	var seats: Array = lobby.get("seats", [])
+	var is_private: bool = lobby.get("isPrivate", false)
+	lines.append("%s room  •  %d / %d players" % ["Private" if is_private else "Public", seats.size(), int(lobby.get("maxSeats", 0))])
+	for s in seats:
+		lines.append("  %s %s" % ["✓" if s.get("ready", false) else "…", s.get("name", "?")])
 	var starts := float(lobby.get("startsAt", 0))
-	var countdown := ""
 	if starts > 0:
-		countdown = "  starting in %ds" % maxi(0, int((starts - Time.get_unix_time_from_system() * 1000.0) / 1000.0))
-	_lobby_label.text = "Waiting: %s / %d%s" % [", ".join(names), int(lobby.get("maxSeats", 0)), countdown]
+		var secs := maxi(0, int((starts - Time.get_unix_time_from_system() * 1000.0) / 1000.0))
+		lines.append("Starting in %ds (empty seats become bots)" % secs)
+	elif is_private:
+		lines.append("Starts when everyone is ready (2+ players)")
+	_lobby_label.text = "\n".join(lines)
 
 
 func _on_first_view(_view: Dictionary) -> void:

@@ -105,9 +105,9 @@ An action is legal only if all of the following hold. The server rejects anythin
 | `play_portfolio(card)` | phase is Play, seat is active, card is in hand |
 | `play_market(card)` | phase is Play, seat is active, card is in hand, card's company differs from the company taken this turn |
 
-## 8. Auto-move (timeouts and bots)
+## 8. Auto-move (timeouts and tutorial bots) and bot policy
 
-The engine provides one deterministic auto-move per step. Bots use it too, with an optional random tie-break so bots are not identical.
+The engine provides one deterministic auto-move per step. Tutorial bots use it too; ordinary bots use the bot policy below.
 
 Take step:
 1. If any Market share is takeable and carries at least 2 coins, take the one with the most coins (tie: the company the player already has the most of).
@@ -119,7 +119,22 @@ Play step:
 1. Play to Portfolio the share of the company the player holds most of in Portfolio + hand (tie: highest share-count company).
 2. If holding that company's token would be lost... (no lookahead in v1; keep it simple).
 
-This is a placeholder policy for Phase 1 playtesting. Better bots are a later task.
+This auto-move is what a timed-out player is charged with, and what the tutorial bots play (a fixed seed plus a fixed tie-break gives every learner the same opening).
+
+### Bot policy
+
+Bots in ordinary games use a stronger policy (`server/src/engine/bot.ts`, `botAction`). It is a one-ply lookahead: every legal action is applied with the pure engine and the resulting state is scored from the bot's seat, using only what that seat can see (its own hand, all Portfolios, the Market, coins, tokens and the Supply count; never the Supply order or other hands). The score combines:
+
+- **Majority standing per company**: the bot's Portfolio plus hand against every other seat's Portfolio. For each company the bot estimates its chance of being majority holder at dividend day from its margin over the strongest rival, where the rival is credited with a share of the company's still-unseen shares (they will be drawn by somebody). That chance times 3 points per opposing share is the projected income; the chance of paying times the bot's own shares is the projected minority cost; a tie for the most pays nobody. The estimate is soft while much of the company is unseen and hardens to the exact rule (strictly more wins) as the Supply runs out. The same projection is computed for every seat, and the bot scores a state by its own projected result against the strongest opponent's, so blocking a rival's majority counts as much as building its own.
+- **Coins**: coins in hand at face value, coins paid onto the Market when drawing, coins picked up with a Market share, and a smaller penalty for coins left on Market shares the next seat can take.
+- **Regulator tokens**: a bonus for each token held (cheaper draws), a small tax per Market share the bot would have to pay for on its next draw, and no credit for Market shares its own token blocks it from taking.
+- **Market danger**: a penalty for every Market share that would hand another seat a majority or a token if they took it, larger for the next seat. This is what stops the bot selling a share the next player needs.
+- **Drawing**: the drawn card is unknown, so the draw is scored as the average over the companies the top card could belong to, weighted by how many of their shares are still unseen.
+- **End of game**: as the Supply runs down, the dividend projection is weighted more than the coin terms, because it is about to become the real result.
+
+Actions that score within a small margin of each other are chosen by the bot's random tie-break, so bots at one table do not play identically. As a progress guarantee (the game only ends when the Supply empties), a bot draws whenever Market takes have run ahead of Supply draws by a fixed margin; if it cannot afford to draw it takes the richest Market share and keeps its shares in its Portfolio until it can.
+
+Timeouts still use the simple auto-move above, not the bot policy.
 
 ## 9. Known exploit: hand/Market cycling
 

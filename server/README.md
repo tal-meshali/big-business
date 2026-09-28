@@ -2,7 +2,7 @@
 
 Nakama runtime for the authoritative game. Two layers:
 
-- `src/engine/`: the pure rules engine. No Nakama imports, no clock, no global randomness. Fully covered by `game.test.ts`. This is the reference implementation of `docs/design/rules-spec.md`.
+- `src/engine/`: the pure rules engine. No Nakama imports, no clock, no global randomness. Fully covered by `game.test.ts`. This is the reference implementation of `docs/design/rules-spec.md`. `bot.ts` is the heuristic bot policy (one-ply lookahead over the engine, covered by `bot.test.ts` including a tournament against the simple auto-move); `autoAction` in `game.ts` stays the deterministic auto-move for timeouts and tutorial bots.
 - `src/match/`: the Nakama match handler (lobby, seats, bots, timers, per-seat views, reconnection) and the wire protocol.
 - `src/main.ts`: registers the match handler and the RPCs listed below.
 

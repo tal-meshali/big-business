@@ -1,6 +1,6 @@
 # Local-session todo
 
-Work that needs a real machine: a phone or simulator, a Mac for iOS, store accounts, or a human at the table. Everything else in Phase 1 was done in the cloud session; see `docs/research/README.md` section 7 for the phase plan and the root `README.md` for how to run things.
+Work that needs a real machine: a phone or simulator, a Mac for iOS, store accounts, or a human at the table. Everything else in Phases 1 and 2, plus the deferred engineering below that did not need a device, was done in cloud sessions; see `docs/research/README.md` section 7 for the phase plan and the root `README.md` for how to run things.
 
 Tick items off as they are done.
 
@@ -18,7 +18,7 @@ Tick items off as they are done.
 - [ ] iOS: Xcode + Apple developer account, iOS export preset, run on a device via Xcode. Same LAN host note.
 - [ ] Check touch targets: hand cards, market cards, Keep / Sell buttons. Anything under ~48 px tall gets enlarged.
 - [ ] Check the fan of 4 cards during the play step on a narrow phone (older iPhone SE width). Adjust `HAND_SCALE` in `client/scripts/ui/table.gd` if cards overflow.
-- [ ] Test app backgrounding for 30 seconds mid-game and returning: the socket should reconnect and the seat should be reclaimed. If not, add auto-rejoin in `client/scripts/net/net.gd` (`_on_socket_closed` currently only reports the disconnect).
+- [ ] Test app backgrounding for 30 seconds mid-game and returning: the socket should reconnect and the seat should be reclaimed (auto-rejoin with backoff is implemented in `client/scripts/net/net.gd`; this checks it on a real phone).
 
 ## B2. Tutorial on a device
 
@@ -27,17 +27,17 @@ The tutorial exists (lobby: "How to play"): a solo game against two slow bots wi
 - [ ] Run the tutorial on a phone and time it. Target: under 6 minutes to dividend day. If bots feel slow, lower `TUTORIAL_BOT_THINK_MS` in `server/src/match/handler.ts`.
 - [ ] Hand the phone to someone who has never seen the game. Note which coach card they re-read, which rule they still got wrong, and whether any card appears at a confusing moment (for example a bot's payment card popping up while they were choosing).
 - [ ] Check card readability on a small screen: body text is 19 px; the card is 620 px wide on the 720 px design width.
-- [ ] Decide whether the first "Play now" should route new players into the tutorial automatically (a "tutorial done" flag saved in `user://net.cfg`).
+- [x] Decide whether the first "Play now" should route new players into the tutorial automatically. Done in the cloud: the first "Play now" starts the tutorial (skippable); `tutorial_done` is saved in `user://net.cfg` when it ends or is left. Revisit after playtests if people find it annoying.
 - [ ] With the fixed seed, script two extra coach lines that name the actual opening cards, once the card art exists.
 
 ## B3. Social features on a device
 
 Emotes, mute, report and block exist. Tap the smiley in the top bar for the emote strip; tap an opponent's seat panel for Mute / Report / Block.
 
-- [ ] Emoji emotes render as placeholder glyphs with Godot's fallback font (see `docs/screenshots/emotes.png`). Either bundle an emoji font (Noto Color Emoji, add it as a fallback in the project theme) or replace the six emoji with small drawn icons.
+- [x] Emoji emotes rendered as placeholder glyphs. Done in the cloud: the six emoji are drawn icons (`client/scripts/ui/emote_icon.gd`); no emoji font needed. `docs/screenshots/emotes.png` still shows the old glyphs until the screenshots are regenerated.
 - [ ] Check the seat tap target on a phone: the seat panel is 200x96 at design size; taps near the timer arc must still open the menu.
-- [ ] Confirm blocked players' emotes stay hidden after the app restarts (mute is in-memory; block is server-side via Nakama friends). If not, persist the mute list in `user://net.cfg`.
-- [ ] Apple guideline 1.2 needs published contact info: add a support email and a privacy policy link to the lobby (a "Help" button) before submission.
+- [ ] Confirm blocked players' emotes stay hidden after the app restarts on a phone. The mute list is now persisted in `user://net.cfg` (`[social] muted`); block is server-side via Nakama friends.
+- [ ] Apple guideline 1.2 needs published contact info. The lobby has a Help screen with "Contact support" and "Privacy policy" buttons; replace the placeholder values in `client/scripts/game/app_info.gd` with the real email and URL before submission.
 - [ ] Review the 14 preset emotes and phrases with someone outside the project for tone; all-ages means no sarcastic or taunting phrases.
 - [ ] Decide the moderation routine: reports land in the Nakama console (storage collection `reports`); pick who checks it and how often (the store expectation is action within 24 hours).
 
@@ -49,7 +49,7 @@ Emotes, mute, report and block exist. Tap the smiley in the top bar for the emot
 
 ## C. Playtest with people (answers the key Phase 1 question)
 
-- [ ] Deploy the server to a VPS following `docs/deploy.md` so friends can join from anywhere. Put the domain in the lobby host field with scheme https (add a scheme toggle to the lobby if needed).
+- [ ] Deploy the server to a VPS following `docs/deploy.md` so friends can join from anywhere. Put the domain in the lobby host field (it accepts `https://play.example.com`, and there is a "Secure (https)" toggle).
 - [ ] Run 3 sessions of a 5-player game with friends, 30-second timer. Record: game length, whether the first game was understandable without a tutorial, which rule confused people, whether the timer felt rushed or slow, whether anyone lost track of who holds a regulator token.
 - [ ] Decide the default step timer (20 / 30 / 45 s) from those sessions.
 - [ ] Note which animations were missed (players didn't notice a token moving, a coin payment, a market take). These become Phase 2 juice work.
@@ -74,10 +74,11 @@ Emotes, mute, report and block exist. Tap the smiley in the top bar for the emot
 
 ## G. Deferred engineering (Phase 2, listed so nothing is lost)
 
-- [ ] Tutorial v2: forced choices on the first two turns (only the coached action enabled) and a replayable "rules reference" screen.
-- [ ] Turn-timer sound and screen glow under 5 seconds.
-- [ ] Friends list and invites (Nakama friends API is already used for block); push notification "your turn" via FCM.
-- [ ] Daily and weekly quests feeding a free cosmetic track (daily bonus and the season board exist).
+- [x] Tutorial v2: forced choices on the first two turns (only the coached action enabled, the card to tap pulses) and a replayable rules reference (Help screen). Done in the cloud; still worth watching a first-timer use it.
+- [x] Turn-timer sound and screen glow under 5 seconds. Done in the cloud, with a placeholder sound set synthesized in code (`client/scripts/game/sfx.gd`) and haptics on your turn. Real recorded sounds remain an art task (section F).
+- [x] Friends list and invites: done in the cloud (add by name, accept, remove, invite a friend to a private room through a Nakama in-app notification).
+- [ ] Push notification "your turn" via FCM (needs a Firebase project and the Android/iOS plugins on a real machine).
+- [x] Daily and weekly quests feeding a free cosmetic track: done in the cloud (3 daily and 2 weekly quests, track points, four card backs and three table felts, picker in the lobby). Tune the point values after real play.
 - [ ] Curated card skins sold a la carte through RevenueCat (see `docs/research/03-engagement-monetization.md`).
 - [ ] Designer unlock and custom card upload (see `docs/research/05-custom-card-upload.md`).
-- [ ] Better bots: the current auto-move policy is a placeholder (`autoAction` in `server/src/engine/game.ts`).
+- [x] Better bots: done in the cloud (`server/src/engine/bot.ts`, one-ply lookahead with a heuristic evaluation; timeouts and the tutorial keep the simple auto-move). Watch whether they feel too strong or too passive with people.

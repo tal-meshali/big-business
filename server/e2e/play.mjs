@@ -4,7 +4,8 @@
  *   1. private room: 3 humans, ready-up, random legal play until dividend day
  *   2. illegal action is rejected with OP_ERROR
  *   3. leave and rejoin mid-game restores a view
- *   4. quick play: 1 human, lobby wait, bots fill, game completes
+ *   4. friends: mutual add, room invite notification, join by code, refusals
+ *   5. quick play: 1 human, lobby wait, bots fill, game completes
  * Exit code 0 on success.
  */
 import WebSocket from 'ws';
@@ -17,6 +18,7 @@ const PORT = process.env.NAKAMA_PORT || '7350';
 const KEY = process.env.NAKAMA_KEY || 'defaultkey';
 
 const OP_ACTION = 1, OP_READY = 2, OP_EMOTE = 3, OP_VIEW = 10, OP_EVENTS = 11, OP_LOBBY = 12, OP_ERROR = 13, OP_EMOTE_SHOWN = 14;
+const INVITE_CODE = 100; // notification code, see src/match/protocol.ts
 const STARTING_COINS = 10;
 
 const log = (...a) => console.log(new Date().toISOString().slice(11, 19), ...a);
@@ -248,8 +250,82 @@ async function testTutorial() {
   other.socket.disconnect(true);
 }
 
+async function testFriendsAndInvites() {
+  log('--- friends: add both ways, invite to a private room, strangers refused');
+  const [host, guest, stranger] = await Promise.all([makePlayer('Host'), makePlayer('Guest'), makePlayer('Stranger')]);
+  const invites = [];
+  guest.socket.onnotification = (n) => { invites.push(n); };
+
+  // find_player: exact username, never the caller, unknown names rejected.
+  const found = await rpc(host, 'find_player', { name: guest.session.username });
+  if (found.userId !== guest.userId || found.username !== guest.session.username) fail(`find_player wrong: ${JSON.stringify(found)}`);
+  let selfFound = false;
+  try { await rpc(host, 'find_player', { name: host.session.username }); selfFound = true; } catch (e) { /* expected */ }
+  if (selfFound) fail('find_player must not return the caller');
+  let unknownFound = false;
+  try { await rpc(host, 'find_player', { name: 'nobody-' + Date.now() }); unknownFound = true; } catch (e) { /* expected */ }
+  if (unknownFound) fail('find_player should reject unknown names');
+
+  // A one-sided friend request is not a friendship: the invite is refused.
+  if (!(await host.client.addFriends(host.session, [guest.userId]))) fail('addFriends (host -> guest) failed');
+  const created = await rpc(host, 'create_room', { stepSeconds: 5, maxSeats: 3 });
+  await join(host, created.matchId);
+  let pendingRejected = false;
+  try { await rpc(host, 'invite_friend', { userId: guest.userId, code: created.code }); } catch (e) { pendingRejected = true; }
+  if (!pendingRejected) fail('invite must be refused while the friend request is pending');
+
+  // Adding back makes the friendship mutual (state 0 on both sides).
+  if (!(await guest.client.addFriends(guest.session, [host.userId]))) fail('addFriends (guest -> host) failed');
+  const mutual = await host.client.listFriends(host.session, 0, 10);
+  if (!(mutual.friends || []).some((f) => f.user && f.user.id === guest.userId)) fail(`friends should be mutual: ${JSON.stringify(mutual)}`);
+
+  // The invite reaches the guest's socket with the room code and the sender.
+  const sent = await rpc(host, 'invite_friend', { userId: guest.userId, code: created.code.toLowerCase() });
+  if (!sent.ok) fail('invite_friend should succeed for a mutual friend');
+  const t0 = Date.now();
+  while (invites.length === 0 && Date.now() - t0 < 5000) await sleep(100);
+  const inv = invites[0];
+  if (!inv || Number(inv.code) !== INVITE_CODE) fail(`invite notification missing: ${JSON.stringify(invites)}`);
+  if (!inv.content || inv.content.code !== created.code || inv.content.fromUserId !== host.userId || !inv.content.fromName) {
+    fail(`invite content wrong: ${JSON.stringify(inv.content)}`);
+  }
+  if (inv.sender_id !== host.userId) fail('invite sender should be the host');
+  // Persistent: a client that connects later still finds it.
+  const listed = await guest.client.listNotifications(guest.session, 10);
+  if (!(listed.notifications || []).some((n) => n.code === INVITE_CODE && n.content && n.content.code === created.code)) {
+    fail(`invite should be persisted: ${JSON.stringify(listed)}`);
+  }
+  log('invite delivered from', inv.content.fromName, 'for room', inv.content.code);
+
+  // The guest joins by the code from the notification.
+  const resolved = await rpc(guest, 'join_room', { code: inv.content.code });
+  if (resolved.matchId !== created.matchId) fail('invite code should resolve to the host room');
+  await join(guest, resolved.matchId);
+  await sleep(600);
+  if (!host.lobby || host.lobby.seats.length !== 2) fail(`lobby should list host and guest, got ${JSON.stringify(host.lobby)}`);
+
+  // Refusals: a non-friend, an unknown room, self, and a friend who blocked the caller.
+  let strangerRejected = false;
+  try { await rpc(host, 'invite_friend', { userId: stranger.userId, code: created.code }); } catch (e) { strangerRejected = true; }
+  if (!strangerRejected) fail('invite to a non-friend must be rejected');
+  let badRoomRejected = false;
+  try { await rpc(host, 'invite_friend', { userId: guest.userId, code: 'ZZZZZZ' }); } catch (e) { badRoomRejected = true; }
+  if (!badRoomRejected) fail('invite to an unknown room must be rejected');
+  let selfRejected = false;
+  try { await rpc(host, 'invite_friend', { userId: host.userId, code: created.code }); } catch (e) { selfRejected = true; }
+  if (!selfRejected) fail('self invite must be rejected');
+  if (!(await guest.client.blockFriends(guest.session, [host.userId]))) fail('blockFriends failed');
+  let blockedRejected = false;
+  try { await rpc(host, 'invite_friend', { userId: guest.userId, code: created.code }); } catch (e) { blockedRejected = true; }
+  if (!blockedRejected) fail('invite must be rejected once the target has blocked the caller');
+  if (invites.length !== 1) fail(`only one invite should have been delivered, got ${invites.length}`);
+  log('non-friend, unknown room, self and blocked invites rejected');
+  for (const p of [host, guest, stranger]) p.socket.disconnect(true);
+}
+
 try {
   await testPrivateRoom();
+  await testFriendsAndInvites();
   await testQuickPlay();
   await testTutorial();
   log('E2E OK');

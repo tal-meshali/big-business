@@ -17,6 +17,7 @@ var _xp_bar: ProgressBar
 var _daily_button: Button
 var _board_button: Button
 var _board_label: Label
+var _friends_panel: FriendsPanel
 var _connected := false
 var _in_lobby := false
 
@@ -141,11 +142,22 @@ func _build() -> void:
 	_board_button.disabled = true
 	_board_button.pressed.connect(_on_show_board)
 	prow.add_child(_board_button)
+	var friends_button := Button.new()
+	friends_button.text = "Friends"
+	friends_button.custom_minimum_size = Vector2(0, 48)
+	friends_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	friends_button.pressed.connect(func() -> void: _friends_panel.visible = not _friends_panel.visible)
+	prow.add_child(friends_button)
 	_board_label = Label.new()
 	_board_label.visible = false
 	_board_label.add_theme_font_size_override("font_size", 15)
 	pbox.add_child(_board_label)
 	box.add_child(profile["panel"])
+
+	_friends_panel = FriendsPanel.new()
+	_friends_panel.visible = false
+	_friends_panel.join_requested.connect(_on_invite_join)
+	box.add_child(_friends_panel)
 
 	_add_button(box, "Connect", _on_connect_pressed, true)
 	_add_button(box, "Play now", _on_quick_play)
@@ -352,6 +364,7 @@ func _on_create_room() -> void:
 		return
 	_in_lobby = true
 	_room_code = code
+	_friends_panel.room_code = code
 	_status.text = "Room code: %s" % code
 	_copy_button.visible = true
 	_ready_button.visible = true
@@ -382,3 +395,11 @@ func _on_lobby(lobby: Dictionary) -> void:
 
 func _on_first_view(_view: Dictionary) -> void:
 	get_tree().change_scene_to_file("res://scenes/table.tscn")
+
+
+## Join the room a friend invited us to (Join button in the friends panel).
+func _on_invite_join(code: String) -> void:
+	_code_edit.text = code
+	await _on_join_room()
+	if _in_lobby:
+		_friends_panel.room_code = code

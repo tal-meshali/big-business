@@ -1,10 +1,11 @@
 /**
- * Nakama runtime entry point. Registers the Big Business match handler, the
- * room-code RPCs and the matchmaker hook.
+ * Nakama runtime entry point. Registers the Big Business match handler and
+ * the room-code, profile, moderation and social RPCs.
  */
 import { matchInit, matchJoin, matchJoinAttempt, matchLeave, matchLoop, matchSignal, matchTerminate } from './match/handler';
 import { DEFAULT_PARAMS, MATCH_MODULE, TUTORIAL_SEED } from './match/protocol';
 import { claimDaily, emptyProgress, PROFILE_COLLECTION, PROFILE_KEY, SEASON_LEADERBOARD, utcDate, type Progress } from './match/progression';
+import { rpcFindPlayer, rpcInviteFriend } from './match/social';
 
 const SYSTEM_USER = '00000000-0000-0000-0000-000000000000';
 const REPORT_COLLECTION = 'reports';
@@ -164,6 +165,8 @@ function InitModule(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkrunt
   initializer.registerRpc('get_profile', rpcGetProfile);
   initializer.registerRpc('claim_daily', rpcClaimDaily);
   initializer.registerRpc('report_player', rpcReportPlayer);
+  initializer.registerRpc('find_player', rpcFindPlayer);
+  initializer.registerRpc('invite_friend', rpcInviteFriend);
   logger.info('Big Business runtime loaded');
 }
 

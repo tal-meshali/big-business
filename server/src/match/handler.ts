@@ -7,86 +7,14 @@
  */
 import { applyAction, autoAction, createGame, playerView, RulesError, type SeatDef } from '../engine';
 import type { Action, GameEvent, GameState } from '../engine';
-import {
-  BOT_NAMES,
-  DEFAULT_PARAMS,
-  EMOTE_COOLDOWN_MS,
-  EMOTE_IDS,
-  OP_ACTION,
-  OP_EMOTE,
-  OP_EMOTE_SHOWN,
-  OP_ERROR,
-  OP_EVENTS,
-  OP_LOBBY,
-  OP_READY,
-  OP_VIEW,
-  type LobbyMessage,
-  type LobbySeat,
-  type MatchParams,
-} from './protocol';
-import { applyGameResult, emptyProgress, PROFILE_COLLECTION, PROFILE_KEY, SEASON_LEADERBOARD, seasonPointsForGame, type Progress } from './progression';
+import { BOT_NAMES, DEFAULT_PARAMS, OP_ACTION, OP_ERROR, OP_EVENTS, OP_LOBBY, OP_READY, OP_VIEW, type MatchParams } from './protocol';
+import { awardProgress } from './awards';
+import { handleEmotes } from './emotes';
+import { botThinkMs, label, lobbyMessage, nowMs, send, type MatchState } from './state';
 
 const TICK_RATE = 4; // ticks per second
-const BOT_THINK_MS = 900;
-const TUTORIAL_BOT_THINK_MS = 1800;
 const END_LINGER_MS = 45_000;
 const AUTO_MOVES_TO_BOT = 3;
-
-interface MatchState {
-  params: MatchParams;
-  /** Presences currently connected, keyed by user id. */
-  presences: { [userId: string]: nkruntime.Presence };
-  /** Lobby seats in join order (humans only) before the game starts. */
-  lobby: LobbySeat[];
-  /** Seat index by user id once the game has started. */
-  seatByUser: { [userId: string]: number };
-  game: GameState | null;
-  /** Epoch ms of the last join or leave; used to expire empty lobbies. */
-  lastActivity: number;
-  /** Epoch ms when a public lobby auto-starts (bots fill), 0 if unset. */
-  startsAt: number;
-  endedAt: number;
-  botActAt: number;
-  /** Progression and leaderboard written once after the game ends. */
-  awarded: boolean;
-  /** Last emote time per user id, for the cooldown. */
-  lastEmoteAt: { [userId: string]: number };
-  /** Append-only log of accepted actions for replay / reconnection. */
-  log: Array<{ seq: number; seat: number; action: Action; source: string }>;
-}
-
-function nowMs(): number {
-  return Date.now();
-}
-
-function botThinkMs(s: MatchState): number {
-  return s.params.tutorial ? TUTORIAL_BOT_THINK_MS : BOT_THINK_MS;
-}
-
-function lobbyMessage(s: MatchState): LobbyMessage {
-  return {
-    roomCode: s.params.roomCode,
-    isPrivate: s.params.isPrivate,
-    seats: s.lobby,
-    minSeats: s.params.minSeats,
-    maxSeats: s.params.maxSeats,
-    startsAt: s.startsAt,
-  };
-}
-
-function label(s: MatchState): string {
-  return JSON.stringify({
-    mode: s.params.tutorial ? 'tutorial' : s.params.isPrivate ? 'private' : 'public',
-    code: s.params.roomCode || '',
-    open: s.game === null ? 'yes' : 'no',
-    players: s.lobby.length,
-    max: s.params.maxSeats,
-  });
-}
-
-function send(dispatcher: nkruntime.MatchDispatcher, op: number, data: unknown, to?: nkruntime.Presence[]): void {
-  dispatcher.broadcastMessage(op, JSON.stringify(data), to, null, true);
-}
 
 function sendViews(s: MatchState, dispatcher: nkruntime.MatchDispatcher): void {
   if (!s.game) return;
@@ -167,31 +95,6 @@ function apply(
     s.botActAt = nowMs() + botThinkMs(s);
   }
   return true;
-}
-
-/** Write XP, levels and season points for every human seat. Best effort. */
-function awardProgress(s: MatchState, nk: nkruntime.Nakama, logger: nkruntime.Logger): void {
-  if (!s.game || !s.game.result || s.awarded) return;
-  s.awarded = true;
-  const seatCount = s.game.seats.length;
-  let humans = 0;
-  for (const seat of s.game.seats) if (!seat.id.startsWith('bot:')) humans++;
-  for (const score of s.game.result.scores) {
-    const seat = s.game.seats[score.seat];
-    if (!seat || seat.id.startsWith('bot:')) continue;
-    try {
-      const rows = nk.storageRead([{ collection: PROFILE_COLLECTION, key: PROFILE_KEY, userId: seat.id }]);
-      const current = rows.length > 0 && rows[0] ? (rows[0].value as Progress) : emptyProgress();
-      const next = applyGameResult(current, score.rank, seatCount, humans);
-      nk.storageWrite([{ collection: PROFILE_COLLECTION, key: PROFILE_KEY, userId: seat.id, value: next, permissionRead: 1, permissionWrite: 0 }]);
-      const points = seasonPointsForGame(score.rank, seatCount, humans);
-      if (points > 0) {
-        nk.leaderboardRecordWrite(SEASON_LEADERBOARD, seat.id, seat.name, points, score.rank === 1 ? 1 : 0);
-      }
-    } catch (e) {
-      logger.warn('progress award failed for %s: %s', seat.id, String(e));
-    }
-  }
 }
 
 export const matchInit: nkruntime.MatchInitFunction<MatchState> = (ctx, logger, nk, params) => {
@@ -342,23 +245,7 @@ export const matchLoop: nkruntime.MatchLoopFunction<MatchState> = (ctx, logger, 
     return { state };
   }
 
-  // ---- Playing: emotes (rate limited, ids validated) --------------------
-  for (const m of messages) {
-    if (m.opCode !== OP_EMOTE) continue;
-    const seat = state.seatByUser[m.sender.userId];
-    if (seat === undefined) continue;
-    let emote = '';
-    try {
-      emote = String((JSON.parse(nk.binaryToString(m.data)) as { emote?: string }).emote || '');
-    } catch (e) {
-      continue;
-    }
-    if (EMOTE_IDS.indexOf(emote) < 0) continue;
-    const last = state.lastEmoteAt[m.sender.userId] || 0;
-    if (now - last < EMOTE_COOLDOWN_MS) continue;
-    state.lastEmoteAt[m.sender.userId] = now;
-    send(dispatcher, OP_EMOTE_SHOWN, { seat, emote });
-  }
+  handleEmotes(state, messages, nk, dispatcher, now);
 
   // ---- Playing: client actions ------------------------------------------
   for (const m of messages) {

@@ -221,7 +221,9 @@ async function testQuickPlay() {
   if (!solo.view) fail('quick play game did not start');
   log('quick play started after', ((Date.now() - t0) / 1000).toFixed(1), 's with', solo.view.seats.length, 'seats,', solo.view.seats.filter((s) => s.isBot).length, 'bots');
   if (solo.view.seats.length < 3) fail('bots should fill to 3 seats');
-  const final = await playOut([solo]);
+  // WHY: two heuristic bots favour Market shares over drawing, so this game runs
+  // about 70 turns (100 s of bot think time) against about 50 with the old policy.
+  const final = await playOut([solo], { maxMs: 240000 });
   log('quick play game ended; my rank', final.result.scores.find((s) => s.seat === final.you).rank);
   solo.socket.disconnect(true);
 }

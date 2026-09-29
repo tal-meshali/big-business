@@ -1,5 +1,6 @@
 /** Writes XP, levels, season points and quest progress for every human seat once a game ends. */
-import { applyForfeit, applyGameResult, normalizeProgress, PROFILE_COLLECTION, PROFILE_KEY, SEASON_LEADERBOARD, seasonPointsForGame, type Progress } from './progression';
+import { loadProfile, saveProfile } from './profile';
+import { applyForfeit, applyGameResult, SEASON_LEADERBOARD, seasonPointsForGame } from './progression';
 import { applyGameToQuests, gameStats } from './quests';
 import type { MatchState } from './state';
 
@@ -18,15 +19,16 @@ export function awardProgress(s: MatchState, nk: nkruntime.Nakama, logger: nkrun
     // Forfeited players were recorded when they forfeited (awardForfeit).
     if (!seat || seat.id.startsWith('bot:') || s.forfeited[seat.id]) continue;
     try {
-      const rows = nk.storageRead([{ collection: PROFILE_COLLECTION, key: PROFILE_KEY, userId: seat.id }]);
-      const current = normalizeProgress(rows.length > 0 && rows[0] ? (rows[0].value as Partial<Progress>) : null);
+      // WHY: loadProfile ignores rows the client created itself, so a
+      // pre-seeded profile is never carried into the server-owned one.
+      const current = loadProfile(nk, seat.id).progress;
       let next = applyGameResult(current, score.rank, seatCount, humans);
       try {
         next = { ...next, quests: applyGameToQuests(next.quests, gameStats(s.game, s.log, score.seat), now) };
       } catch (e) {
         logger.warn('quest progress failed for %s: %s', seat.id, String(e));
       }
-      nk.storageWrite([{ collection: PROFILE_COLLECTION, key: PROFILE_KEY, userId: seat.id, value: next, permissionRead: 1, permissionWrite: 0 }]);
+      saveProfile(nk, seat.id, next);
       const points = seasonPointsForGame(score.rank, seatCount, humans);
       if (points > 0) {
         nk.leaderboardRecordWrite(SEASON_LEADERBOARD, seat.id, seat.name, points, score.rank === 1 ? 1 : 0);
@@ -40,9 +42,7 @@ export function awardProgress(s: MatchState, nk: nkruntime.Nakama, logger: nkrun
 /** Records a forfeit on the player's profile. Best effort, like awardProgress. */
 export function awardForfeit(nk: nkruntime.Nakama, logger: nkruntime.Logger, userId: string): void {
   try {
-    const rows = nk.storageRead([{ collection: PROFILE_COLLECTION, key: PROFILE_KEY, userId }]);
-    const current = normalizeProgress(rows.length > 0 && rows[0] ? (rows[0].value as Partial<Progress>) : null);
-    nk.storageWrite([{ collection: PROFILE_COLLECTION, key: PROFILE_KEY, userId, value: applyForfeit(current), permissionRead: 1, permissionWrite: 0 }]);
+    saveProfile(nk, userId, applyForfeit(loadProfile(nk, userId).progress));
   } catch (e) {
     logger.warn('forfeit record failed for %s: %s', userId, String(e));
   }

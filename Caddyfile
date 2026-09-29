@@ -3,7 +3,14 @@
 	reverse_proxy nakama:7350
 }
 
-# Admin console on a subdomain; restrict access before exposing it publicly.
-console.{$DOMAIN} {
-	reverse_proxy nakama:7351
-}
+# The admin console is NOT published here. It listens on the VPS loopback
+# (docker-compose.prod.yml) and is reached over an SSH tunnel:
+#   ssh -N -L 7351:127.0.0.1:7351 user@play.example.com   then open http://127.0.0.1:7351
+# If you must expose it, allow only your own addresses and keep TLS:
+# console.{$DOMAIN} {
+# 	@office remote_ip 203.0.113.0/24
+# 	handle @office {
+# 		reverse_proxy nakama:7351
+# 	}
+# 	respond 403
+# }

@@ -5,7 +5,9 @@
  * removing, blocking and listing friends, and linking Apple / Google,
  * happen client-side through Nakama's own API, so no RPC is needed for them.
  */
+import { isUserId, normalizeCode, parseBody, readString, reject, requireUser, USERNAME_MAX } from './input';
 import { INVITE_CODE } from './protocol';
+import { checkRate } from './ratelimit';
 
 // WHY: duplicated from main.ts rather than imported: the match layer never
 // imports main (docs/conventions.md), and the room lookup must match join_room.
@@ -18,13 +20,14 @@ export const FRIEND_STATE_INVITE_SENT = 1;
 export const FRIEND_STATE_INVITE_RECEIVED = 2;
 export const FRIEND_STATE_BLOCKED = 3;
 
-const CODE_LENGTH = 6;
+/**
+ * Longest sender name embedded in an invite notification. The name is the
+ * server-side username (Nakama validates its characters), never the
+ * client-editable display name, and never a string from the RPC payload.
+ */
+export const FROM_NAME_MAX = 32;
 
-/** Upper-cases and trims a room code; returns '' when it cannot be one. */
-export function normalizeCode(code: string | undefined | null): string {
-  const c = (code || '').toUpperCase().trim();
-  return c.length === CODE_LENGTH ? c : '';
-}
+export { normalizeCode } from './input';
 
 /** Everything the invite decision depends on, gathered by the RPC. */
 export interface InviteCheck {
@@ -53,11 +56,6 @@ export function inviteError(check: InviteCheck): string | null {
   return null;
 }
 
-function requireUser(ctx: nkruntime.Context): string {
-  if (!ctx.userId) throw Error('unauthenticated');
-  return ctx.userId;
-}
-
 /** Friend states one user has toward others (filtered by `state`), keyed by user id. */
 function friendStates(nk: nkruntime.Nakama, userId: string, state: number): { [userId: string]: number } {
   const out: { [userId: string]: number } = {};
@@ -72,12 +70,12 @@ function friendStates(nk: nkruntime.Nakama, userId: string, state: number): { [u
 export const rpcFindPlayer: nkruntime.RpcFunction = (ctx, logger, nk, payload) => {
   void logger;
   const callerId = requireUser(ctx);
-  const req = JSON.parse(payload || '{}') as { name?: string };
-  const name = (req.name || '').trim();
-  if (!name) throw Error('not found');
+  const name = readString(parseBody(payload), 'name', USERNAME_MAX + 1);
+  if (!name || name.length > USERNAME_MAX) reject('not found');
+  checkRate(nk, callerId, 'find_player', Date.now());
   const users = nk.usersGetUsername([name]);
   const user = users.find((u) => u.username === name && u.userId !== callerId);
-  if (!user) throw Error('not found');
+  if (!user) reject('not found');
   return JSON.stringify({ userId: user.userId, username: user.username });
 };
 
@@ -87,27 +85,27 @@ export const rpcFindPlayer: nkruntime.RpcFunction = (ctx, logger, nk, payload) =
  */
 export const rpcInviteFriend: nkruntime.RpcFunction = (ctx, logger, nk, payload) => {
   const callerId = requireUser(ctx);
-  const req = JSON.parse(payload || '{}') as { userId?: string; code?: string };
-  const targetId = req.userId || '';
-  const code = normalizeCode(req.code);
+  const req = parseBody(payload);
+  const rawTarget = req['userId'];
+  const targetId = isUserId(rawTarget) ? rawTarget : '';
+  const code = normalizeCode(req['code']);
   const hasTarget = targetId !== '' && targetId !== callerId;
-  let roomExists = false;
-  if (code) {
-    const rows = nk.storageRead([{ collection: ROOM_COLLECTION, key: code, userId: SYSTEM_USER }]);
-    roomExists = rows.length > 0;
-  }
+  if (!hasTarget) reject('invalid user');
+  if (!code) reject('invalid code');
+  checkRate(nk, callerId, 'invite_friend', Date.now());
+  const rows = nk.storageRead([{ collection: ROOM_COLLECTION, key: code, userId: SYSTEM_USER }]);
   const check: InviteCheck = {
     callerId,
     targetId,
     code,
-    callerFriends: hasTarget ? friendStates(nk, callerId, FRIEND_STATE_MUTUAL) : {},
-    targetFriends: hasTarget ? friendStates(nk, targetId, FRIEND_STATE_BLOCKED) : {},
-    roomExists,
+    callerFriends: friendStates(nk, callerId, FRIEND_STATE_MUTUAL),
+    targetFriends: friendStates(nk, targetId, FRIEND_STATE_BLOCKED),
+    roomExists: rows.length > 0,
   };
   const error = inviteError(check);
-  if (error) throw Error(error);
+  if (error) reject(error);
   const caller = nk.usersGetId([callerId])[0];
-  const fromName = caller ? caller.displayName || caller.username : 'A friend';
+  const fromName = (caller && caller.username ? caller.username : 'A friend').slice(0, FROM_NAME_MAX);
   nk.notificationSend(targetId, 'Room invite', { code, fromName, fromUserId: callerId }, INVITE_CODE, callerId, true);
   logger.info('invite %s -> %s room %s', callerId, targetId, code);
   return JSON.stringify({ ok: true });

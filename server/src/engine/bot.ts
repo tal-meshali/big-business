@@ -35,6 +35,13 @@ import type { Action, Card, GameState, PlayerView } from './types';
 const FUTURE_FLOW = 1.2;
 /** Negative-binomial dispersion of an opponent's future gains (smaller = more spread). */
 const FUTURE_DISPERSION = 0.5;
+/**
+ * At tables of SMALL_TABLE seats or fewer, fewer shares are expected to
+ * change hands and an opponent's future gains are more spread out.
+ */
+const SMALL_TABLE = 4;
+const SMALL_FUTURE_FLOW = 0.8;
+const SMALL_FUTURE_DISPERSION = 0.25;
 /** Correlation between the shares in one hidden hand (players keep pairs). */
 const HAND_RHO = 0.5;
 /** Uniform noise added to each action's score, in points. */
@@ -323,13 +330,20 @@ function convolve(a: number[], b: number[]): number[] {
 function companyTable(model: Model, c: number, maxK: number, ownFuture: boolean): number[] {
   const { n, me } = model;
   const q = model.unseenTotal > 0 ? (model.unseen[c] as number) / model.unseenTotal : 0;
-  const flow = FUTURE_FLOW * (model.supply * q + (model.market[c] as number));
+  // WHY: at 3 and 4 seats the large-table model overrated opponents' future
+  // gains, so the bot sold shares it could have won with and kept too few.
+  // Expecting less and more uneven future flow there made bots keep more, hold
+  // a simple stand-in for a person to fewer wins, and beat the large-table
+  // model head to head (rules-spec section 8.2). At 5 or more seats it
+  // measured slightly worse.
+  const small = n <= SMALL_TABLE;
+  const flow = (small ? SMALL_FUTURE_FLOW : FUTURE_FLOW) * (model.supply * q + (model.market[c] as number));
   // WHY: the bot only expects to keep growing its focus company. Crediting it
   // with future gains everywhere made stray singletons look like cheap
   // lottery tickets; in play they mostly ended as minority shares or ties.
   const myMean = ownFuture ? flow / n : 0;
   const oppMean = n > 1 ? (flow - myMean) / (n - 1) : 0;
-  const future = negBinomial(oppMean, FUTURE_DISPERSION);
+  const future = negBinomial(oppMean, small ? SMALL_FUTURE_DISPERSION : FUTURE_DISPERSION);
 
   // Opponent final-count distributions (index = count) and P(F < k).
   const dists: number[][] = [];

@@ -55,6 +55,8 @@ First playtest fixes: bots keep shares at a steady pace instead of cycling the M
 
 Second playtest fixes: bots lock pairs into their Portfolio, so they keep about half their plays from their first or second turn (tutorial bots too, once the Market has a share). The browser table (`web/`) gets the same engine plus the countdown, Forfeit, the card close-up, a selected card drawn above its neighbours, and no replayed arrival animation when you select or cancel a card. It now opens in a lobby: resume or forfeit the saved game, set up and deal a table, start the tutorial, open the rules, and see your record in that browser (games, wins, best capital). Every game ends back there.
 
+Bot tuning from simulation: at 3 and 4 seats, where bots actually play, they model opponents' remaining pickups more tightly. With one person at a 3-seat table the simple stand-in for that person wins 19% of games instead of 28%, and the bots keep more of their plays than before (rules-spec section 8.2).
+
 Code conventions (acyclic, layered dependency graph checked with graphify on every push and in CI) are in `docs/conventions.md`.
 
 What still needs a real machine (phone builds, playtesting, store accounts, art) is listed in `docs/TODO-local.md`.

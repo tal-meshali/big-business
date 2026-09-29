@@ -162,6 +162,18 @@ describe('botAction strength against the placeholder policy', () => {
       expect(r.win).toBeGreaterThan(r.oldWin);
     }
   }, 30_000);
+
+  it('holds one simple seat well under its fair share at a 3-seat table', () => {
+    // The commonest table with bots: one person and two bots. The simple
+    // policy stands in for the person.
+    const r = tournament(3, ['old', 'new', 'new'], 80, 7700);
+    console.log(`3 seats, 2 new vs 1 old, 240 games: old avg ${r.old.avg.toFixed(2)} win ${(100 * r.old.winRate).toFixed(1)}% | new avg ${r.new.avg.toFixed(2)}`);
+    // Measured on these deals: the simple seat wins 22.5% and trails the bots
+    // by 5.3 points; with the large-table model at 3 seats it won 28.3% and
+    // trailed by 3.4 (rules-spec section 8.2).
+    expect(r.old.winRate).toBeLessThan(0.25);
+    expect(r.new.avg - r.old.avg).toBeGreaterThan(4);
+  }, 30_000);
 });
 
 describe('botAction uses only what its seat can see', () => {
@@ -332,12 +344,14 @@ describe('botAction decisions', () => {
           firstKeepTotal += firstKeep[i] as number;
         }
       }
-      // Measured on these deals: 47% and 59% of plays kept, the first keep on
-      // a bot's 2.1st and 1.9th turn on average, and 0% and 8% of bots with at
-      // most one Portfolio share at mid-game. With the keep pace alone: 33% and
-      // 35% kept, first keep on turn 3; before it, 18 to 32% of bots stuck.
-      expect(keeps / (keeps + sells)).toBeGreaterThan(0.42);
-      expect(firstKeepTotal / bots).toBeLessThan(2.6);
+      // Measured on these deals: 50% and 62% of plays kept, the first keep on
+      // a bot's 1.65th and 1.6th turn on average, and 0% and 7% of bots with at
+      // most one Portfolio share at mid-game. Before the small-table model:
+      // 47% and 59% kept, first keep on turn 2.1 and 1.9, 0% and 8% stuck.
+      // With the keep pace alone: 33% and 35% kept, first keep on turn 3;
+      // before it, 18 to 32% of bots stuck.
+      expect(keeps / (keeps + sells)).toBeGreaterThan(0.45);
+      expect(firstKeepTotal / bots).toBeLessThan(2.2);
       expect(stuck / bots).toBeLessThan(0.12);
     }
   }, 30_000);

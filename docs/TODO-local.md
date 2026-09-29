@@ -14,17 +14,17 @@ Tick items off as they are done.
 
 ## B. Play it on a phone (the Phase 1 goal)
 
-- [ ] Android: install Android SDK + export templates in Godot, create an Android export preset (portrait, min SDK 24), enable USB debugging, "Remote Deploy" from the editor to a phone. Point the host field at your computer's LAN IP (not 127.0.0.1).
+- [ ] Android: install Android SDK + export templates in Godot, create an Android export preset (portrait, min SDK 24, permission `VIBRATE` on for haptics), enable USB debugging, "Remote Deploy" from the editor to a phone. Point the server field at your computer's LAN IP (not 127.0.0.1).
 - [ ] iOS: Xcode + Apple developer account, iOS export preset, run on a device via Xcode. Same LAN host note.
-- [ ] Check touch targets: hand cards, market cards, Keep / Sell buttons. Anything under ~48 px tall gets enlarged.
-- [ ] Check the fan of 4 cards during the play step on a narrow phone (older iPhone SE width). Adjust `HAND_SCALE` in `client/scripts/ui/table.gd` if cards overflow.
-- [ ] Test app backgrounding for 30 seconds mid-game and returning: the socket should reconnect and the seat should be reclaimed. If not, add auto-rejoin in `client/scripts/net/net.gd` (`_on_socket_closed` currently only reports the disconnect).
+- [x] Check touch targets: hand cards, market cards, Keep / Sell buttons. Anything under ~48 px tall gets enlarged. *(Cloud: the smoke test now fails if any visible button on the lobby, table or help screen is under 48 px; the emote strip, top-bar buttons and seat-menu rows were enlarged. Still worth a thumb test on a phone.)*
+- [x] Check the fan of 4 cards during the play step on a narrow phone (older iPhone SE width). *(Cloud: portrait width is always 720 design px, and a 4-card hand overflowed the left edge by 17 px on every phone; fixed, rendered at iPhone SE, iPhone 13 and tablet ratios, and covered by a smoke check.)*
+- [ ] Test app backgrounding for 30 seconds mid-game and returning: the socket should reconnect and the seat should be reclaimed. Auto-rejoin exists, and `net.gd` now also checks the socket when the app resumes; this needs a real phone to confirm.
 
 ## B2. Tutorial on a device
 
 The tutorial exists (lobby: "How to play"): a solo game against two slow bots with no timer, a fixed seed so every learner sees the same opening, and a coach overlay that explains each rule the first time it comes up (welcome, take, play, coins on the Market, the regulator token, your token blocking a share, the end approaching, dividend day). Text lives in `client/scripts/ui/coach.gd`.
 
-- [ ] Run the tutorial on a phone and time it. Target: under 6 minutes to dividend day. If bots feel slow, lower `TUTORIAL_BOT_THINK_MS` in `server/src/match/handler.ts`.
+- [ ] Run the tutorial on a phone and time it. Target: under 6 minutes to dividend day. The headless e2e (learner acting instantly) takes 2.5 to 3.2 minutes, almost all of it the bots' 1.8 s think time, which leaves roughly 3 minutes for a learner's ~20 turns and ten coach cards. If bots feel slow, lower `TUTORIAL_BOT_THINK_MS` in `server/src/match/state.ts`.
 - [ ] Hand the phone to someone who has never seen the game. Note which coach card they re-read, which rule they still got wrong, and whether any card appears at a confusing moment (for example a bot's payment card popping up while they were choosing).
 - [ ] Check card readability on a small screen: body text is 19 px; the card is 620 px wide on the 720 px design width.
 - [ ] Decide whether the first "Play now" should route new players into the tutorial automatically (a "tutorial done" flag saved in `user://net.cfg`).
@@ -34,10 +34,10 @@ The tutorial exists (lobby: "How to play"): a solo game against two slow bots wi
 
 Emotes, mute, report and block exist. Tap the smiley in the top bar for the emote strip; tap an opponent's seat panel for Mute / Report / Block.
 
-- [ ] Emoji emotes render as placeholder glyphs with Godot's fallback font (see `docs/screenshots/emotes.png`). Either bundle an emoji font (Noto Color Emoji, add it as a fallback in the project theme) or replace the six emoji with small drawn icons.
-- [ ] Check the seat tap target on a phone: the seat panel is 200x96 at design size; taps near the timer arc must still open the menu.
-- [ ] Confirm blocked players' emotes stay hidden after the app restarts (mute is in-memory; block is server-side via Nakama friends). If not, persist the mute list in `user://net.cfg`.
-- [ ] Apple guideline 1.2 needs published contact info: add a support email and a privacy policy link to the lobby (a "Help" button) before submission.
+- [x] Emoji emotes render as placeholder glyphs with Godot's fallback font. *(Cloud: a 28 KB subset of Noto Color Emoji ships in `client/fonts/` as the UI font's fallback; emoji emotes are drawn larger. Verified with system fonts disabled, where they used to show as hex boxes.)*
+- [x] Check the seat tap target on a phone: the seat panel is 200x96 at design size; taps near the timer arc must still open the menu. *(Cloud: the smoke test taps the outer edge of the timer arc through the viewport and expects the seat menu.)*
+- [x] Confirm blocked players' emotes stay hidden after the app restarts. *(Cloud: they did not; mutes are now saved in `user://net.cfg` and blocks are reloaded from the Nakama friends list on connect.)*
+- [ ] Apple guideline 1.2 needs published contact info. The lobby's "Rules and help" screen (also "?" at the table) has Email support and Privacy policy buttons, disabled until you fill `SUPPORT_EMAIL` and `PRIVACY_URL` in `client/scripts/game/app_info.gd`.
 - [ ] Review the 14 preset emotes and phrases with someone outside the project for tone; all-ages means no sarcastic or taunting phrases.
 - [ ] Decide the moderation routine: reports land in the Nakama console (storage collection `reports`); pick who checks it and how often (the store expectation is action within 24 hours).
 
@@ -45,11 +45,11 @@ Emotes, mute, report and block exist. Tap the smiley in the top bar for the emot
 
 - [ ] Play two games on a phone and confirm the profile card updates (level, XP bar, wins) and the daily bonus button behaves across a UTC midnight.
 - [ ] Decide whether season points should also reward last place with 1 point (currently 0) after seeing a few real standings.
-- [ ] Verify the season leaderboard reset on the 1st of a month (Nakama cron `0 0 1 * *`).
+- [ ] Verify the season leaderboard reset on the 1st of a month (Nakama cron `0 0 1 * *`). *(Cloud: the Node e2e now checks that every season record expires at 00:00 UTC on the 1st of next month, which is how Nakama applies the reset. Glance at the standings on the 1st to see it happen.)*
 
 ## C. Playtest with people (answers the key Phase 1 question)
 
-- [ ] Deploy the server to a VPS following `docs/deploy.md` so friends can join from anywhere. Put the domain in the lobby host field with scheme https (add a scheme toggle to the lobby if needed).
+- [ ] Deploy the server to a VPS following `docs/deploy.md` so friends can join from anywhere. Type `https://your.domain` in the lobby's server field (it accepts a bare host, `host:port`, or an http/https URL).
 - [ ] Run 3 sessions of a 5-player game with friends, 30-second timer. Record: game length, whether the first game was understandable without a tutorial, which rule confused people, whether the timer felt rushed or slow, whether anyone lost track of who holds a regulator token.
 - [ ] Decide the default step timer (20 / 30 / 45 s) from those sessions.
 - [ ] Note which animations were missed (players didn't notice a token moving, a coin payment, a market take). These become Phase 2 juice work.
@@ -62,7 +62,7 @@ Emotes, mute, report and block exist. Tap the smiley in the top bar for the emot
 
 - [ ] Apple Developer Program and Google Play Console accounts.
 - [ ] App identifiers: pick a bundle id (for example `com.<you>.bigbusiness`) and set it in both export presets.
-- [ ] Privacy policy URL and support email (required by both stores, and by the report/contact rule for all-ages apps).
+- [ ] Privacy policy URL and support email (required by both stores, and by the report/contact rule for all-ages apps). Put them in `client/scripts/game/app_info.gd`; the help screen shows them.
 - [ ] Age rating questionnaires: no simulated gambling, no UGC yet, no ads. Aim for 4+ / Everyone.
 - [ ] Sign in with Apple and Google Sign-In configuration in Nakama (`local.yml` social keys) so accounts survive reinstalls. Device-id guest auth stays for first launch.
 
@@ -70,12 +70,12 @@ Emotes, mute, report and block exist. Tap the smiley in the top bar for the emot
 
 - [ ] Six company illustrations for the card art window (see `docs/design/theme.md`), a card back with the BB monogram, table background, coin sprites (bronze and gold), regulator token icon.
 - [ ] App icon and store screenshots (the cloud session's placeholder renders are in `docs/screenshots/`).
-- [ ] Sound set: card deal, card place, coin slide, coin flip to gold, turn chime, dividend fanfare. Haptics on card place and on your turn.
+- [ ] Sound set: card deal, card place, coin slide, coin flip to gold, turn chime, timer tick, dividend fanfare. Placeholders are synthesised in `client/scripts/ui/sfx.gd` and already wired to the table; replace them one name at a time. Haptics on card place, on your turn and in the last two seconds are done (sound and vibration toggles are on the help screen).
 
 ## G. Deferred engineering (Phase 2, listed so nothing is lost)
 
-- [ ] Tutorial v2: forced choices on the first two turns (only the coached action enabled) and a replayable "rules reference" screen.
-- [ ] Turn-timer sound and screen glow under 5 seconds.
+- [x] Tutorial v2: forced choices on the first two turns (only the coached action enabled) and a replayable "rules reference" screen. *(Cloud: keep on turn one; take the Market share with coins, then sell, on turn two; new "Selling to the Market" coach card. Rules reference in the help screen.)*
+- [x] Turn-timer sound and screen glow under 5 seconds. *(Cloud: red pulsing rim and a tick each second on your own step.)*
 - [ ] Friends list and invites (Nakama friends API is already used for block); push notification "your turn" via FCM.
 - [ ] Daily and weekly quests feeding a free cosmetic track (daily bonus and the season board exist).
 - [ ] Curated card skins sold a la carte through RevenueCat (see `docs/research/03-engagement-monetization.md`).

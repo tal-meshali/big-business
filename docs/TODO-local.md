@@ -54,6 +54,16 @@ Emotes, mute, report and block exist. Tap the smiley in the top bar for the emot
 - [ ] Decide the default step timer (20 / 30 / 45 s) from those sessions.
 - [ ] Note which animations were missed (players didn't notice a token moving, a coin payment, a market take). These become Phase 2 juice work.
 
+## C2. First playtest feedback (from your own games)
+
+Fixed in the cloud; each needs a check on a phone.
+
+- [ ] Bots keeping shares. Bots now keep on about a third of their plays and build a visible Portfolio (they used to sell turn after turn and hold their best shares in hand; rules-spec 8.2 "Keep pace"). Play two games against bots and say whether they now feel like players. If they should keep even more often, raise `KEEP_PACE` in `server/src/engine/bot.ts` (0.3 now; about 0.4 cost another point a game in simulation).
+- [ ] Press and hold a card (hand or Market) for a close-up above everything; letting go closes it and does not select the card. Check the 0.35 s hold (`CardView.HOLD_SECONDS`) feels right under a thumb and that a hold on the Market row still lets it scroll.
+- [ ] Get-ready countdown (4 s, `GET_READY_MS` in `server/src/match/state.ts`) with the turn order before the first turn. Also fixed: the table used to miss the game's first view and sit empty until the first move (or 30 s, when you moved first).
+- [ ] Forfeit: the top-bar button reads "Forfeit" during a live game, asks first, and a bot takes the seat. Try it with a friend at the table to see their "Forfeited" bubble.
+- [ ] The "newest card fades in when you cancel a selected card" report could not be reproduced here: mouse, touch, long press, fake views and a live server all showed no fade. The selection lift was hardened (a new lift replaces a running one, the selected card draws above its neighbours) and a share you take now flies face up into its own slot instead of the middle of the hand. If you still see it, a screen recording would pin it down.
+
 ## D. Rules verification against the physical game
 
 - [ ] Get a copy of the source game (or its rulebook) and check every **verify** item in `docs/design/rules-spec.md`: token behaviour on ties, the same-company restriction when selling to the Market, and payment exemptions. Update the spec and `server/src/engine/game.ts` plus tests if anything differs.
@@ -80,4 +90,4 @@ Emotes, mute, report and block exist. Tap the smiley in the top bar for the emot
 - [ ] Daily and weekly quests feeding a free cosmetic track (daily bonus and the season board exist).
 - [ ] Curated card skins sold a la carte through RevenueCat (see `docs/research/03-engagement-monetization.md`).
 - [ ] Designer unlock and custom card upload (see `docs/research/05-custom-card-upload.md`).
-- [x] Better bots: the current auto-move policy is a placeholder. *(Cloud: real-game bots use a heuristic bot in `server/src/engine/bot.ts` that decides from its own seat's view; against the old policy it averages 21.0 vs 11.7 at 3 seats and 15.7 vs 13.0 at 7. Timeouts and the tutorial keep the simple policy, now in `auto.ts`. Still to judge: how it feels to play against, and whether bots taking Market shares more than drawing makes games drag; see rules-spec section 8.2.)*
+- [x] Better bots: the current auto-move policy is a placeholder. *(Cloud: real-game bots use a heuristic bot in `server/src/engine/bot.ts` that decides from its own seat's view; against the old policy it averages 20.1 vs 13.1 at 3 seats and 15.3 vs 13.2 at 7, with the keep pace from section C2. Timeouts and the tutorial keep the simple policy, now in `auto.ts`. Still to judge: how it feels to play against, and whether bots taking Market shares more than drawing makes games drag; see rules-spec section 8.2.)*

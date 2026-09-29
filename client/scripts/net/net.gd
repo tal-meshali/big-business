@@ -11,6 +11,7 @@ signal events_received(seq: int, events: Array)
 signal server_error(message: String)
 signal match_left
 signal emote_shown(seat: int, emote: String)
+signal player_forfeited(seat: int)
 signal reconnecting(attempt: int)
 signal reconnected
 
@@ -28,6 +29,11 @@ var client: NakamaClient
 var session: NakamaSession
 var socket: NakamaSocket
 var match_id: String = ""
+## The latest view of the current match ({} outside a game).
+## WHY: the lobby changes scene on the first view, so the table would
+## otherwise miss it and sit empty until the first move, or until the
+## timer ran out when you move first.
+var last_view: Dictionary = {}
 var user_id: String = ""
 var display_name: String = ""
 ## True while the current match is the tutorial (coach overlay on).
@@ -220,6 +226,7 @@ func _join_match(id: String) -> bool:
 		server_error.emit("join failed: %s" % joined.get_exception().message)
 		return false
 	match_id = id
+	last_view = {}
 	return true
 
 
@@ -227,8 +234,16 @@ func leave_match() -> void:
 	if socket != null and not match_id.is_empty():
 		await socket.leave_match_async(match_id)
 	match_id = ""
+	last_view = {}
 	tutorial_mode = false
 	match_left.emit()
+
+
+## Give up the current game, then leave it. A bot plays the seat to the end.
+func forfeit() -> void:
+	if socket != null and not match_id.is_empty():
+		await socket.send_match_state_async(match_id, Protocol.OP_FORFEIT, "{}")
+	await leave_match()
 
 
 func send_ready() -> void:
@@ -316,6 +331,7 @@ func _on_match_state(state: NakamaRTAPI.MatchData) -> void:
 		return
 	match state.op_code:
 		Protocol.OP_VIEW:
+			last_view = data
 			view_updated.emit(data)
 		Protocol.OP_EVENTS:
 			events_received.emit(int(data.get("seq", 0)), data.get("events", []))
@@ -325,6 +341,8 @@ func _on_match_state(state: NakamaRTAPI.MatchData) -> void:
 			server_error.emit(String(data.get("message", "error")))
 		Protocol.OP_EMOTE_SHOWN:
 			emote_shown.emit(int(data.get("seat", -1)), String(data.get("emote", "")))
+		Protocol.OP_FORFEITED:
+			player_forfeited.emit(int(data.get("seat", -1)))
 
 
 func _on_match_presence(_event: NakamaRTAPI.MatchPresenceEvent) -> void:

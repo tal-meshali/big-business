@@ -59,6 +59,13 @@ After the Play step, regulator tokens are re-evaluated (section 4), the turn end
 - Default 30 seconds per step (60 per turn) for random matches; private rooms may choose 20, 30, 60 or 120 seconds, or off.
 - When the timer expires, the server plays the **auto-move** (section 8) for the current step and records it as a system action.
 - A seat that auto-moves on 3 consecutive turns is converted to a bot for the rest of the game. A returning player may reclaim the seat when it is their turn again.
+- Real games open with a 4-second get-ready countdown showing the seat order; nobody may act during it, and the first step's timer starts when it ends. The tutorial has no countdown (its coach opens with a welcome card).
+
+### 3.4 Forfeit
+
+- A player may forfeit at any time before dividend day. A bot plays their seat to the end of the game, and they cannot rejoin it.
+- A forfeit counts as a game played, with no XP, win or season points, whatever the seat's final rank.
+- If every human at the table has forfeited, the match closes at once.
 
 ## 4. Regulator tokens
 
@@ -135,18 +142,19 @@ How it decides:
 - **Scoring actions.** Every legal action is scored as coins after the action plus the value of the resulting holdings. A take is scored with the best play that could follow it, and a draw averages over the unseen shares. In practice it takes Market shares with coins on them rather than paying to draw, sells shares it cannot win, and keeps its majority company.
 - **Variety.** Small random noise separates near-equal actions, so bots are not identical.
 - **Stall guard.** If Market takes so far exceed 3 × draws + 15 (from the public turn number and Supply count), it draws when drawing is legal and does not sell. This keeps an all-bot table from cycling forever, so every game ends.
+- **Keep pace.** On value alone the bot kept its best shares in hand and cycled Market shares for their coins (the loop in section 9), so its Portfolio barely grew: at 3 seats its longest run of sells averaged 12 turns, and 18 to 32% of bots had at most one Portfolio share at mid-game. Players read that as bots never keeping shares. Now, when a bot has kept on fewer than 30% of its turns so far (its Portfolio size against the public turn number), keeping a share of its focus company scores 1 point higher. With one simple seat standing in for a person, bots keep on about a third of their plays and almost none reach mid-game with a near-empty Portfolio. The cost is 1 to 2 points a game against the version without it.
 
 Measured against the simple policy with one heuristic bot and the other seats simple, over 150 fixed deals with every seat rotation of each deal (`bot.test.ts` runs a smaller version on every check):
 
 | Seats | Heuristic bot avg score | Simple bots avg score | Heuristic bot win rate | Fair win rate |
 |---|---|---|---|---|
-| 3 | 21.0 | 11.7 | 66% | 33% |
-| 4 | 19.3 | 13.4 | 40% | 25% |
-| 5 | 17.8 | 13.4 | 31% | 20% |
-| 6 | 17.2 | 13.2 | 26% | 17% |
-| 7 | 15.7 | 13.0 | 20% | 14% |
+| 3 | 20.1 | 13.1 | 57% | 33% |
+| 4 | 18.8 | 13.7 | 37% | 25% |
+| 5 | 17.0 | 13.7 | 26% | 20% |
+| 6 | 16.6 | 13.3 | 23% | 17% |
+| 7 | 15.3 | 13.2 | 16% | 14% |
 
-With several heuristic bots at a 5-seat table, each still averages 16.9 (2 heuristic vs 3 simple, 27% win rate each) or 16.2 (3 vs 2, 26% each), against 12.6 and 10.9 for the simple bots. Every decision takes well under a millisecond in Node.
+With several heuristic bots at a 5-seat table, each still averages 16.7 (2 heuristic vs 3 simple, 25% win rate each) or 16.3 (3 vs 2, 25% each), against 12.9 and 11.5 for the simple bots. Every decision takes well under a millisecond in Node.
 
 ## 9. Known exploit: hand/Market cycling
 

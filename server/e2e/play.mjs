@@ -1,10 +1,13 @@
 /**
  * End-to-end test against a running Nakama (see README). Drives real matches
  * through the public API with the Nakama JS client:
- *   1. private room: 3 humans, ready-up, random legal play until dividend day
+ *   1. private room: 3 humans, ready-up, get-ready countdown, random legal
+ *      play until dividend day
  *   2. illegal action is rejected with OP_ERROR
  *   3. leave and rejoin mid-game restores a view
- *   4. quick play: 1 human, lobby wait, bots fill, game completes
+ *   4. forfeit: a bot takes the seat, no rejoin, the match closes when
+ *      every player has forfeited
+ *   5. quick play: 1 human, lobby wait, bots fill, game completes
  * Exit code 0 on success.
  */
 import WebSocket from 'ws';
@@ -16,12 +19,20 @@ const HOST = process.env.NAKAMA_HOST || '127.0.0.1';
 const PORT = process.env.NAKAMA_PORT || '7350';
 const KEY = process.env.NAKAMA_KEY || 'defaultkey';
 
-const OP_ACTION = 1, OP_READY = 2, OP_EMOTE = 3, OP_VIEW = 10, OP_EVENTS = 11, OP_LOBBY = 12, OP_ERROR = 13, OP_EMOTE_SHOWN = 14;
+const OP_ACTION = 1, OP_READY = 2, OP_EMOTE = 3, OP_FORFEIT = 4, OP_VIEW = 10, OP_EVENTS = 11, OP_LOBBY = 12, OP_ERROR = 13, OP_EMOTE_SHOWN = 14, OP_FORFEITED = 15;
 const STARTING_COINS = 10;
 
 const log = (...a) => console.log(new Date().toISOString().slice(11, 19), ...a);
 const fail = (msg) => { console.error('FAIL:', msg); process.exit(1); };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+async function waitFor(check, ms, what) {
+  const t0 = Date.now();
+  while (!check()) {
+    if (Date.now() - t0 > ms) fail(what);
+    await sleep(50);
+  }
+}
 
 let seed = 12345;
 const rnd = () => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed / 0x7fffffff; };
@@ -31,7 +42,7 @@ async function makePlayer(name) {
   const session = await client.authenticateDevice(`e2e-${name}-${Date.now()}`, true, `${name}${Date.now() % 100000}`);
   const socket = client.createSocket(false, false);
   await socket.connect(session, true);
-  const p = { name, client, session, socket, view: null, lobby: null, errors: [], events: [], emotes: [], matchId: null, userId: session.user_id };
+  const p = { name, client, session, socket, view: null, lobby: null, errors: [], events: [], emotes: [], forfeits: [], matchId: null, userId: session.user_id };
   socket.onmatchdata = (m) => {
     const data = JSON.parse(m.data instanceof Uint8Array ? new TextDecoder().decode(m.data) : m.data);
     if (m.op_code === OP_VIEW) p.view = data;
@@ -39,6 +50,7 @@ async function makePlayer(name) {
     else if (m.op_code === OP_LOBBY) p.lobby = data;
     else if (m.op_code === OP_ERROR) p.errors.push(data);
     else if (m.op_code === OP_EMOTE_SHOWN) p.emotes.push(data);
+    else if (m.op_code === OP_FORFEITED) p.forfeits.push(data);
   };
   socket.ondisconnect = () => { p.disconnected = true; };
   return p;
@@ -125,6 +137,17 @@ async function testPrivateRoom() {
     if ('supply' in v || 'seed' in v) fail('secret state leaked');
   }
 
+  // Get ready: a countdown before the first turn, with no legal moves until it ends.
+  if (!(a.view.startsInMs > 0)) fail(`views should count down to the first turn, got startsInMs ${a.view.startsInMs}`);
+  if ([a, b, c].some((p) => p.view.legal.length > 0)) fail('nobody may move during the get-ready countdown');
+  const first = [a, b, c].find((p) => p.view.active === p.view.you);
+  await send(first, OP_ACTION, { type: 'take_supply' });
+  await waitFor(() => first.errors.length > 0, 2000, 'a move during the countdown should be rejected');
+  if (!/not started/.test(first.errors[0].message)) fail(`unexpected countdown error: ${first.errors[0].message}`);
+  first.errors.length = 0;
+  await waitFor(() => first.view.startsInMs === 0 && first.view.legal.length > 0, 8000, 'the first turn should open after the countdown');
+  log('get-ready countdown ended; first turn open');
+
   // Illegal action: a non-active player tries to draw.
   const inactive = [a, b, c].find((p) => p.view.active !== p.view.you);
   await send(inactive, OP_ACTION, { type: 'take_supply' });
@@ -208,6 +231,50 @@ async function testPrivateRoom() {
   for (const p of [a, b, c]) p.socket.disconnect(true);
 }
 
+async function testForfeit() {
+  log('--- forfeit: 2 humans and a bot; one forfeits, then the other');
+  const [f, g] = await Promise.all([makePlayer('Quitter'), makePlayer('Stayer')]);
+  const created = await rpc(f, 'create_room', { stepSeconds: 30, maxSeats: 3 });
+  await join(f, created.matchId);
+  await join(g, created.matchId);
+  await sleep(400);
+  await send(f, OP_READY);
+  await send(g, OP_READY);
+  await waitFor(() => f.view && g.view, 3000, 'the forfeit room should start');
+  const seat = f.view.you;
+  await send(f, OP_FORFEIT);
+  await waitFor(() => g.forfeits.length > 0, 2000, 'the other player should hear about the forfeit');
+  if (g.forfeits[0].seat !== seat) fail(`OP_FORFEITED should name seat ${seat}: ${JSON.stringify(g.forfeits)}`);
+  await waitFor(() => g.view.seats[seat].isBot, 2000, 'a bot should take the forfeited seat');
+  await f.socket.leaveMatch(f.matchId);
+  let refused = false;
+  try { await f.socket.joinMatch(created.matchId); } catch (e) { refused = true; }
+  if (!refused) fail('a forfeited player must not rejoin the seat');
+  const prof = await rpc(f, 'get_profile');
+  if (prof.progress.gamesPlayed !== 1 || prof.progress.xp !== 0 || prof.progress.wins !== 0) {
+    fail(`a forfeit should count as a game played with no XP: ${JSON.stringify(prof.progress)}`);
+  }
+  // The game goes on: the bot plays the forfeited seat in turn.
+  const botTurns = () => g.events.filter((e) => e.type === 'played' && e.seat === seat).length;
+  const t0 = Date.now();
+  while (botTurns() < 2) {
+    if (Date.now() - t0 > 30000) fail('the bot should play the forfeited seat');
+    const v = g.view;
+    if (v.you !== null && v.active === v.you && v.legal.length > 0 && v.seq !== g.actedSeq) {
+      g.actedSeq = v.seq;
+      await send(g, OP_ACTION, v.legal[Math.floor(rnd() * v.legal.length)]);
+    }
+    await sleep(60);
+  }
+  // Once every player has forfeited, the match closes.
+  await send(g, OP_FORFEIT);
+  await sleep(1000);
+  const list = await g.client.listMatches(g.session, 10, true, undefined, 0, 10, `+label.code:${created.code}`);
+  if ((list.matches || []).length !== 0) fail('the match should close when every player has forfeited');
+  log('forfeit: bot took seat', seat, 'and played on; rejoin refused; match closed after the last forfeit');
+  for (const p of [f, g]) p.socket.disconnect(true);
+}
+
 async function testQuickPlay() {
   log('--- quick play: 1 human, bots fill after the lobby wait');
   const solo = await makePlayer('Solo');
@@ -243,6 +310,7 @@ async function testTutorial() {
   if (v.seats.length !== 3 || v.seats.filter((s) => s.isBot).length !== 2) fail('tutorial needs 1 human + 2 bots');
   if (v.you !== 0 || v.active !== 0) fail('the learner should take the first turn');
   if (v.deadline !== 0) fail('tutorial must have no turn timer');
+  if (v.startsInMs !== 0 || v.legal.length === 0) fail('the tutorial skips the get-ready countdown');
   // Deterministic: a second tutorial deals the same opening hand.
   const other = await makePlayer('Learner2');
   const created2 = await rpc(other, 'quick_play', { tutorial: true });
@@ -260,6 +328,7 @@ async function testTutorial() {
 
 try {
   await testPrivateRoom();
+  await testForfeit();
   await testQuickPlay();
   await testTutorial();
   log('E2E OK');

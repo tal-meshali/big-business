@@ -8,6 +8,9 @@ extends Control
 ##   market strip   supply pile | market cards (scrollable)
 ##   action area    contextual prompt (draw / keep / sell)
 ##   hand fan       your 3-4 cards
+##
+## Overlays: the get-ready countdown before the first turn, a forfeit
+## confirmation, dividend day, reconnecting, and the close-up of a held card.
 
 const FLY_TIME := 0.35
 const COIN_TIME := 0.3
@@ -16,6 +19,8 @@ const HAND_SCALE := 1.35
 const HAND_TILT_DEG := 6.0
 ## Seconds left on your own step when the table starts to glow and tick.
 const URGENT_SECONDS := 5
+## Size of a held card's close-up, relative to a Market card.
+const PEEK_SCALE := 2.2
 
 var view: Dictionary = {}
 var _my_seat: int = -1
@@ -59,6 +64,17 @@ var _restriction: Dictionary = {}
 var _glow: Panel
 var _last_tick := -1
 var _announced_turn := -1
+var _leave_button: Button
+var _forfeit_overlay: ColorRect
+var _ready_overlay: ColorRect
+var _ready_seats: Label
+var _ready_first: Label
+var _ready_count: Label
+## Ticks (ms) when the get-ready countdown ends; 0 when play has begun.
+var _ready_ends_msec: int = 0
+var _ready_tween: Tween
+var _peek_layer: Control
+var _peek: CardView = null
 
 
 func _ready() -> void:
@@ -72,6 +88,10 @@ func _ready() -> void:
 	Net.emote_shown.connect(_on_emote_shown)
 	Net.reconnecting.connect(_on_reconnecting)
 	Net.reconnected.connect(_on_reconnected)
+	Net.player_forfeited.connect(_on_player_forfeited)
+	# The lobby opened this scene on the game's first view; render it now.
+	if not Net.last_view.is_empty():
+		_on_view(Net.last_view)
 
 
 # ---------------------------------------------------------------------------
@@ -126,11 +146,11 @@ func _build_layout() -> void:
 	_emote_button.add_theme_font_size_override("font_size", 26)
 	_emote_button.pressed.connect(_toggle_emote_bar)
 	top.add_child(_emote_button)
-	var leave := Button.new()
-	leave.text = "Leave"
-	leave.custom_minimum_size = Vector2(0, 52)
-	leave.pressed.connect(_on_leave)
-	top.add_child(leave)
+	_leave_button = Button.new()
+	_leave_button.text = "Leave"
+	_leave_button.custom_minimum_size = Vector2(0, 52)
+	_leave_button.pressed.connect(_on_leave_pressed)
+	top.add_child(_leave_button)
 
 	# Seat oval.
 	_seats_layer = Control.new()
@@ -260,6 +280,87 @@ func _build_layout() -> void:
 	result_box.add_child(result_buttons)
 	_make_button(result_buttons, "Play again", _on_play_again).visible = true
 	_make_button(result_buttons, "Leave", _on_leave).visible = true
+	_build_get_ready()
+	_build_forfeit_confirm()
+
+	# Close-up of a held card, above everything else.
+	_peek_layer = Control.new()
+	_peek_layer.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_peek_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(_peek_layer)
+
+
+## The countdown before the first turn: seat order, who starts, 3-2-1.
+## It sits below the top bar so rules, emotes and Forfeit stay in reach.
+func _build_get_ready() -> void:
+	_ready_overlay = ColorRect.new()
+	_ready_overlay.color = Color(0, 0, 0, 0.45)
+	_ready_overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_ready_overlay.offset_top = 72
+	_ready_overlay.visible = false
+	add_child(_ready_overlay)
+	var center := CenterContainer.new()
+	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	center.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_ready_overlay.add_child(center)
+	var deed := UiTheme.deed_panel(Companies.CHEST, "Get ready", Color.WHITE)
+	deed["panel"].custom_minimum_size = Vector2(520, 0)
+	center.add_child(deed["panel"])
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 10)
+	deed["body"].add_child(box)
+	var order_title := Label.new()
+	order_title.text = "Turn order"
+	order_title.add_theme_font_size_override("font_size", 16)
+	order_title.add_theme_color_override("font_color", Companies.INK_SOFT)
+	box.add_child(order_title)
+	_ready_seats = Label.new()
+	_ready_seats.add_theme_font_size_override("font_size", 20)
+	box.add_child(_ready_seats)
+	_ready_first = Label.new()
+	_ready_first.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_ready_first.add_theme_font_size_override("font_size", 22)
+	box.add_child(_ready_first)
+	_ready_count = Label.new()
+	_ready_count.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_ready_count.add_theme_font_size_override("font_size", 72)
+	box.add_child(_ready_count)
+	var tip := Label.new()
+	tip.text = "Collect shares, hold the most of a company, and cash in on dividend day."
+	tip.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	tip.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	tip.add_theme_font_size_override("font_size", 15)
+	tip.add_theme_color_override("font_color", Companies.INK_SOFT)
+	box.add_child(tip)
+
+
+func _build_forfeit_confirm() -> void:
+	_forfeit_overlay = ColorRect.new()
+	_forfeit_overlay.color = Color(0, 0, 0, 0.45)
+	_forfeit_overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_forfeit_overlay.visible = false
+	add_child(_forfeit_overlay)
+	var center := CenterContainer.new()
+	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	center.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_forfeit_overlay.add_child(center)
+	var deed := UiTheme.deed_panel(Companies.ALERT, "Forfeit this game?", Color.WHITE)
+	deed["panel"].custom_minimum_size = Vector2(520, 0)
+	center.add_child(deed["panel"])
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 14)
+	deed["body"].add_child(box)
+	var body := Label.new()
+	body.text = "A bot plays your seat for the rest of the game and you can't come back to it. It counts as a game played, with no XP."
+	body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	body.add_theme_font_size_override("font_size", 18)
+	box.add_child(body)
+	var buttons := HBoxContainer.new()
+	buttons.alignment = BoxContainer.ALIGNMENT_CENTER
+	buttons.add_theme_constant_override("separation", 12)
+	box.add_child(buttons)
+	_make_button(buttons, "Forfeit", _on_forfeit_confirmed).visible = true
+	_make_button(buttons, "Keep playing", func() -> void: _forfeit_overlay.visible = false).visible = true
 
 
 func _build_social_layer() -> void:
@@ -511,6 +612,32 @@ func _on_leave() -> void:
 	get_tree().change_scene_to_file("res://scenes/main.tscn")
 
 
+## True while you hold a seat in a real game that is not over yet.
+func _can_forfeit() -> bool:
+	return not Net.tutorial_mode and _my_seat >= 0 and not view.is_empty() and view.get("phase") != "ended"
+
+
+func _on_leave_pressed() -> void:
+	if _can_forfeit():
+		_forfeit_overlay.visible = true
+	else:
+		_on_leave()
+
+
+func _on_forfeit_confirmed() -> void:
+	_forfeit_overlay.visible = false
+	await Net.forfeit()
+	get_tree().change_scene_to_file("res://scenes/main.tscn")
+
+
+func _on_player_forfeited(seat: int) -> void:
+	var seats: Array = view.get("seats", [])
+	if seat < 0 or seat >= seats.size() or seat == _my_seat:
+		return
+	_show_bubble(seat, "Forfeited")
+	_status.text = "%s forfeited. A bot plays their seat." % seats[seat].get("name", "A player")
+
+
 func _on_play_again() -> void:
 	await Net.leave_match()
 	_status.text = "Finding a new game..."
@@ -544,6 +671,7 @@ func _on_view(v: Dictionary) -> void:
 	_last_view = view
 	view = v
 	_my_seat = int(v.get("you", -1)) if v.get("you") != null else -1
+	_update_get_ready(int(v.get("startsInMs", 0)))
 	if not _last_view.is_empty() and not _pending_events.is_empty():
 		_play_events_then_render()
 	else:
@@ -552,16 +680,71 @@ func _on_view(v: Dictionary) -> void:
 
 
 func _process(_delta: float) -> void:
+	if _ready_ends_msec > 0:
+		_update_countdown()
 	if view.is_empty():
 		return
 	var deadline := float(view.get("deadline", 0))
-	if deadline <= 0 or view.get("phase") == "ended":
+	if deadline <= 0 or view.get("phase") == "ended" or _ready_ends_msec > 0:
 		_timer_label.text = ""
 		_glow.visible = false
 		return
 	var remaining := int(ceil((deadline - Time.get_unix_time_from_system() * 1000.0) / 1000.0))
 	_timer_label.text = "%ds" % maxi(remaining, 0)
 	_update_urgency(remaining)
+
+
+## Shows the countdown while the server holds the first turn back
+## (startsInMs > 0), and ends it once play begins.
+func _update_get_ready(starts_in_ms: int) -> void:
+	if starts_in_ms > 0 and view.get("phase") != "ended":
+		_ready_ends_msec = Time.get_ticks_msec() + starts_in_ms
+		_fill_get_ready()
+		if _ready_tween != null:
+			_ready_tween.kill()
+		_ready_overlay.modulate.a = 1.0
+		_ready_overlay.visible = true
+		_update_countdown()
+	elif _ready_ends_msec > 0:
+		_end_get_ready()
+
+
+func _fill_get_ready() -> void:
+	var seats: Array = view.get("seats", [])
+	if seats.is_empty():
+		return
+	var first := int(view.get("active", 0))
+	var lines := PackedStringArray()
+	for k in seats.size():
+		var i := (first + k) % seats.size()
+		var seat: Dictionary = seats[i]
+		var who := "You" if i == _my_seat else String(seat.get("name", "?"))
+		lines.append("%d.  %s%s" % [k + 1, who, "  • bot" if seat.get("isBot", false) else ""])
+	_ready_seats.text = "\n".join(lines)
+	_ready_first.text = "You go first!" if first == _my_seat else "%s goes first" % seats[first].get("name", "?")
+
+
+func _update_countdown() -> void:
+	var left := _ready_ends_msec - Time.get_ticks_msec()
+	if left > 0:
+		_ready_count.text = str(ceili(left / 1000.0))
+	else:
+		_end_get_ready()
+
+
+func _end_get_ready() -> void:
+	_ready_ends_msec = 0
+	_ready_count.text = "Go!"
+	if _ready_tween != null:
+		_ready_tween.kill()
+	_ready_tween = create_tween()
+	_ready_tween.tween_interval(0.35)
+	_ready_tween.tween_property(_ready_overlay, "modulate:a", 0.0, 0.25)
+	_ready_tween.tween_callback(func() -> void:
+		_ready_overlay.visible = false
+		_ready_overlay.modulate.a = 1.0)
+	# The turn chime waited for the countdown.
+	_announce_turn(String(view.get("phase", "")))
 
 
 ## Under URGENT_SECONDS on your own step: pulse the rim and tick each second.
@@ -635,6 +818,10 @@ func _render() -> void:
 	var active := int(view.get("active", 0))
 	_selected_card = -1
 	_restriction = coach.restriction(view) if coach != null else {}
+	_hide_peek()
+	_leave_button.text = "Forfeit" if _can_forfeit() else "Leave"
+	if not _can_forfeit():
+		_forfeit_overlay.visible = false
 
 	_render_status(phase, seats, active)
 	_render_seats(seats, active, phase)
@@ -649,6 +836,8 @@ func _render() -> void:
 
 ## A chime and a buzz once when your turn starts.
 func _announce_turn(phase: String) -> void:
+	if _ready_ends_msec > 0:
+		return
 	var turn := int(view.get("turn", 0))
 	if phase == "take" and _is_my_turn() and turn != _announced_turn:
 		_announced_turn = turn
@@ -659,6 +848,8 @@ func _announce_turn(phase: String) -> void:
 func _render_status(phase: String, seats: Array, active: int) -> void:
 	if phase == "ended":
 		_status.text = "Dividend day!"
+	elif _ready_ends_msec > 0:
+		_status.text = "Get ready"
 	elif _is_my_turn():
 		_status.text = "Your turn"
 	else:
@@ -709,6 +900,8 @@ func _render_market(phase: String) -> void:
 		cv.setup(int(card.get("id", -1)), int(card.get("company", 0)), int(slot.get("coins", 0)))
 		cv.selectable = _is_my_turn() and phase == "take" and _allowed("take_market", cv.card_id)
 		cv.card_pressed.connect(_on_market_card_pressed)
+		cv.card_held.connect(_on_card_held)
+		cv.card_released.connect(_on_card_released)
 		_market_row.add_child(cv)
 	var supply := int(view.get("supplyCount", 0))
 	_supply_count.text = "%d left" % supply
@@ -727,6 +920,26 @@ func _render_hand(seats: Array, phase: String) -> void:
 	var count := hand.size()
 	if count == 0:
 		return
+	for i in count:
+		var card: Dictionary = hand[i]
+		var cv := CardView.new()
+		cv.setup(int(card.get("id", -1)), int(card.get("company", 0)))
+		cv.scale = Vector2(HAND_SCALE, HAND_SCALE)
+		cv.pivot_offset = Vector2(CardView.W / 2.0, CardView.H)
+		var slot := _hand_slot(i, count)
+		cv.rotation = slot["rot"]
+		cv.set_rest_position(slot["pos"])
+		cv.selectable = _is_my_turn() and phase == "play" and _card_playable(cv.card_id)
+		cv.card_pressed.connect(_on_hand_card_pressed)
+		cv.card_held.connect(_on_card_held)
+		cv.card_released.connect(_on_card_released)
+		_hand_layer.add_child(cv)
+		_hand_cards.append(cv)
+
+
+## Resting place of hand card i of count: "pos" is its top-left in the hand
+## layer (it scales and tilts about its bottom centre), "rot" its tilt.
+func _hand_slot(i: int, count: int) -> Dictionary:
 	var layer_w := _hand_layer.size.x if _hand_layer.size.x > 0 else 720.0
 	# WHY: cards scale around their bottom-centre pivot and the edge cards
 	# tilt by HAND_TILT_DEG, so lay out the scaled width and keep room for
@@ -739,19 +952,48 @@ func _render_hand(seats: Array, phase: String) -> void:
 		spacing = minf(spacing, (layer_w - 2.0 * margin - card_w) / (count - 1))
 	var total := spacing * (count - 1) + card_w
 	var first_center := (layer_w - total) / 2.0 + card_w / 2.0
-	for i in count:
-		var card: Dictionary = hand[i]
-		var cv := CardView.new()
-		cv.setup(int(card.get("id", -1)), int(card.get("company", 0)))
-		cv.scale = Vector2(HAND_SCALE, HAND_SCALE)
-		cv.pivot_offset = Vector2(CardView.W / 2.0, CardView.H)
-		var t := 0.0 if count == 1 else (float(i) / (count - 1) - 0.5)
-		cv.rotation = deg_to_rad(t * 2.0 * HAND_TILT_DEG)
-		cv.set_rest_position(Vector2(first_center + i * spacing - CardView.W / 2.0, 50 + abs(t) * 20))
-		cv.selectable = _is_my_turn() and phase == "play" and _card_playable(cv.card_id)
-		cv.card_pressed.connect(_on_hand_card_pressed)
-		_hand_layer.add_child(cv)
-		_hand_cards.append(cv)
+	var t := 0.0 if count == 1 else (float(i) / (count - 1) - 0.5)
+	return {
+		"pos": Vector2(first_center + i * spacing - CardView.W / 2.0, 50 + abs(t) * 20),
+		"rot": deg_to_rad(t * 2.0 * HAND_TILT_DEG),
+	}
+
+
+## Press and hold any card to see it up close, above everything else.
+func _on_card_held(cv: CardView) -> void:
+	_hide_peek()
+	var big := CardView.new()
+	big.setup(cv.card_id, cv.company, cv.coins, cv.face_up)
+	big.selectable = false
+	big.modulate = Color.WHITE
+	big.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	big.size = Vector2(CardView.W, CardView.H)
+	big.pivot_offset = big.size / 2.0
+	_peek_layer.add_child(big)
+	var half := big.size * PEEK_SCALE / 2.0
+	var held_center: Vector2 = cv.get_global_transform() * (big.size / 2.0)
+	var held_half_h := CardView.H * cv.scale.y / 2.0
+	var screen := get_viewport_rect().size
+	# Above the held card when it fits, so the finger does not cover it.
+	var center := Vector2(held_center.x, held_center.y - held_half_h - half.y - 16.0)
+	center.x = clampf(center.x, half.x + 16.0, screen.x - half.x - 16.0)
+	center.y = clampf(center.y, half.y + 80.0, screen.y - half.y - 16.0)
+	big.position = center - big.size / 2.0
+	big.scale = Vector2.ONE * PEEK_SCALE * 0.85
+	var tw := big.create_tween().set_ease(Tween.EASE_OUT).set_trans(Tween.TRANS_BACK)
+	tw.tween_property(big, "scale", Vector2.ONE * PEEK_SCALE, 0.14)
+	_peek = big
+	Sfx.buzz(15)
+
+
+func _on_card_released(_cv: CardView) -> void:
+	_hide_peek()
+
+
+func _hide_peek() -> void:
+	if _peek != null and is_instance_valid(_peek):
+		_peek.queue_free()
+	_peek = null
 
 
 func _update_prompt() -> void:
@@ -867,12 +1109,19 @@ func _play_events_then_render() -> void:
 							_fly_coin(_seat_anchor(seat), cv.global_position + Vector2(CardView.W / 2.0, CardView.H / 2.0))
 					await get_tree().create_timer(COIN_TIME).timeout
 				sfx.play("deal")
-				await _fly_card(_supply_pile.global_position, _target_for_seat(seat), 0, false)
+				if seat == _my_seat:
+					await _fly_to_hand(_supply_pile.global_position)
+				else:
+					await _fly_card(_supply_pile.global_position, _target_for_seat(seat), 0, false)
 			"took_market":
 				var seat := int(e.get("seat", 0))
 				var card: Dictionary = e.get("card", {})
 				sfx.play("coin" if int(e.get("coins", 0)) > 0 else "deal")
-				await _fly_card(_market_card_anchor(int(card.get("id", -1))), _target_for_seat(seat), int(card.get("company", 0)), true)
+				var from := _market_card_anchor(int(card.get("id", -1)))
+				if seat == _my_seat:
+					await _fly_to_hand(from)
+				else:
+					await _fly_card(from, _target_for_seat(seat), int(card.get("company", 0)), true)
 			"played":
 				var seat := int(e.get("seat", 0))
 				var card: Dictionary = e.get("card", {})
@@ -894,6 +1143,47 @@ func _target_for_seat(seat: int) -> Vector2:
 	if seat == _my_seat:
 		return _hand_layer.global_position + Vector2(_hand_layer.size.x / 2.0 - CardView.W / 2.0, 40)
 	return _seat_anchor(seat) - Vector2(CardView.W / 2.0, CardView.H / 2.0)
+
+
+## Where a share you just took will sit: the slot of the card in the new
+## view's hand that the hand on screen does not show yet ({} if none).
+func _new_hand_slot() -> Dictionary:
+	var seats: Array = view.get("seats", [])
+	if _my_seat < 0 or _my_seat >= seats.size():
+		return {}
+	var hand: Array = seats[_my_seat].get("hand", [])
+	var shown := {}
+	for cv in _hand_cards:
+		shown[cv.card_id] = true
+	for i in hand.size():
+		if not shown.has(int(hand[i].get("id", -1))):
+			var slot := _hand_slot(i, hand.size())
+			slot["company"] = int(hand[i].get("company", 0))
+			return slot
+	return {}
+
+
+## A share you took flies face up into its own slot in your hand, so the
+## hand drawn next shows it exactly where it landed.
+func _fly_to_hand(from: Vector2) -> void:
+	var slot := _new_hand_slot()
+	if slot.is_empty():
+		await _fly_card(from, _target_for_seat(_my_seat), 0, false)
+		return
+	var ghost := CardView.new()
+	ghost.setup(-1, int(slot["company"]), 0, true)
+	ghost.selectable = false
+	ghost.modulate = Color(1, 1, 1, 1)
+	ghost.pivot_offset = Vector2(CardView.W / 2.0, CardView.H)
+	_fx_layer.add_child(ghost)
+	ghost.global_position = from
+	var to: Vector2 = _hand_layer.global_position + slot["pos"]
+	var tw := create_tween().set_parallel().set_ease(Tween.EASE_IN_OUT).set_trans(Tween.TRANS_CUBIC)
+	tw.tween_property(ghost, "global_position", to, FLY_TIME)
+	tw.tween_property(ghost, "scale", Vector2(HAND_SCALE, HAND_SCALE), FLY_TIME)
+	tw.tween_property(ghost, "rotation", float(slot["rot"]), FLY_TIME)
+	await tw.finished
+	ghost.queue_free()
 
 
 func _fly_card(from: Vector2, to: Vector2, company: int, face_up: bool) -> void:

@@ -50,6 +50,8 @@ Phase 2 (soft-launch features), cloud-doable parts complete: preset emotes and p
 
 Phase 2 polish, cloud-doable parts: a heuristic bot for real games that clearly beats the old placeholder policy (rules-spec section 8.2), a rules and help screen (lobby and "?" at the table) with support and privacy links, tutorial v2 (the first two turns only allow the coached move), a bundled emoji font so emotes render on every phone, mutes and blocks that survive restarts, 48 px touch targets enforced by the smoke test, a 4-card hand that stays on screen, placeholder sounds and haptics, a red timer glow under five seconds, reconnect on app resume, and a server field that accepts `https://` addresses.
 
+First playtest fixes: bots keep shares at a steady pace instead of cycling the Market, a get-ready countdown with the turn order before the first turn (the table also no longer misses the game's first view), a Forfeit button that hands your seat to a bot, and press-and-hold on any card for a close-up.
+
 Code conventions (acyclic, layered dependency graph checked with graphify on every push and in CI) are in `docs/conventions.md`.
 
 What still needs a real machine (phone builds, playtesting, store accounts, art) is listed in `docs/TODO-local.md`.

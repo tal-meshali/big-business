@@ -4,6 +4,8 @@ import type { LobbyMessage, LobbySeat, MatchParams } from './protocol';
 
 export const BOT_THINK_MS = 900;
 export const TUTORIAL_BOT_THINK_MS = 1800;
+/** Countdown between the table appearing and the first turn. */
+export const GET_READY_MS = 4000;
 
 export interface MatchState {
   params: MatchParams;
@@ -14,6 +16,10 @@ export interface MatchState {
   /** Seat index by user id once the game has started. */
   seatByUser: { [userId: string]: number };
   game: GameState | null;
+  /** Epoch ms when the first turn begins; 0 once play has begun (or no countdown). */
+  playStartsAt: number;
+  /** Users who forfeited. Their seats are played by bots and cannot be rejoined. */
+  forfeited: { [userId: string]: boolean };
   /** Epoch ms of the last join or leave; used to expire empty lobbies. */
   lastActivity: number;
   /** Epoch ms when a public lobby auto-starts (bots fill), 0 if unset. */

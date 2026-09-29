@@ -1,10 +1,13 @@
 /** Wire protocol between the Godot client and the match handler. */
+import type { PlayerView } from '../engine';
 
 /** Client -> server opcodes. */
 export const OP_ACTION = 1;
 export const OP_READY = 2;
 /** {"emote": "<id from EMOTE_IDS>"}; relayed to the table as OP_EMOTE_SHOWN. */
 export const OP_EMOTE = 3;
+/** {} Give up the game: a bot plays the seat to the end and it counts as a loss. */
+export const OP_FORFEIT = 4;
 
 /** Server -> client opcodes. */
 export const OP_VIEW = 10;
@@ -13,6 +16,18 @@ export const OP_LOBBY = 12;
 export const OP_ERROR = 13;
 /** {"seat": n, "emote": "<id>"} */
 export const OP_EMOTE_SHOWN = 14;
+/** {"seat": n} That seat's player forfeited; a bot plays it from now on. */
+export const OP_FORFEITED = 15;
+
+/** OP_VIEW payload: the seat's PlayerView plus match timing. */
+export interface ViewMessage extends PlayerView {
+  /**
+   * Milliseconds until the first turn, 0 once play has begun. Until then
+   * `legal` is empty. A duration rather than a time, so a phone whose clock
+   * is off still counts down correctly.
+   */
+  startsInMs: number;
+}
 
 /**
  * The only chat there is: preset emotes and phrases (all-ages decision D4).

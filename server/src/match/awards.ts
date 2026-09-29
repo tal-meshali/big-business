@@ -1,5 +1,5 @@
 /** Writes XP, levels and season points for every human seat once a game ends. */
-import { applyGameResult, emptyProgress, PROFILE_COLLECTION, PROFILE_KEY, SEASON_LEADERBOARD, seasonPointsForGame, type Progress } from './progression';
+import { applyForfeit, applyGameResult, emptyProgress, PROFILE_COLLECTION, PROFILE_KEY, SEASON_LEADERBOARD, seasonPointsForGame, type Progress } from './progression';
 import type { MatchState } from './state';
 
 /** Best effort: a storage failure is logged and never breaks the match. */
@@ -11,7 +11,8 @@ export function awardProgress(s: MatchState, nk: nkruntime.Nakama, logger: nkrun
   for (const seat of s.game.seats) if (!seat.id.startsWith('bot:')) humans++;
   for (const score of s.game.result.scores) {
     const seat = s.game.seats[score.seat];
-    if (!seat || seat.id.startsWith('bot:')) continue;
+    // Forfeited players were recorded when they forfeited (awardForfeit).
+    if (!seat || seat.id.startsWith('bot:') || s.forfeited[seat.id]) continue;
     try {
       const rows = nk.storageRead([{ collection: PROFILE_COLLECTION, key: PROFILE_KEY, userId: seat.id }]);
       const current = rows.length > 0 && rows[0] ? (rows[0].value as Progress) : emptyProgress();
@@ -24,5 +25,16 @@ export function awardProgress(s: MatchState, nk: nkruntime.Nakama, logger: nkrun
     } catch (e) {
       logger.warn('progress award failed for %s: %s', seat.id, String(e));
     }
+  }
+}
+
+/** Records a forfeit on the player's profile. Best effort, like awardProgress. */
+export function awardForfeit(nk: nkruntime.Nakama, logger: nkruntime.Logger, userId: string): void {
+  try {
+    const rows = nk.storageRead([{ collection: PROFILE_COLLECTION, key: PROFILE_KEY, userId }]);
+    const current = rows.length > 0 && rows[0] ? (rows[0].value as Progress) : emptyProgress();
+    nk.storageWrite([{ collection: PROFILE_COLLECTION, key: PROFILE_KEY, userId, value: applyForfeit(current), permissionRead: 1, permissionWrite: 0 }]);
+  } catch (e) {
+    logger.warn('forfeit record failed for %s: %s', userId, String(e));
   }
 }

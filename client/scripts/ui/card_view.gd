@@ -3,11 +3,21 @@ extends Button
 ## A share card drawn like a title deed: off-white face, black border, a
 ## solid colour band with the company name, and black text on the body.
 ## Drawn in code so no art assets are needed yet. Portrait 5:7.
+## Press and hold for HOLD_SECONDS to look at a card closely: that emits
+## card_held (and card_released on letting go) instead of card_pressed.
 
 signal card_pressed(card_id: int)
+signal card_held(card: CardView)
+signal card_released(card: CardView)
 
 const W := 120.0
 const H := 168.0
+## Press-and-hold time before a card counts as held rather than tapped.
+const HOLD_SECONDS := 0.35
+## Finger travel (card px) that turns a hold into a scroll or drag.
+const HOLD_SLOP := 14.0
+## How far a selected card rises out of the hand.
+const LIFT := 18.0
 const RADIUS := 8
 const INSET := 6.0
 const BAND_H := 50.0
@@ -26,17 +36,68 @@ var selected: bool = false:
 		if selected == value:
 			return
 		selected = value
-		var tw := create_tween().set_ease(Tween.EASE_OUT).set_trans(Tween.TRANS_BACK)
-		tw.tween_property(self, "position:y", _rest_y - (18.0 if value else 0.0), 0.18)
+		# WHY: a new lift must replace one still running; two tweens on
+		# position:y finish in either order and can strand the card.
+		if _lift_tween != null:
+			_lift_tween.kill()
+		_lift_tween = create_tween().set_ease(Tween.EASE_OUT).set_trans(Tween.TRANS_BACK)
+		_lift_tween.tween_property(self, "position:y", _rest_y - (LIFT if value else 0.0), 0.18)
+		# Drawn above its neighbours in the fan while selected.
+		z_index = 1 if value else 0
 		queue_redraw()
+## True from the moment a press becomes a hold until it is let go.
+var held: bool = false
 var _rest_y: float = 0.0
+var _lift_tween: Tween
+var _press_down: bool = false
+var _press_pos := Vector2.ZERO
+## Bumped on every press and release so a stale hold timer does nothing.
+var _press_serial: int = 0
+var _swallow_press: bool = false
 
 
 func _init() -> void:
 	custom_minimum_size = Vector2(W, H)
 	flat = true
 	focus_mode = Control.FOCUS_NONE
-	pressed.connect(func() -> void: card_pressed.emit(card_id))
+	pressed.connect(_on_pressed)
+
+
+func _on_pressed() -> void:
+	if _swallow_press:
+		_swallow_press = false
+		return
+	card_pressed.emit(card_id)
+
+
+## Tells a tap from a press-and-hold. Runs for disabled cards too, so any
+## card on the table can be looked at, not only the ones you may play.
+func _gui_input(event: InputEvent) -> void:
+	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
+		_press_serial += 1
+		if event.pressed:
+			_press_down = true
+			_press_pos = event.position
+			_swallow_press = false
+			var serial := _press_serial
+			get_tree().create_timer(HOLD_SECONDS).timeout.connect(func() -> void:
+				if serial == _press_serial and _press_down:
+					_begin_hold())
+		else:
+			_press_down = false
+			if held:
+				held = false
+				card_released.emit(self)
+	elif event is InputEventMouseMotion and _press_down and not held:
+		if event.position.distance_to(_press_pos) > HOLD_SLOP:
+			_press_serial += 1
+
+
+func _begin_hold() -> void:
+	held = true
+	# The release that ends a hold must not also select or take the card.
+	_swallow_press = true
+	card_held.emit(self)
 
 
 func setup(p_card_id: int, p_company: int, p_coins: int = 0, p_face_up: bool = true) -> void:

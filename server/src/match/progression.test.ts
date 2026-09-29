@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { applyGameResult, claimDaily, emptyProgress, levelForXp, seasonPointsForGame, xpForGame, xpForLevel } from './progression';
+import { applyForfeit, applyGameResult, claimDaily, emptyProgress, levelForXp, seasonPointsForGame, xpForGame, xpForLevel } from './progression';
 
 describe('levels', () => {
   it('start at 1 and grow with the square root of xp', () => {
@@ -18,6 +18,16 @@ describe('game rewards', () => {
     expect(xpForGame(1, 3, 1)).toBe(Math.round((20 + 20 + 30) / 2));
     expect(seasonPointsForGame(1, 5, 3)).toBe(12 + 5);
     expect(seasonPointsForGame(1, 3, 1)).toBe(0);
+  });
+
+  it('count a forfeit as a game played with nothing earned', () => {
+    const before = applyGameResult(emptyProgress(), 1, 4, 4);
+    const after = applyForfeit(before);
+    expect(after.gamesPlayed).toBe(2);
+    expect(after.xp).toBe(before.xp);
+    expect(after.level).toBe(before.level);
+    expect(after.wins).toBe(1);
+    expect(after.bestRank).toBe(1);
   });
 
   it('accumulate into progress', () => {

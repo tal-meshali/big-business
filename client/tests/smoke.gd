@@ -107,6 +107,10 @@ func _run() -> void:
 	failures += await _feedback_checks()
 	failures += await _forced_turn_checks()
 	failures += await _hand_fit_checks()
+	failures += await _get_ready_checks()
+	failures += await _forfeit_checks()
+	failures += await _peek_checks()
+	failures += await _draw_landing_checks()
 
 	if failures == 0:
 		print("SMOKE OK")
@@ -673,5 +677,256 @@ func _hand_fit_checks() -> int:
 				push_error("hand card %d corner at x=%.0f is off screen (width %.0f)" % [cv.card_id, x, width])
 				failures += 1
 				break
+	table.queue_free()
+	return failures
+
+
+func _live_view() -> Dictionary:
+	return {
+		"you": 1,
+		"seats": [
+			{"id": "bot:0", "name": "Ivy", "isBot": true, "connected": true, "handCount": 3, "portfolio": [], "bronze": 10, "gold": 0, "tokens": []},
+			{"id": "me", "name": "You", "isBot": false, "connected": true, "handCount": 3,
+			 "hand": [{"id": 1, "company": 0}, {"id": 2, "company": 3}, {"id": 3, "company": 5}], "portfolio": [], "bronze": 10, "gold": 0, "tokens": []},
+			{"id": "u-bo", "name": "Bo", "isBot": false, "connected": true, "handCount": 3, "portfolio": [], "bronze": 10, "gold": 0, "tokens": []},
+		],
+		"market": [], "supplyCount": 31, "removedCount": 5, "active": 0, "phase": "take", "turn": 1,
+		"tookCompany": null, "tokens": [null, null, null, null, null, null], "seq": 0,
+		"deadline": Time.get_unix_time_from_system() * 1000.0 + 34000.0, "drawCost": null, "legal": [], "result": null,
+		"startsInMs": 1500,
+	}
+
+
+## The get-ready countdown: shown from the first view, lists the turn order,
+## hides the step timer, holds the turn chime, and ends when play begins.
+## The table also renders the view the lobby received before it opened.
+func _get_ready_checks() -> int:
+	var failures := 0
+	var net: Node = root.get_node("Net")
+	var v := _live_view()
+	net.last_view = v
+	var table = load("res://scenes/table.tscn").instantiate()
+	root.add_child(table)
+	await process_frame
+	net.last_view = {}
+	if table.view.is_empty() or table._hand_cards.size() != 3:
+		push_error("the table should render the view the lobby already received")
+		failures += 1
+	if not table._ready_overlay.visible or table._ready_count.text != "2":
+		push_error("get-ready should count down from the first view, got visible=%s count=%s" % [table._ready_overlay.visible, table._ready_count.text])
+		failures += 1
+	if not table._ready_seats.text.begins_with("1.  Ivy  • bot\n2.  You") or table._ready_first.text != "Ivy goes first":
+		push_error("get-ready should list the turn order, got %s / %s" % [table._ready_seats.text, table._ready_first.text])
+		failures += 1
+	if table._timer_label.text != "":
+		push_error("the step timer should stay hidden during the countdown")
+		failures += 1
+	# My turn comes first in this deal: no chime until the countdown ends.
+	v["active"] = 1
+	table._on_view(v.duplicate(true))
+	await process_frame
+	if table._ready_first.text != "You go first!" or table.sfx.history.has("turn"):
+		push_error("you go first, and the chime waits for the countdown")
+		failures += 1
+	v["startsInMs"] = 0
+	v["legal"] = [{"type": "take_supply"}]
+	v["drawCost"] = 0
+	table._on_view(v.duplicate(true))
+	for i in 40:
+		await create_timer(0.05).timeout
+		if not table._ready_overlay.visible:
+			break
+	if table._ready_overlay.visible or table._ready_count.text != "Go!" or table._ready_ends_msec != 0:
+		push_error("the countdown should end with Go! when play begins")
+		failures += 1
+	if table.sfx.history.count("turn") != 1:
+		push_error("the turn chime should play once the countdown ends, history %s" % [table.sfx.history])
+		failures += 1
+	# A countdown that runs out locally before the server's view also ends.
+	v["startsInMs"] = 200
+	table._on_view(v.duplicate(true))
+	for i in 40:
+		await create_timer(0.05).timeout
+		if not table._ready_overlay.visible:
+			break
+	if table._ready_overlay.visible:
+		push_error("the countdown should end on its own when time is up")
+		failures += 1
+	table.queue_free()
+	return failures
+
+
+## Forfeit: offered only in a live game you sit in, behind a confirmation;
+## other players' forfeits show over their seat.
+func _forfeit_checks() -> int:
+	var failures := 0
+	var net: Node = root.get_node("Net")
+	var table = load("res://scenes/table.tscn").instantiate()
+	root.add_child(table)
+	await process_frame
+	var v := _live_view()
+	v["startsInMs"] = 0
+	table._on_view(v.duplicate(true))
+	await process_frame
+	if table._leave_button.text != "Forfeit":
+		push_error("a live game should offer Forfeit, got %s" % table._leave_button.text)
+		failures += 1
+	table._on_leave_pressed()
+	if not table._forfeit_overlay.visible:
+		push_error("Forfeit should ask for confirmation first")
+		failures += 1
+	await process_frame
+	failures += _check_button_sizes(table._forfeit_overlay, "forfeit dialog")
+	var keep_playing: Button = null
+	for b in table._forfeit_overlay.find_children("*", "Button", true, false):
+		if b.text == "Keep playing":
+			keep_playing = b
+	keep_playing.pressed.emit()
+	if table._forfeit_overlay.visible:
+		push_error("Keep playing should close the confirmation")
+		failures += 1
+	var bubbles: int = table._fx_layer.get_child_count()
+	table._on_player_forfeited(2)
+	await process_frame
+	if table._fx_layer.get_child_count() != bubbles + 1 or not table._status.text.begins_with("Bo forfeited"):
+		push_error("another player's forfeit should show over their seat, status %s" % table._status.text)
+		failures += 1
+	net.tutorial_mode = true
+	table._on_view(v.duplicate(true))
+	if table._leave_button.text != "Leave":
+		push_error("the tutorial offers Leave, not Forfeit")
+		failures += 1
+	net.tutorial_mode = false
+	v["phase"] = "ended"
+	v["result"] = {"companies": [], "scores": []}
+	table._on_view(v.duplicate(true))
+	if table._leave_button.text != "Leave":
+		push_error("after dividend day the button is Leave")
+		failures += 1
+	table.queue_free()
+	return failures
+
+
+func _mouse(at: Vector2, pressed: bool) -> void:
+	var ev := InputEventMouseButton.new()
+	ev.button_index = MOUSE_BUTTON_LEFT
+	ev.pressed = pressed
+	ev.position = at
+	ev.global_position = at
+	root.push_input(ev)
+
+
+## Press and hold shows a close-up above everything without selecting the
+## card; a tap still selects; Cancel returns the card to its place.
+func _peek_checks() -> int:
+	var failures := 0
+	root.size = Vector2i(720, 1280)
+	var table = load("res://scenes/table.tscn").instantiate()
+	root.add_child(table)
+	await process_frame
+	var v := _live_view()
+	v["startsInMs"] = 0
+	v["active"] = 1
+	v["phase"] = "play"
+	v["tookCompany"] = 5
+	v["seats"][1]["hand"] = [{"id": 1, "company": 0}, {"id": 2, "company": 3}, {"id": 3, "company": 5}, {"id": 4, "company": 5}]
+	v["market"] = [{"card": {"id": 20, "company": 1}, "coins": 2}]
+	v["legal"] = [{"type": "play_portfolio", "cardId": 1}, {"type": "play_portfolio", "cardId": 2}, {"type": "play_portfolio", "cardId": 3}, {"type": "play_portfolio", "cardId": 4}, {"type": "play_market", "cardId": 1}, {"type": "play_market", "cardId": 2}]
+	table._on_view(v.duplicate(true))
+	await process_frame
+	await process_frame
+	var card: CardView = table._hand_cards[3]
+	var at: Vector2 = card.get_global_transform() * Vector2(CardView.W / 2.0, CardView.H * 0.6)
+	_mouse(at, true)
+	await create_timer(CardView.HOLD_SECONDS + 0.15).timeout
+	if table._peek == null or table._peek.card_id != 4 or table._peek.scale.x < table.PEEK_SCALE * 0.84:
+		push_error("holding a hand card should show its close-up")
+		failures += 1
+	elif table._peek.get_global_rect().position.y > card.get_global_rect().position.y:
+		push_error("the close-up should sit above the held card")
+		failures += 1
+	_mouse(at, false)
+	await process_frame
+	if table._peek != null:
+		push_error("letting go should close the close-up")
+		failures += 1
+	if table._selected_card != -1:
+		push_error("a hold must not select the card")
+		failures += 1
+	_mouse(at, true)
+	await process_frame
+	_mouse(at, false)
+	await process_frame
+	if table._selected_card != 4 or card.z_index != 1:
+		push_error("a tap should select the card and lift it above the others")
+		failures += 1
+	table._on_cancel_pressed()
+	await create_timer(0.3).timeout
+	if card.z_index != 0 or absf(card.position.y - card._rest_y) > 0.5:
+		push_error("Cancel should return the card to its place, y %s rest %s" % [card.position.y, card._rest_y])
+		failures += 1
+	# Quick toggles must not strand a card above its rest.
+	for i in 5:
+		table._on_hand_card_pressed(2)
+	await create_timer(0.3).timeout
+	var two: CardView = table._hand_cards[1]
+	if absf(two.position.y - (two._rest_y - CardView.LIFT)) > 0.5:
+		push_error("after an odd number of taps the card should rest lifted, y %s" % two.position.y)
+		failures += 1
+	# Market cards can be looked at even when they cannot be taken.
+	var market: CardView = table._market_row.get_child(0)
+	var mat: Vector2 = market.get_global_transform() * Vector2(CardView.W / 2.0, CardView.H / 2.0)
+	_mouse(mat, true)
+	await create_timer(CardView.HOLD_SECONDS + 0.15).timeout
+	if table._peek == null or table._peek.coins != 2:
+		push_error("holding a Market card should show it with its coins")
+		failures += 1
+	_mouse(mat, false)
+	await process_frame
+	table.queue_free()
+	return failures
+
+
+## A share you draw flies face up into the slot it takes in your new hand.
+func _draw_landing_checks() -> int:
+	var failures := 0
+	var table = load("res://scenes/table.tscn").instantiate()
+	root.add_child(table)
+	await process_frame
+	var v := _live_view()
+	v["startsInMs"] = 0
+	v["active"] = 1
+	v["turn"] = 2
+	v["drawCost"] = 0
+	v["legal"] = [{"type": "take_supply"}]
+	table._on_view(v.duplicate(true))
+	await process_frame
+	table._on_events(1, [{"type": "took_supply", "seat": 1, "cost": 0}])
+	v["phase"] = "play"
+	v["tookCompany"] = 4
+	v["drawCost"] = null
+	v["seats"][1]["hand"] = [{"id": 1, "company": 0}, {"id": 2, "company": 3}, {"id": 3, "company": 5}, {"id": 9, "company": 4}]
+	v["legal"] = [{"type": "play_portfolio", "cardId": 9}]
+	table._on_view(v.duplicate(true))
+	await process_frame
+	var want: Dictionary = table._hand_slot(3, 4)
+	var slot: Dictionary = table._new_hand_slot()
+	if slot.get("pos") != want["pos"] or int(slot.get("company", -1)) != 4:
+		push_error("the drawn share should land in slot 4 of 4, got %s" % [slot])
+		failures += 1
+	var ghost: CardView = null
+	for c in table._fx_layer.get_children():
+		if c is CardView:
+			ghost = c
+	if ghost == null or not ghost.face_up or ghost.company != 4:
+		push_error("your own draw should fly face up")
+		failures += 1
+	for i in 40:
+		await create_timer(0.05).timeout
+		if not table._animating:
+			break
+	if table._hand_cards.size() != 4 or table._hand_cards[3].card_id != 9 or table._hand_cards[3].position != want["pos"]:
+		push_error("the new hand should show the drawn share in the slot it landed in")
+		failures += 1
 	table.queue_free()
 	return failures

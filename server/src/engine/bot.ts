@@ -14,6 +14,8 @@
  * the action plus the value of the resulting holdings; a take is scored with
  * the best play that could follow it (a draw averages over the unseen
  * shares). The best score wins, with a little noise between near-equal ones.
+ * A bot that has kept on fewer than KEEP_PACE of its turns favours keeping
+ * its focus company, so its Portfolio grows the way a player's would.
  *
  * Written for Nakama's goja runtime: ES2016 features only.
  */
@@ -41,6 +43,10 @@ const MAX_TERMS = 8;
 /** Market takes beyond STALL_RATIO * draws + STALL_SLACK count as a stall. */
 const STALL_RATIO = 3;
 const STALL_SLACK = 15;
+/** Fewest Keeps per turn played before the bot commits its focus company. */
+const KEEP_PACE = 0.3;
+/** Bonus, in points, for keeping a focus-company share while behind KEEP_PACE. */
+const COMMIT_BONUS = 1;
 
 /**
  * Choose an action for the active seat. Deterministic for a given state and
@@ -60,6 +66,7 @@ export function botActionFromView(view: PlayerView, rng: () => number): Action {
   const model = buildModel(view);
   const hand = handOf(view);
   const stalled = isStalled(view);
+  const commit = behindKeepPace(view) ? COMMIT_BONUS : 0;
 
   const scored: Scored[] = [];
   if (view.phase === 'take') {
@@ -75,7 +82,7 @@ export function botActionFromView(view: PlayerView, rng: () => number): Action {
           if (p <= 0) continue;
           const counts = model.mine.slice();
           counts[c] = (counts[c] as number) + 1;
-          ev += p * bestPlay(model, hand.concat([{ id: -1, company: c as CompanyId }]), counts, c, false, null);
+          ev += p * bestPlay(model, hand.concat([{ id: -1, company: c as CompanyId }]), counts, c, false, commit, null);
         }
         const cost = view.drawCost === null ? 0 : view.drawCost;
         scored.push({ action, value: bronze - cost + ev });
@@ -85,14 +92,14 @@ export function botActionFromView(view: PlayerView, rng: () => number): Action {
         if (!slot) continue;
         const counts = model.mine.slice();
         counts[slot.card.company] = (counts[slot.card.company] as number) + 1;
-        const v = bestPlay(model, hand.concat([slot.card]), counts, slot.card.company, false, null);
+        const v = bestPlay(model, hand.concat([slot.card]), counts, slot.card.company, false, commit, null);
         scored.push({ action, value: bronze + slot.coins + v });
       }
     }
   } else {
     const took = view.tookCompany === null ? -1 : view.tookCompany;
     // WHY: while stalled, keep the Market from growing so a draw becomes affordable.
-    bestPlay(model, hand, model.mine.slice(), took, stalled, scored);
+    bestPlay(model, hand, model.mine.slice(), took, stalled, commit, scored);
   }
 
   let best: Scored | null = null;
@@ -203,6 +210,19 @@ function isStalled(view: PlayerView): boolean {
   const draws = initialSupply - view.supplyCount;
   const takes = view.turn - 1 - draws;
   return takes > STALL_RATIO * draws + STALL_SLACK;
+}
+
+/**
+ * True when the bot has kept fewer than KEEP_PACE of its turns so far. Its
+ * Portfolio only grows by Keeps, so this uses public data only: its
+ * Portfolio size and the turn number.
+ */
+function behindKeepPace(view: PlayerView): boolean {
+  const me = view.you as number;
+  const seat = view.seats[me];
+  if (!seat) return false;
+  const turnsPlayed = Math.floor((view.turn - 1 - me) / view.seats.length) + 1;
+  return seat.portfolio.length < Math.floor(KEEP_PACE * turnsPlayed);
 }
 
 // ---------------------------------------------------------------------------
@@ -426,10 +446,11 @@ function holdingsValue(model: Model, counts: number[]): number {
  * Best play-step value for a 4-card hand. `counts` are my holdings with that
  * hand; `took` is the company taken this turn (it may not go to the Market).
  * Pushes every candidate into `collect` when given. `noSell` forbids Market
- * plays.
+ * plays. `commit` is added to keeping a share of the focus company.
  */
-function bestPlay(model: Model, hand: Card[], counts: number[], took: number, noSell: boolean, collect: Scored[] | null): number {
+function bestPlay(model: Model, hand: Card[], counts: number[], took: number, noSell: boolean, commit: number, collect: Scored[] | null): number {
   const keep = holdingsValue(model, counts);
+  const focus = focusOf(counts);
   let best = -Infinity;
   for (const card of hand) {
     const c = card.company;
@@ -440,7 +461,13 @@ function bestPlay(model: Model, hand: Card[], counts: number[], took: number, no
     // Portfolio keeps every share; among portfolio plays, commit the share
     // that is worth the most (a tiny tie-break) and keep doubtful ones in
     // hand, where they can still be sold later.
-    const pv = keep + 0.01 * (keep - sold);
+    // WHY: on value alone the bot kept its best shares in hand and cycled
+    // Market shares for their coins (rules-spec section 9), so its Portfolio
+    // barely grew: at 3 seats its longest run of sells averaged 12 turns and
+    // a fifth of bots had at most one Portfolio share at mid-game, which
+    // players read as bots never keeping. Committing the focus company when
+    // behind KEEP_PACE halves those runs for 1 to 2 points a game.
+    const pv = keep + 0.01 * (keep - sold) + (c === focus ? commit : 0);
     if (collect) collect.push({ action: { type: 'play_portfolio', cardId: card.id }, value: pv });
     if (pv > best) best = pv;
     if (c === took || noSell) continue;

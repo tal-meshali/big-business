@@ -258,6 +258,60 @@ describe('botAction decisions', () => {
     }
   });
 
+  it('commits its focus company to the Portfolio once it falls behind the keep pace', () => {
+    const s = fixture();
+    s.seats[0]!.portfolio = [];
+    s.seats[0]!.hand = [card(32, 5), card(33, 5), card(20, 2)];
+    const r = applyAction(s, 0, { type: 'take_supply' }); // draws company 4
+    // Seat 0's first turn: no pace to keep yet, so a stray share may be sold.
+    const early = new Set<string>();
+    for (let seed = 1; seed <= 20; seed++) early.add(JSON.stringify(botAction(r.state, makeRng(seed).next)));
+    expect([...early].some((a) => a.includes('play_market'))).toBe(true);
+    // Seat 0's fourth turn with an empty Portfolio: it keeps a company-5 share.
+    r.state.turn = 10;
+    for (let seed = 1; seed <= 20; seed++) {
+      const a = botAction(r.state, makeRng(seed).next);
+      expect(a.type).toBe('play_portfolio');
+      expect(r.state.seats[0]!.hand.find((c) => c.id === (a as { cardId: number }).cardId)!.company).toBe(5);
+    }
+  });
+
+  it('builds a Portfolio over the game instead of selling turn after turn', () => {
+    // One simple seat stands in for a person; the rest are heuristic bots.
+    for (const n of [3, 4]) {
+      let keeps = 0;
+      let sells = 0;
+      let stuck = 0;
+      let bots = 0;
+      for (let seed = 1; seed <= 30; seed++) {
+        const human = seed % n;
+        const policies: Policy[] = [];
+        for (let i = 0; i < n; i++) policies.push(i === human ? OLD : NEW);
+        let state = createGame(seats(n), 5100 + seed, { stepSeconds: 0 });
+        const rng = makeRng(seed).next;
+        const initial = state.supply.length;
+        let mid: number[] | null = null;
+        while (state.phase !== 'ended') {
+          const action = (policies[state.active] as Policy)(state, rng);
+          if (state.active !== human && action.type === 'play_portfolio') keeps++;
+          if (state.active !== human && action.type === 'play_market') sells++;
+          state = applyAction(state, state.active, action).state;
+          if (!mid && state.supply.length <= initial / 2) mid = state.seats.map((x) => x.portfolio.length);
+        }
+        for (let i = 0; i < n; i++) {
+          if (i === human) continue;
+          bots++;
+          if (mid![i]! <= 1) stuck++;
+        }
+      }
+      // Measured on these deals: 33% and 35% of plays kept, 0% and 2% of bots
+      // with at most one Portfolio share at mid-game (23%, 26%, 18% and 32%
+      // before the keep pace).
+      expect(keeps / (keeps + sells)).toBeGreaterThan(0.28);
+      expect(stuck / bots).toBeLessThan(0.08);
+    }
+  }, 30_000);
+
   it('draws when the table has been cycling Market shares for too long', () => {
     const s = fixture();
     s.seats[0]!.hand = [card(10, 3), card(11, 3), card(12, 2)];

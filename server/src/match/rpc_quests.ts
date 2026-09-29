@@ -1,26 +1,15 @@
 /**
- * Profile storage helpers and the quest / cosmetic RPCs. The pure logic is in
- * quests.ts and cosmetics.ts; this file only reads and writes the profile row.
+ * The quest / cosmetic RPCs. The pure logic is in quests.ts and cosmetics.ts;
+ * this file only validates the payload and reads and writes the profile row.
  */
 import { equipCosmetic, unlockedCosmetics } from './cosmetics';
-import { normalizeProgress, PROFILE_COLLECTION, PROFILE_KEY, type Progress } from './progression';
+import { parseBody, readString, requireUser } from './input';
+import { loadProfile, saveProfile } from './profile';
 import { claimQuest, questProfile } from './quests';
+import type { Progress } from './progression';
 
-export function requireUser(ctx: nkruntime.Context): string {
-  if (!ctx.userId) throw Error('unauthenticated');
-  return ctx.userId;
-}
-
-/** Reads the profile row, filling fields older rows do not have. */
-export function readProgress(nk: nkruntime.Nakama, userId: string): Progress {
-  const rows = nk.storageRead([{ collection: PROFILE_COLLECTION, key: PROFILE_KEY, userId }]);
-  const row = rows[0];
-  return normalizeProgress(row ? (row.value as Partial<Progress>) : null);
-}
-
-export function writeProgress(nk: nkruntime.Nakama, userId: string, p: Progress): void {
-  nk.storageWrite([{ collection: PROFILE_COLLECTION, key: PROFILE_KEY, userId, value: p, permissionRead: 1, permissionWrite: 0 }]);
-}
+export { readProgress, writeProgress } from './profile';
+export { requireUser } from './input';
 
 /** Quest rows, track points, unlocked and equipped cosmetics for get_profile. */
 export function profileExtras(p: Progress, nowMs: number): ReturnType<typeof questProfile> {
@@ -31,9 +20,10 @@ export function profileExtras(p: Progress, nowMs: number): ReturnType<typeof que
 export const rpcClaimQuest: nkruntime.RpcFunction = (ctx, logger, nk, payload) => {
   void logger;
   const userId = requireUser(ctx);
-  const req = JSON.parse(payload || '{}') as { id?: string };
-  const result = claimQuest(readProgress(nk, userId), String(req.id || ''), Date.now());
-  if (result.ok) writeProgress(nk, userId, result.progress);
+  const req = parseBody(payload);
+  const row = loadProfile(nk, userId);
+  const result = claimQuest(row.progress, readString(req, 'id', 32), Date.now());
+  if (result.ok) saveProfile(nk, userId, result.progress, row.version);
   return JSON.stringify({ ok: result.ok, trackPoints: result.progress.trackPoints, unlocked: unlockedCosmetics(result.progress.trackPoints) });
 };
 
@@ -41,9 +31,10 @@ export const rpcClaimQuest: nkruntime.RpcFunction = (ctx, logger, nk, payload) =
 export const rpcEquipCosmetic: nkruntime.RpcFunction = (ctx, logger, nk, payload) => {
   void logger;
   const userId = requireUser(ctx);
-  const req = JSON.parse(payload || '{}') as { slot?: string; id?: string };
-  const p = readProgress(nk, userId);
-  const result = equipCosmetic(p.equipped, p.trackPoints, String(req.slot || ''), String(req.id || ''));
-  if (result.ok) writeProgress(nk, userId, { ...p, equipped: result.equipped });
+  const req = parseBody(payload);
+  const row = loadProfile(nk, userId);
+  const p = row.progress;
+  const result = equipCosmetic(p.equipped, p.trackPoints, readString(req, 'slot', 16), readString(req, 'id', 32));
+  if (result.ok) saveProfile(nk, userId, { ...p, equipped: result.equipped }, row.version);
   return JSON.stringify({ ok: result.ok, equipped: result.equipped });
 };

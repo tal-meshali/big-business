@@ -22,6 +22,8 @@ socket:
 
 runtime:
   js_entrypoint: index.js
+  # Freeze the JS globals between calls (Nakama's default; stated so nobody turns it off).
+  js_read_only_globals: true
 
 match:
   input_queue_size: 128

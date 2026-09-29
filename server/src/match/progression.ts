@@ -66,18 +66,21 @@ export function emptyProgress(): Progress {
  */
 export function normalizeProgress(raw: Partial<Progress> | null | undefined): Progress {
   const base = emptyProgress();
-  if (!raw) return base;
+  if (!raw || typeof raw !== 'object') return base;
   const q = raw.quests;
   const e = raw.equipped;
+  // Counters are finite non-negative integers; anything else falls back.
+  const count = (v: unknown, fallback: number): number =>
+    typeof v === 'number' && isFinite(v) && v >= 0 ? Math.floor(v) : fallback;
   return {
-    xp: typeof raw.xp === 'number' ? raw.xp : base.xp,
-    level: typeof raw.level === 'number' ? raw.level : base.level,
-    gamesPlayed: typeof raw.gamesPlayed === 'number' ? raw.gamesPlayed : base.gamesPlayed,
-    wins: typeof raw.wins === 'number' ? raw.wins : base.wins,
-    streak: typeof raw.streak === 'number' ? raw.streak : base.streak,
-    lastDailyClaim: typeof raw.lastDailyClaim === 'string' ? raw.lastDailyClaim : base.lastDailyClaim,
-    bestRank: typeof raw.bestRank === 'number' ? raw.bestRank : base.bestRank,
-    trackPoints: typeof raw.trackPoints === 'number' ? raw.trackPoints : base.trackPoints,
+    xp: count(raw.xp, base.xp),
+    level: Math.max(1, count(raw.level, base.level)),
+    gamesPlayed: count(raw.gamesPlayed, base.gamesPlayed),
+    wins: count(raw.wins, base.wins),
+    streak: count(raw.streak, base.streak),
+    lastDailyClaim: typeof raw.lastDailyClaim === 'string' ? raw.lastDailyClaim.slice(0, 10) : base.lastDailyClaim,
+    bestRank: count(raw.bestRank, base.bestRank),
+    trackPoints: count(raw.trackPoints, base.trackPoints),
     quests: q && typeof q === 'object'
       ? { day: q.day || '', daily: q.daily || {}, week: q.week || '', weekly: q.weekly || {} }
       : base.quests,

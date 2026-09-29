@@ -105,9 +105,13 @@ An action is legal only if all of the following hold. The server rejects anythin
 | `play_portfolio(card)` | phase is Play, seat is active, card is in hand |
 | `play_market(card)` | phase is Play, seat is active, card is in hand, card's company differs from the company taken this turn |
 
-## 8. Auto-move (timeouts and bots)
+## 8. Auto-move and bots
 
-The engine provides one deterministic auto-move per step. Bots use it too, with an optional random tie-break so bots are not identical.
+The engine has two policies. Both only ever return a legal action.
+
+### 8.1 Simple auto-move (timeouts and tutorial bots)
+
+`autoAction` in `server/src/engine/auto.ts` gives one deterministic move per step. It plays for a human whose step timer expires (tie-break 0) and for the tutorial's bots (tie-break 0), because the tutorial's coach steps are scripted against a fixed seed and this exact behaviour.
 
 Take step:
 1. If any Market share is takeable and carries at least 2 coins, take the one with the most coins (tie: the company the player already has the most of).
@@ -116,10 +120,33 @@ Take step:
 4. Else draw.
 
 Play step:
-1. Play to Portfolio the share of the company the player holds most of in Portfolio + hand (tie: highest share-count company).
-2. If holding that company's token would be lost... (no lookahead in v1; keep it simple).
+1. If the Market holds fewer than 4 shares, sell to the Market a lone share (the only one of its company in Portfolio + hand, and not of the company taken this turn), lowest company first.
+2. Otherwise play to Portfolio the share of the company the player holds most of in Portfolio + hand (tie: highest share-count company).
 
-This is a placeholder policy for Phase 1 playtesting. Better bots are a later task.
+A table where every seat uses this policy can cycle Market shares forever without drawing (seen in simulation). A match never has such a table: the tutorial always has its human seat, and every other bot seat uses the heuristic bot.
+
+### 8.2 Heuristic bot (real games)
+
+Bots in real games, including seats converted to bots after repeated timeouts, use `botAction` in `server/src/engine/bot.ts`. It decides from its own seat's view (section 10), so it never sees other hands, the Supply order or the removed shares. Its randomness is not derived from the game seed.
+
+How it decides:
+- **Company values.** For each company it estimates the dividend value of ending the game with k shares: 3 per share owed to it as majority holder, minus 1 per share it owes as a minority holder. Each opponent's final count is modelled as Portfolio + hidden hand + future gains. The unseen shares of a company are its total minus every share the bot can see. Hidden hands are modelled as correlated (players sell singletons and keep pairs), and future gains as widely spread (some players pick a company up late).
+- **One focus company.** It expects to keep growing only the company it holds most of. Other companies are valued as they stand, so stray shares get sold rather than kept as long shots.
+- **Scoring actions.** Every legal action is scored as coins after the action plus the value of the resulting holdings. A take is scored with the best play that could follow it, and a draw averages over the unseen shares. In practice it takes Market shares with coins on them rather than paying to draw, sells shares it cannot win, and keeps its majority company.
+- **Variety.** Small random noise separates near-equal actions, so bots are not identical.
+- **Stall guard.** If Market takes so far exceed 3 × draws + 15 (from the public turn number and Supply count), it draws when drawing is legal and does not sell. This keeps an all-bot table from cycling forever, so every game ends.
+
+Measured against the simple policy with one heuristic bot and the other seats simple, over 150 fixed deals with every seat rotation of each deal (`bot.test.ts` runs a smaller version on every check):
+
+| Seats | Heuristic bot avg score | Simple bots avg score | Heuristic bot win rate | Fair win rate |
+|---|---|---|---|---|
+| 3 | 21.0 | 11.7 | 66% | 33% |
+| 4 | 19.3 | 13.4 | 40% | 25% |
+| 5 | 17.8 | 13.4 | 31% | 20% |
+| 6 | 17.2 | 13.2 | 26% | 17% |
+| 7 | 15.7 | 13.0 | 20% | 14% |
+
+With several heuristic bots at a 5-seat table, each still averages 16.9 (2 heuristic vs 3 simple, 27% win rate each) or 16.2 (3 vs 2, 26% each), against 12.6 and 10.9 for the simple bots. Every decision takes well under a millisecond in Node.
 
 ## 9. Known exploit: hand/Market cycling
 

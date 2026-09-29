@@ -29,10 +29,8 @@ import type {
   GameState,
   MarketSlot,
   Payment,
-  PlayerView,
   Seat,
   SeatScore,
-  SeatView,
 } from './types';
 
 export class RulesError extends Error {
@@ -281,7 +279,7 @@ export function applyAction(
   return { state, events };
 }
 
-function portfolioCount(seatState: Seat, company: CompanyId): number {
+export function portfolioCount(seatState: Seat, company: CompanyId): number {
   let n = 0;
   for (const c of seatState.portfolio) if (c.company === company) n++;
   return n;
@@ -422,125 +420,6 @@ export function computeDividends(state: GameState): DividendResult {
     cur.rank = rank;
   }
   return { companies, scores };
-}
-
-// ---------------------------------------------------------------------------
-// Views
-// ---------------------------------------------------------------------------
-
-/** Build what one seat (or a spectator, seat = null) may see. */
-export function playerView(state: GameState, viewer: number | null): PlayerView {
-  const ended = state.phase === 'ended';
-  const seats: SeatView[] = state.seats.map((s, i) => {
-    const tokens: CompanyId[] = [];
-    for (let c = 0; c < COMPANY_COUNT; c++) {
-      if (state.tokens[c] === i) tokens.push(c as CompanyId);
-    }
-    const view: SeatView = {
-      id: s.id,
-      name: s.name,
-      isBot: s.isBot,
-      connected: s.connected,
-      handCount: s.hand.length,
-      portfolio: s.portfolio.slice(),
-      bronze: s.bronze,
-      gold: s.gold,
-      tokens,
-    };
-    if (i === viewer || ended) view.hand = s.hand.slice();
-    return view;
-  });
-  const myTake = viewer !== null && viewer === state.active && state.phase === 'take';
-  return {
-    you: viewer,
-    seats,
-    market: state.market.map((m) => ({ card: m.card, coins: m.coins })),
-    supplyCount: state.supply.length,
-    removedCount: state.removed.length,
-    active: state.active,
-    phase: state.phase,
-    turn: state.turn,
-    tookCompany: state.tookCompany,
-    tokens: state.tokens.slice(),
-    seq: state.seq,
-    deadline: state.deadline,
-    drawCost: myTake ? drawCost(state, viewer as number) : null,
-    legal: viewer === null ? [] : legalActions(state, viewer),
-    result: state.result,
-  };
-}
-
-// ---------------------------------------------------------------------------
-// Auto-move (timeouts and bots), rules-spec section 8
-// ---------------------------------------------------------------------------
-
-function heldCount(seatState: Seat, company: CompanyId): number {
-  let n = portfolioCount(seatState, company);
-  for (const c of seatState.hand) if (c.company === company) n++;
-  return n;
-}
-
-/**
- * Deterministic default action for the active seat. `tieBreak` in [0,1) lets
- * bots vary between equally ranked choices; pass 0 for timeouts.
- */
-export function autoAction(state: GameState, tieBreak = 0): Action {
-  const seat = state.active;
-  const me = state.seats[seat] as Seat;
-  const legal = legalActions(state, seat);
-  if (legal.length === 0) throw new RulesError('no legal action');
-
-  if (state.phase === 'take') {
-    const cost = drawCost(state, seat);
-    const canDraw = state.supply.length > 0 && me.bronze >= cost;
-    const takeable: MarketSlot[] = [];
-    for (const slot of state.market) {
-      if (canTakeMarketCard(state, seat, slot.card)) takeable.push(slot);
-    }
-    const bestMarket = (): MarketSlot | null => {
-      let best: MarketSlot | null = null;
-      let bestScore = -1;
-      for (const slot of takeable) {
-        const score = slot.coins * 100 + heldCount(me, slot.card.company) * 10 + Math.floor(tieBreak * 10);
-        if (score > bestScore) {
-          bestScore = score;
-          best = slot;
-        }
-      }
-      return best;
-    };
-    const rich = bestMarket();
-    if (rich && rich.coins >= 2) return { type: 'take_market', cardId: rich.card.id };
-    if (canDraw && cost <= 1) return { type: 'take_supply' };
-    if (rich) return { type: 'take_market', cardId: rich.card.id };
-    if (canDraw) return { type: 'take_supply' };
-    return legal[0] as Action;
-  }
-
-  // Play step. Minority shares cost coins on dividend day, so a lone share of
-  // a company we are not collecting is sold to the Market (when allowed and
-  // the Market is not crowded). Otherwise keep the company we hold most of;
-  // tie -> larger company.
-  if (state.market.length < 4) {
-    let dump: Card | null = null;
-    for (const card of me.hand) {
-      if (card.company === state.tookCompany) continue;
-      if (heldCount(me, card.company) === 1 && (dump === null || card.company < dump.company)) dump = card;
-    }
-    if (dump) return { type: 'play_market', cardId: dump.id };
-  }
-  let best: Card | null = null;
-  let bestScore = -1;
-  for (const card of me.hand) {
-    const company = COMPANIES[card.company];
-    const score = heldCount(me, card.company) * 100 + (company ? company.shares : 0) + Math.floor(tieBreak * 3);
-    if (score > bestScore) {
-      bestScore = score;
-      best = card;
-    }
-  }
-  if (best) return { type: 'play_portfolio', cardId: best.id };
-  return legal[0] as Action;
 }
 
 // ---------------------------------------------------------------------------

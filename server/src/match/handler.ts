@@ -5,7 +5,7 @@
  * deck is shuffled or scored. Clients send intents (OP_ACTION) and receive a
  * per-seat PlayerView (OP_VIEW) plus animation events (OP_EVENTS).
  */
-import { applyAction, autoAction, createGame, playerView, RulesError, type SeatDef } from '../engine';
+import { applyAction, autoAction, botAction, createGame, playerView, RulesError, type SeatDef } from '../engine';
 import type { Action, GameEvent, GameState } from '../engine';
 import { BOT_NAMES, DEFAULT_PARAMS, OP_ACTION, OP_ERROR, OP_EVENTS, OP_LOBBY, OP_READY, OP_VIEW, type MatchParams } from './protocol';
 import { awardProgress } from './awards';
@@ -267,8 +267,13 @@ export const matchLoop: nkruntime.MatchLoopFunction<MatchState> = (ctx, logger, 
   const active = state.game.seats[state.game.active];
   if (active) {
     if (active.isBot && now >= state.botActAt) {
-      const tieBreak = state.params.tutorial ? 0 : Math.random();
-      apply(state, dispatcher, logger, state.game.active, autoAction(state.game, tieBreak), 'bot');
+      // WHY: the tutorial's coach steps are scripted against a fixed seed and
+      // the simple deterministic policy, so tutorial bots keep autoAction with
+      // tieBreak 0. Real games use the heuristic bot; its rng is Math.random
+      // because replays come from the action log, and deriving it from the
+      // private game seed would correlate public bot moves with the seed.
+      const action = state.params.tutorial ? autoAction(state.game, 0) : botAction(state.game, () => Math.random());
+      apply(state, dispatcher, logger, state.game.active, action, 'bot');
     } else if (!active.isBot && state.game.deadline > 0 && now >= state.game.deadline) {
       apply(state, dispatcher, logger, state.game.active, autoAction(state.game), 'timeout');
     }

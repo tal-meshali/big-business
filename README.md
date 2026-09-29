@@ -48,7 +48,7 @@ Phase 1 (playable core), cloud-doable parts complete: live end-to-end tests agai
 
 Phase 2 (soft-launch features), cloud-doable parts complete: preset emotes and phrases with mute, report and block (no free-text chat: all-ages decision), XP and levels awarded at game end, a daily bonus with a streak, a monthly season leaderboard for games with other people, and automatic reconnect with seat rejoin. The look is a title-deed theme on a board-green table.
 
-Phase 2 polish, cloud-doable parts: a rules and help screen (lobby and "?" at the table) with support and privacy links, tutorial v2 (the first two turns only allow the coached move), a bundled emoji font so emotes render on every phone, mutes and blocks that survive restarts, 48 px touch targets enforced by the smoke test, a 4-card hand that stays on screen, placeholder sounds and haptics, a red timer glow under five seconds, reconnect on app resume, and a server field that accepts `https://` addresses.
+Phase 2 polish, cloud-doable parts: a heuristic bot for real games that clearly beats the old placeholder policy (rules-spec section 8.2), a rules and help screen (lobby and "?" at the table) with support and privacy links, tutorial v2 (the first two turns only allow the coached move), a bundled emoji font so emotes render on every phone, mutes and blocks that survive restarts, 48 px touch targets enforced by the smoke test, a 4-card hand that stays on screen, placeholder sounds and haptics, a red timer glow under five seconds, reconnect on app resume, and a server field that accepts `https://` addresses.
 
 Code conventions (acyclic, layered dependency graph checked with graphify on every push and in CI) are in `docs/conventions.md`.
 

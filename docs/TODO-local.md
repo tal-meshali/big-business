@@ -80,4 +80,4 @@ Emotes, mute, report and block exist. Tap the smiley in the top bar for the emot
 - [ ] Daily and weekly quests feeding a free cosmetic track (daily bonus and the season board exist).
 - [ ] Curated card skins sold a la carte through RevenueCat (see `docs/research/03-engagement-monetization.md`).
 - [ ] Designer unlock and custom card upload (see `docs/research/05-custom-card-upload.md`).
-- [ ] Better bots: the current auto-move policy is a placeholder (`autoAction` in `server/src/engine/game.ts`).
+- [x] Better bots: the current auto-move policy is a placeholder. *(Cloud: real-game bots use a heuristic bot in `server/src/engine/bot.ts` that decides from its own seat's view; against the old policy it averages 21.0 vs 11.7 at 3 seats and 15.7 vs 13.0 at 7. Timeouts and the tutorial keep the simple policy, now in `auto.ts`. Still to judge: how it feels to play against, and whether bots taking Market shares more than drawing makes games drag; see rules-spec section 8.2.)*

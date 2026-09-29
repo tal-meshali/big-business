@@ -2,7 +2,7 @@
 
 Nakama runtime for the authoritative game. Two layers:
 
-- `src/engine/`: the pure rules engine. No Nakama imports, no clock, no global randomness. Fully covered by `game.test.ts`. This is the reference implementation of `docs/design/rules-spec.md`.
+- `src/engine/`: the pure rules engine. No Nakama imports, no clock, no global randomness. `game.ts` holds the rules, `view.ts` the per-seat views, `auto.ts` the simple auto-move and `bot.ts` the heuristic bot; covered by `game.test.ts` and `bot.test.ts`. This is the reference implementation of `docs/design/rules-spec.md`.
 - `src/match/`: the Nakama match handler (lobby, seats, bots, timers, per-seat views, reconnection) and the wire protocol.
 - `src/main.ts`: registers the match handler and three RPCs: `quick_play`, `create_room`, `join_room`.
 
@@ -66,7 +66,7 @@ Progression (`src/match/progression.ts`, pure and unit-tested) is applied by the
 0. `quick_play` with `{"tutorial": true}` creates a solo tutorial match: one human seat, two bots with a longer think delay and deterministic tie-breaks, no step timer, a fixed seed, and the learner always seated first. Its label mode is `tutorial`, so public quick play never joins it.
 1. `quick_play` RPC returns an open public match id (or creates one). Public lobbies start when full (5 seats) or 20 seconds after the first player joins, filling empty seats with bots to reach 3.
 2. `create_room` RPC returns a 6-character code and a private match id; `join_room` resolves a code. Private rooms start when everyone has sent `OP_READY` and there are at least 2 humans (a bot fills the third seat).
-3. During play the server applies bot moves after a short delay and auto-moves a human seat when its deadline passes. Three consecutive timeouts convert a seat to a bot; rejoining reclaims it.
+3. During play the server applies bot moves after a short delay and auto-moves a human seat when its deadline passes. Real-game bots use the heuristic bot (`src/engine/bot.ts`); timeouts and tutorial bots use the simple `autoAction` (rules-spec section 8). Three consecutive timeouts convert a seat to a bot, which then plays with the heuristic bot; rejoining reclaims it.
 4. Reconnection: a user whose seat exists may rejoin the match and receives a fresh view. The action log is kept in match state for a future replay feature.
 5. The match ends 45 seconds after the game ends or when everyone leaves.
 

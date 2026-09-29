@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { autoAction } from './auto';
 import {
   COMPANIES,
   HAND_SIZE,
@@ -9,13 +10,11 @@ import {
 } from './companies';
 import {
   applyAction,
-  autoAction,
   computeDividends,
   createGame,
   drawCost,
   isLegal,
   legalActions,
-  playerView,
   RulesError,
   strictLeader,
   totalCards,
@@ -23,6 +22,7 @@ import {
   type SeatDef,
 } from './game';
 import type { Action, Card, GameState } from './types';
+import { playerView } from './view';
 
 function seats(n: number): SeatDef[] {
   const out: SeatDef[] = [];

@@ -438,8 +438,12 @@ func _on_notification(n: NakamaAPI.ApiNotification) -> void:
 	var code := String(content.get("code", ""))
 	if code.is_empty():
 		return
-	pending_invites.append({"fromName": from_name, "code": code})
-	invite_received.emit(from_name, code)
+	# WHY: a listening panel shows it now; otherwise it waits in the queue for
+	# the next lobby visit. Never both, or the invite comes back a second time.
+	if invite_received.get_connections().is_empty():
+		pending_invites.append({"fromName": from_name, "code": code})
+	else:
+		invite_received.emit(from_name, code)
 
 
 ## Invites sent while we were offline are persistent notifications. Surface

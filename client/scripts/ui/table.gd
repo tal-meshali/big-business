@@ -108,6 +108,7 @@ var _timer_glow: TimerGlow
 ## per remaining second under GLOW_SECONDS, fanfare once per dividend day.
 var _was_my_turn: bool = false
 var _last_tick_second: int = -1
+var _timer_urgent: bool = false
 var _fanfare_played: bool = false
 var _last_toast_seat: int = -1
 ## Layout state: design px -> px, stage scale, bar height in design px,
@@ -541,6 +542,8 @@ func enable_coach() -> void:
 	if coach != null:
 		return
 	coach = Coach.new()
+	# Skipping the coach counts as done, like leaving the tutorial early does.
+	coach.finished.connect(Net.mark_tutorial_done)
 	add_child(coach)
 
 
@@ -666,7 +669,10 @@ func _process(_delta: float) -> void:
 	_timer_label.text = "%ds" % maxi(remaining, 0)
 	# Under GLOW_SECONDS on my turn: pulse the edge glow and tick once per second.
 	var urgent := _is_my_turn() and remaining > 0 and remaining <= GLOW_SECONDS
-	_timer_label.add_theme_color_override("font_color", Companies.ALERT if urgent else Companies.PRIMARY)
+	# WHY: a theme override re-shapes the label, so apply it only on a change.
+	if urgent != _timer_urgent:
+		_timer_urgent = urgent
+		_timer_label.add_theme_color_override("font_color", Companies.ALERT if urgent else Companies.PRIMARY)
 	_set_glow(urgent)
 	if urgent and remaining != _last_tick_second:
 		_last_tick_second = remaining
@@ -705,6 +711,12 @@ func _render() -> void:
 	var active := int(view.get("active", 0))
 	_selected_card = -1
 
+	if coach != null:
+		# WHY: the supply, Market and hand below ask the coach what is allowed,
+		# and coach.on_view only runs at the end of the render; track() gives
+		# it the view first, so a forced move never leaves the previous turn's
+		# target tappable.
+		coach.track(view)
 	_render_status(phase, seats, active)
 	_notify_turn_start()
 	_render_seats(seats, active, phase)
@@ -849,10 +861,6 @@ func _render_supply(phase: String) -> void:
 
 
 func _render_market(phase: String) -> void:
-	if coach != null:
-		# WHY: the cards below ask the coach what is allowed, and coach.on_view
-		# only runs at the end of _render; track() gives it the view first.
-		coach.track(view)
 	for child in _market_row.get_children():
 		_market_row.remove_child(child)
 		child.queue_free()

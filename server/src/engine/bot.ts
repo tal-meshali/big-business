@@ -1,18 +1,19 @@
 /**
  * Heuristic bot policy for non-tutorial bot seats.
  *
- * One-ply lookahead: every legal action is applied with the pure
- * `applyAction` and the resulting state is scored from the bot's seat by
- * `evaluate`. The bot only uses information its seat can see (its own hand,
- * everyone's portfolio, the Market, coin counts, tokens, the Supply size):
- * the Supply order and other hands are never read.
+ * Lookahead: every legal action is applied with the pure `applyAction`; a
+ * play is followed by the next seat's most likely take (see
+ * `valueAfterReply`), and the resulting state is scored from the bot's seat
+ * by `evaluate`. The bot only uses information its seat can see (its own
+ * hand, everyone's portfolio, the Market, coin counts, tokens, the Supply
+ * size): the Supply order and other hands are never read.
  *
  * Pure and deterministic for a given (state, tieBreak). ES2016 only, for
  * Nakama's goja runtime. Timeouts and tutorial bots use `autoAction` in
  * game.ts instead (rules-spec section 8).
  */
 import { COMPANIES, COMPANY_COUNT, GOLD_VALUE, HAND_SIZE, REMOVED_SHARES, TOTAL_SHARES, type CompanyId } from './companies';
-import { applyAction, canTakeMarketCard, drawCost, legalActions, RulesError } from './game';
+import { applyAction, canTakeMarketCard, cloneState, drawCost, legalActions, RulesError } from './game';
 import type { Action, Card, GameState, Seat } from './types';
 
 /** Scoring weights, in points (1 point = 1 bronze coin at dividend day). */
@@ -23,16 +24,20 @@ export const BOT_WEIGHTS = {
   PROJECTION_EARLY: 0.6,
   /** Weight of the projected dividend outcome when the Supply is empty. */
   PROJECTION_LATE: 1.0,
-  /** Chance of ending as majority holder when 3 behind ... 3 ahead of the best rival, in a fully open company. */
-  LEAD_P: [0.02, 0.08, 0.2, 0.4, 0.6, 0.8, 0.95],
-  /** Chance of a tie for the most (nobody pays) at the same margins, in a fully open company. */
-  TIE_P: [0.03, 0.07, 0.15, 0.2, 0.15, 0.07, 0.03],
-  /** Fraction of a company's unseen shares expected to end up in opponents' Portfolios. */
-  FUTURE_HOLD: 0.4,
-  /** Fraction of those future opponent shares expected to land with the strongest rival. */
-  FUTURE_TO_LEADER: 0.5,
+  /** Fraction of a company's unseen shares (Supply, removed cards, hidden hands) expected to end up in some Portfolio. */
+  FUTURE_HOLD: 0.7,
+  /** Fraction of a hand share's minority liability that is charged while it can still be sold (1 = as if in the Portfolio). */
+  HAND_KEEP: 0,
+  /** My remaining turns below which hand shares count as kept (they can no longer all be sold). */
+  SHED_TURNS: 3,
   /** Holding a regulator token: free draws for that company's Market shares. */
   TOKEN: 0.5,
+  /** Per opponent, the cost of a token blocking me from taking a share of a company I collect. */
+  TOKEN_BLOCK: 0.2,
+  /** Cost of each lone hand share beyond CLUTTER_FREE, at four opponents (they take a play each to sell). */
+  CLUTTER: 0.4,
+  /** Lone hand shares that are not charged (one can be sold next turn). */
+  CLUTTER_FREE: 1,
   /** Each Market share I would have to pay for on my next draw. */
   DRAW_TAX: 0.25,
   /** Coins sitting on Market shares the next seat may take. */
@@ -47,6 +52,18 @@ export const BOT_WEIGHTS = {
   TIE_EPSILON: 0.05,
   /** Market takes may exceed Supply draws (game-wide) by this many per seat before the bot insists on drawing. */
   STALL_MARGIN_PER_SEAT: 3,
+  /**
+   * 1: a take is scored by the best play that can follow it; 0: by the state
+   * right after the take. WHY off: measured no gain over the reply search
+   * alone (35.0% vs 36.7% rank-1 at 5 seats) at four times the cost.
+   */
+  OWN_TURN_SEARCH: 0,
+  /**
+   * 1: a play is scored after the next seat's most likely take; 0: right
+   * after the play. WHY on: 30.7% -> 36.7% rank-1 at 5 seats against the
+   * auto-move (300 games), 66.7% -> 67.9% at 3 seats, 1.3 ms worst case.
+   */
+  REPLY_SEARCH: 1,
 };
 
 const W = BOT_WEIGHTS;
@@ -140,19 +157,93 @@ function progressAction(state: GameState, seat: number, legal: Action[]): Action
 // Lookahead
 // ---------------------------------------------------------------------------
 
+/**
+ * Score one of my actions. Take step: the take is followed by my best play
+ * (the two steps of a turn are one decision: what I take decides what I may
+ * sell). Play step: the play is followed by the next seat's most likely
+ * take, then the state is scored from my seat.
+ */
 function scoreAction(state: GameState, seat: number, action: Action): number {
-  const next = applyAction(state, seat, action).state;
-  if (action.type === 'take_supply') return expectedDrawValue(state, next, seat);
-  if (next.phase === 'ended') unreveal(next, state, seat);
-  return evaluate(next, seat);
+  if (state.phase === 'take') return scoreTake(state, seat, action);
+  return scorePlay(state, seat, action, W.REPLY_SEARCH > 0);
 }
+
+function scoreTake(state: GameState, seat: number, action: Action): number {
+  const next = applyAction(state, seat, action).state;
+  const score = (s: GameState): number => (W.OWN_TURN_SEARCH > 0 ? bestPlayValue(s, seat) : evaluate(s, seat));
+  if (action.type === 'take_supply') return expectedDrawValue(state, next, seat, score);
+  return score(next);
+}
+
+/** Best value over my legal plays in a play-step state (the hand may hold a fake drawn card). */
+function bestPlayValue(state: GameState, seat: number): number {
+  let best = -Infinity;
+  for (const play of legalActions(state, seat)) {
+    // WHY: the reply search is skipped under a take: it multiplies the work
+    // by the reply count for every play of every possible take, and the take
+    // decision mostly needs to know which play the take allows.
+    const v = scorePlay(state, seat, play, false);
+    if (v > best) best = v;
+  }
+  return best;
+}
+
+function scorePlay(state: GameState, seat: number, action: Action, withReply: boolean): number {
+  const next = applyAction(state, seat, action).state;
+  if (next.phase === 'ended') {
+    unreveal(next, state, seat);
+    return evaluate(next, seat);
+  }
+  if (!withReply) return evaluate(next, seat);
+  return valueAfterReply(next, seat);
+}
+
+/**
+ * Score a state at the next seat's take step from my seat, after that seat
+ * makes the take its own one-ply evaluation prefers. WHY: with four
+ * opponents between my turns the Market is picked over before I move
+ * again, so what I leave there is scored by what the next seat does with
+ * it, not by what it looks like now.
+ */
+function valueAfterReply(state: GameState, me: number): number {
+  const rival = state.active;
+  // WHY: the reply is chosen from what the rival can see, and I cannot see
+  // its hand, so the search runs on a copy where that hand is empty.
+  const view = cloneState(state);
+  (view.seats[rival] as Seat).hand = [];
+  const replies = legalActions(view, rival);
+  if (replies.length === 0) return evaluate(view, me);
+  let bestReply: Action = replies[0] as Action;
+  let bestValue = -Infinity;
+  for (const reply of replies) {
+    const after = applyAction(view, rival, reply).state;
+    const v = reply.type === 'take_supply' ? expectedDrawValue(view, after, rival, (s) => evaluate(s, rival)) : evaluate(after, rival);
+    if (v > bestValue) {
+      bestValue = v;
+      bestReply = reply;
+    }
+  }
+  let after = applyAction(view, rival, bestReply).state;
+  if (bestReply.type === 'take_market') {
+    // WHY: a share taken from the Market goes into a hand I cannot see; it
+    // surfaces in that Portfolio at the latest when hands are revealed, so it
+    // is counted there now (the same-company rule forbids selling it back).
+    const beforePlay = after;
+    after = applyAction(after, rival, { type: 'play_portfolio', cardId: bestReply.cardId }).state;
+    if (after.phase === 'ended') unreveal(after, beforePlay, rival);
+  }
+  return evaluate(after, me);
+}
+
+/** Card id of the unknown drawn card in the lookahead; no real card has it. */
+const FAKE_CARD_ID = -1;
 
 /**
  * Value of drawing: the drawn card is hidden information, so the successor
  * state is scored once per company the top card could belong to, weighted by
  * how many shares of that company are still unseen.
  */
-function expectedDrawValue(state: GameState, next: GameState, seat: number): number {
+function expectedDrawValue(state: GameState, next: GameState, seat: number, score: (s: GameState) => number): number {
   const me = next.seats[seat] as Seat;
   // WHY: applyAction reveals the real top card in the successor hand; drop it
   // so the bot never plays on knowledge a human at the table could not have.
@@ -160,14 +251,15 @@ function expectedDrawValue(state: GameState, next: GameState, seat: number): num
   const unseen = unseenCounts(state, seat);
   let total = 0;
   for (let c = 0; c < COMPANY_COUNT; c++) total += unseen[c] as number;
-  if (total <= 0) return evaluate(next, seat);
+  if (total <= 0) return score(next);
   let value = 0;
   for (let c = 0; c < COMPANY_COUNT; c++) {
     const n = unseen[c] as number;
     if (n <= 0) continue;
-    const fake: Card = { id: -1, company: c as CompanyId };
+    const fake: Card = { id: FAKE_CARD_ID, company: c as CompanyId };
     me.hand.push(fake);
-    value += (n / total) * evaluate(next, seat);
+    next.tookCompany = fake.company;
+    value += (n / total) * score(next);
     me.hand.pop();
   }
   return value;
@@ -190,12 +282,12 @@ function unseenCounts(state: GameState, seat: number): number[] {
 }
 
 /**
- * When the lookahead play ends the game, applyAction reveals every hand and
- * pays dividends. Put the successor back to what the bot may see: other
- * hands stay hidden and coins are pre-dividend, then `evaluate` projects the
- * outcome from visible shares like on any other turn.
+ * When a lookahead play ends the game, applyAction reveals every hand and
+ * pays dividends. Put the successor back to what may be seen: every hand
+ * but the acting seat's stays hidden and coins are pre-dividend, then
+ * `evaluate` projects the outcome from visible shares like on any other turn.
  */
-function unreveal(next: GameState, before: GameState, seat: number): void {
+function unreveal(next: GameState, before: GameState, actor: number): void {
   for (let s = 0; s < next.seats.length; s++) {
     const cur = next.seats[s] as Seat;
     const prev = before.seats[s] as Seat;
@@ -203,7 +295,7 @@ function unreveal(next: GameState, before: GameState, seat: number): void {
     cur.gold = prev.gold;
     // WHY: endGame appends each hand to its portfolio in order, so the last
     // `hand.length` portfolio cards of another seat are the ones we may not see.
-    if (s !== seat) cur.portfolio.splice(cur.portfolio.length - prev.hand.length, prev.hand.length);
+    if (s !== actor) cur.portfolio.splice(cur.portfolio.length - prev.hand.length, prev.hand.length);
   }
   next.result = null;
 }
@@ -226,6 +318,14 @@ function visibleCounts(state: GameState, me: number): number[][] {
   return counts;
 }
 
+/** Shares per company in the seat's hand. */
+function handCounts(state: GameState, seat: number): number[] {
+  const out: number[] = [];
+  for (let c = 0; c < COMPANY_COUNT; c++) out.push(0);
+  for (const card of (state.seats[seat] as Seat).hand) out[card.company] = (out[card.company] as number) + 1;
+  return out;
+}
+
 /** 0 when the Supply is untouched, 1 when it is empty. */
 function stageOf(state: GameState): number {
   const initial = initialSupply(state);
@@ -234,85 +334,105 @@ function stageOf(state: GameState): number {
 }
 
 /**
- * How much a company's standings can still change: the share of its stock
- * nobody at the table can see (Supply, removed cards, other hands), scaled
- * down as the Supply runs out. 0 means the standings are final.
- */
-function volatility(company: number, unseen: number[], stage: number): number {
-  const shares = (COMPANIES[company] as { shares: number }).shares;
-  return ((unseen[company] as number) / shares) * (1 - stage);
-}
-
-/** Linear interpolation into a table indexed by margin -3..3. */
-function marginTable(table: number[], margin: number): number {
-  const x = Math.max(0, Math.min(table.length - 1, margin + 3));
-  const i = Math.floor(x);
-  const a = table[i] as number;
-  const b = table[Math.min(i + 1, table.length - 1)] as number;
-  return a + (b - a) * (x - i);
-}
-
-/** Chance of holding the majority at the end, `margin` shares ahead of the best rival. */
-function leadChance(margin: number, vol: number): number {
-  // WHY: with no more shares to come the rules decide it (strictly more
-  // wins); the more of the company is still unseen, the softer the odds.
-  const hard = margin >= 1 ? 1 : margin <= 0 ? 0 : margin;
-  return hard + (marginTable(W.LEAD_P, margin) - hard) * vol;
-}
-
-/** Chance of a tie for the most, when nobody pays. */
-function tieChance(margin: number, vol: number): number {
-  const hard = Math.max(0, 1 - Math.abs(margin));
-  return hard + (marginTable(W.TIE_P, margin) - hard) * vol;
-}
-
-/**
  * Projected dividend-day gain per seat (coins excluded), from visible
  * shares. A strict leader collects one coin (worth GOLD_VALUE) per share
  * every other holder has; the others pay one bronze per share. Every seat's
  * expectation is weighted by its chance of being the leader at the end.
  */
-function projectedScores(counts: number[][], unseen: number[], stage: number): number[] {
+function projectedScores(counts: number[][], additions: number[][], me: number, hand: number[], handKeep: number): number[] {
   const n = counts.length;
   const proj: number[] = [];
   for (let s = 0; s < n; s++) proj.push(0);
   for (let c = 0; c < COMPANY_COUNT; c++) {
-    const vol = volatility(c, unseen, stage);
-    const future = futureShares(c, unseen, stage);
-    for (let s = 0; s < n; s++) proj[s] = (proj[s] as number) + companyGain(counts, c, s, vol, future);
+    for (let s = 0; s < n; s++) {
+      proj[s] = (proj[s] as number) + companyGain(counts, c, s, me, additions, s === me ? (hand[c] as number) : 0, handKeep);
+    }
   }
   return proj;
 }
 
-/** Unseen shares of a company expected to reach opponents' Portfolios before the end. */
-function futureShares(company: number, unseen: number[], stage: number): number {
-  return (unseen[company] as number) * W.FUTURE_HOLD * (1 - stage);
+/**
+ * Expected shares per seat and company still to reach that seat's
+ * Portfolio, as seen by `me`: the company's unseen cards (Supply, removed
+ * cards and the hidden hands, which join their Portfolios at the end at
+ * the latest) that will end in some Portfolio, shared out evenly. My own
+ * row is empty: my hand is in `counts`, and what I add later is decided
+ * by the search, not assumed. WHY: weighting the split towards the seats
+ * that already collect a company, or crediting my own future pickups,
+ * both measured worse (the bot hoards or gives up on contested companies).
+ */
+function expectedAdditions(seats: number, unseen: number[]): number[][] {
+  const add: number[][] = [];
+  for (let s = 0; s < seats; s++) {
+    const row: number[] = [];
+    for (let c = 0; c < COMPANY_COUNT; c++) row.push(((unseen[c] as number) * W.FUTURE_HOLD) / seats);
+    add.push(row);
+  }
+  return add;
 }
 
 /**
- * Projected dividend-day gain of one seat in one company: the chance of
- * holding the majority times the dividend on every other share, minus the
- * chance of paying times the seat's own shares.
+ * Chance that a Poisson variable with the given mean is at most `t`. A
+ * fractional `t` interpolates between the two whole thresholds; a negative
+ * `t` is impossible. With mean 0 this is exact (1 or 0).
  */
-function companyGain(counts: number[][], c: number, seat: number, vol: number, future: number): number {
+function poissonAtMost(mean: number, t: number): number {
+  if (t < 0) return 0;
+  const lo = Math.floor(t);
+  let term = Math.exp(-mean);
+  let atLo = term;
+  for (let i = 1; i <= lo; i++) {
+    term *= mean / i;
+    atLo += term;
+  }
+  const frac = t - lo;
+  if (frac <= 0) return Math.min(1, atLo);
+  const atHi = atLo + (term * mean) / (lo + 1);
+  return Math.min(1, atLo + (atHi - atLo) * frac);
+}
+
+/**
+ * Projected dividend-day gain of one seat in one company. The company's
+ * unseen shares (Supply, removed cards, hidden hands) mostly end up in
+ * somebody's Portfolio; they are shared out in proportion to what each seat
+ * already shows, and each rival's extra shares are modelled as a Poisson
+ * count. WHY: the majority is decided against every rival separately, so
+ * the chance of a strict lead is the product over rivals; that is what
+ * makes a thin lead worth much less at a full table than with two rivals,
+ * and it stays soft while hands are hidden (the old margin tables hardened
+ * to certainty as the Supply emptied, although 3 cards per rival were
+ * still unknown). With nothing unseen it is the exact "strictly more" rule.
+ */
+function companyGain(
+  counts: number[][],
+  c: number,
+  seat: number,
+  me: number,
+  additions: number[][],
+  inHand: number,
+  handKeep: number,
+): number {
   const k = (counts[seat] as number[])[c] as number;
   if (k === 0) return 0;
-  let best = 0;
-  let holders = 0;
-  for (let s = 0; s < counts.length; s++) {
+  const n = counts.length;
+  const mine = k;
+  let lead = 1;
+  let leadOrTie = 1;
+  let rivalShares = 0;
+  for (let s = 0; s < n; s++) {
+    if (s === seat) continue;
     const v = (counts[s] as number[])[c] as number;
-    holders += v;
-    if (s !== seat && v > best) best = v;
+    const mean = (additions[s] as number[])[c] as number;
+    rivalShares += v + mean;
+    lead *= poissonAtMost(mean, mine - 1 - v);
+    leadOrTie *= poissonAtMost(mean, mine - v);
   }
-  // WHY: a lone share in a company nobody else shows is not safe: the unseen
-  // shares will be drawn by somebody, so the rival to beat is measured
-  // against what they are expected to collect, not only what is on the table.
-  const rival = best + future * W.FUTURE_TO_LEADER;
-  const margin = k - rival;
-  const income = GOLD_VALUE * (holders + future - k);
-  const lead = leadChance(margin, vol);
-  const pay = Math.max(0, 1 - lead - tieChance(margin, vol));
-  return lead * income - pay * k;
+  const pay = 1 - leadOrTie;
+  const income = GOLD_VALUE * rivalShares;
+  // WHY: a share still in hand can be sold before it costs anything, so
+  // only part of its minority liability is charged.
+  const liable = mine - inHand * (1 - handKeep);
+  return lead * income - pay * liable;
 }
 
 /**
@@ -322,23 +442,28 @@ function companyGain(counts: number[][], c: number, seat: number, vol: number, f
  * also what would move the company's token to them). Weighted by how likely
  * each seat is to get there first; the next seat moves before anyone else.
  */
-function marketGiftPenalty(state: GameState, counts: number[][], unseen: number[], stage: number, me: number): number {
+function marketGiftPenalty(
+  state: GameState,
+  counts: number[][],
+  additions: number[][],
+  hand: number[],
+  handKeep: number,
+  me: number,
+  next: number,
+): number {
   const n = state.seats.length;
-  const next = (me + 1) % n;
   let penalty = 0;
   for (const slot of state.market) {
     const c = slot.card.company;
     // WHY: only a share of a company I am invested in can hurt me; a share
     // nobody holds gives an opponent a token but costs me nothing.
     if (((counts[me] as number[])[c] as number) === 0) continue;
-    const vol = volatility(c, unseen, stage);
-    const future = futureShares(c, unseen, stage);
-    const now = companyGain(counts, c, me, vol, future);
+    const now = companyGain(counts, c, me, me, additions, hand[c] as number, handKeep);
     for (let j = 0; j < n; j++) {
       if (j === me || !canTakeMarketCard(state, j, slot.card)) continue;
       const row = counts[j] as number[];
       row[c] = (row[c] as number) + 1;
-      const loss = now - companyGain(counts, c, me, vol, future);
+      const loss = now - companyGain(counts, c, me, me, additions, hand[c] as number, handKeep);
       row[c] = (row[c] as number) - 1;
       if (loss > 0) penalty += loss * (j === next ? W.GIFT_LEAD_NEXT : W.GIFT_LEAD_OTHER);
     }
@@ -346,14 +471,22 @@ function marketGiftPenalty(state: GameState, counts: number[][], unseen: number[
   return penalty;
 }
 
-/** Coins on Market shares the next seat is allowed to take. */
-function marketCoinsForNext(state: GameState, me: number): number {
-  const next = (me + 1) % state.seats.length;
+/** Coins on Market shares the given seat is allowed to take. */
+function marketCoinsFor(state: GameState, seat: number): number {
   let coins = 0;
   for (const slot of state.market) {
-    if (canTakeMarketCard(state, next, slot.card)) coins += slot.coins;
+    if (canTakeMarketCard(state, seat, slot.card)) coins += slot.coins;
   }
   return coins;
+}
+
+/** The seat that takes from the Market next in this state (never `me` unless alone). */
+function nextTaker(state: GameState, me: number): number {
+  const n = state.seats.length;
+  // WHY: after a reply is simulated the acting seat is no longer me; the
+  // seat about to take is the active one in a take step, else its successor.
+  const next = state.phase === 'take' ? state.active : (state.active + 1) % n;
+  return next === me ? (me + 1) % n : next;
 }
 
 /**
@@ -365,7 +498,14 @@ export function evaluate(state: GameState, me: number): number {
   const stage = stageOf(state);
   const counts = visibleCounts(state, me);
   const unseen = unseenCounts(state, me);
-  const proj = projectedScores(counts, unseen, stage);
+  const hand = handCounts(state, me);
+  // WHY: a hand share can still be sold, one per turn, until my turns run
+  // out; at the end every hand share joins the Portfolio and pays like one.
+  const turnsLeft = state.supply.length / state.seats.length;
+  const handKeep = 1 - (1 - W.HAND_KEEP) * Math.min(1, turnsLeft / W.SHED_TURNS);
+  const additions = expectedAdditions(state.seats.length, unseen);
+  const proj = projectedScores(counts, additions, me, hand, handKeep);
+  const next = nextTaker(state, me);
   // WHY: coins are certain but dividends are a projection; trust it more as
   // the Supply runs down and the projection converges on the real result.
   const projW = W.PROJECTION_EARLY + (W.PROJECTION_LATE - W.PROJECTION_EARLY) * stage;
@@ -373,6 +513,7 @@ export function evaluate(state: GameState, me: number): number {
     const st = state.seats[s] as Seat;
     return st.bronze * W.COIN + st.gold * GOLD_VALUE + projW * (proj[s] as number);
   };
+  const mine = total(me);
   let bestOther = -Infinity;
   let sumOther = 0;
   for (let s = 0; s < state.seats.length; s++) {
@@ -384,13 +525,29 @@ export function evaluate(state: GameState, me: number): number {
   // WHY: the game is won on rank, so the leading opponent matters most, but
   // at a full table chasing only the leader ignores the seats about to pass us.
   const meanOther = sumOther / (state.seats.length - 1);
-  let value = total(me) - (W.RIVAL_MAX * bestOther + (1 - W.RIVAL_MAX) * meanOther);
+  let value = mine - (W.RIVAL_MAX * bestOther + (1 - W.RIVAL_MAX) * meanOther);
 
-  let tokens = 0;
-  for (let c = 0; c < COMPANY_COUNT; c++) if (state.tokens[c] === me) tokens++;
-  value += W.TOKEN * tokens;
+  for (let c = 0; c < COMPANY_COUNT; c++) {
+    if (state.tokens[c] !== me) continue;
+    value += W.TOKEN;
+    // WHY: the token forbids taking that company's shares from the Market,
+    // which is how a collector gets them at a full table: every opponent
+    // between my turns may sell one that I then cannot pick up.
+    if (((counts[me] as number[])[c] as number) > 0) value -= W.TOKEN_BLOCK * (state.seats.length - 1);
+  }
   value -= W.DRAW_TAX * drawCost(state, me);
-  value -= W.MARKET_GIFT * marketCoinsForNext(state, me);
-  value -= projW * marketGiftPenalty(state, counts, unseen, stage, me);
+  // WHY: a hand share of a company I hold nothing else of is not free even
+  // while it carries no liability: it costs a play to sell (one per turn),
+  // so a hand that clogs up with them stops growing the Portfolio. The first
+  // one can go next turn; every further one is charged.
+  let clutter = 0;
+  for (let c = 0; c < COMPANY_COUNT; c++) {
+    if ((hand[c] as number) > 0 && ((counts[me] as number[])[c] as number) === (hand[c] as number) && (hand[c] as number) === 1) clutter++;
+  }
+  // The cost grows with the opponents between my turns: they refill the
+  // Market with singles, so a cluttered hand keeps trading instead of building.
+  value -= (W.CLUTTER * (state.seats.length - 1) / 4) * Math.max(0, clutter - W.CLUTTER_FREE);
+  value -= W.MARKET_GIFT * marketCoinsFor(state, next);
+  value -= projW * marketGiftPenalty(state, counts, additions, hand, handKeep, me, next);
   return value;
 }

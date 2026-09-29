@@ -14,8 +14,9 @@
  * the action plus the value of the resulting holdings; a take is scored with
  * the best play that could follow it (a draw averages over the unseen
  * shares). The best score wins, with a little noise between near-equal ones.
- * A bot that has kept on fewer than KEEP_PACE of its turns favours keeping
- * its focus company, so its Portfolio grows the way a player's would.
+ * Keeping a share of any company it holds a pair of scores PAIR_BONUS higher,
+ * and a bot that has kept on fewer than KEEP_PACE of its turns favours
+ * keeping its focus company, so its Portfolio grows the way a player's would.
  *
  * Written for Nakama's goja runtime: ES2016 features only.
  */
@@ -47,6 +48,8 @@ const STALL_SLACK = 15;
 const KEEP_PACE = 0.3;
 /** Bonus, in points, for keeping a focus-company share while behind KEEP_PACE. */
 const COMMIT_BONUS = 1;
+/** Bonus, in points, for keeping a share of a company held at least twice (Portfolio + hand). */
+const PAIR_BONUS = 0.75;
 
 /**
  * Choose an action for the active seat. Deterministic for a given state and
@@ -467,7 +470,14 @@ function bestPlay(model: Model, hand: Card[], counts: number[], took: number, no
     // a fifth of bots had at most one Portfolio share at mid-game, which
     // players read as bots never keeping. Committing the focus company when
     // behind KEEP_PACE halves those runs for 1 to 2 points a game.
-    const pv = keep + 0.01 * (keep - sold) + (c === focus ? commit : 0);
+    // WHY: even with the keep pace, bots sold on their first two or three
+    // turns (only singletons looked worth a decision) and kept about a third
+    // of their plays, which still read as "bots never keep". A player locks a
+    // pair into the Portfolio; scoring that PAIR_BONUS higher makes bots keep
+    // about half their plays from their first or second turn, and they score
+    // no worse against the simple policy (rules-spec section 8.2).
+    const pair = k >= 2 ? PAIR_BONUS : 0;
+    const pv = keep + 0.01 * (keep - sold) + (c === focus ? commit : 0) + pair;
     if (collect) collect.push({ action: { type: 'play_portfolio', cardId: card.id }, value: pv });
     if (pv > best) best = pv;
     if (c === took || noSell) continue;

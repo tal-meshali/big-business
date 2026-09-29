@@ -1,0 +1,1638 @@
+<title>Big Business</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Open+Sans:wght@500;600;700;800&display=swap">
+<style>
+/* Layout: one portrait table column (the app's 720-wide design scaled to the phone):
+   status, opponents on the rim, the Market strip, your prompt, your seat, your hand. */
+:root {
+  /* The app's own palette (docs/design/theme.md): one board-green world, light only. */
+  --table: #C7DFC9;
+  --rim: #9BBE9F;
+  --card: #FFFDF6;
+  --panel: #FFFFFF;
+  --ink: #1C1C1C;
+  --ink-soft: #5A5A5A;
+  --bronze: #B8722E;
+  --gold: #E2B23A;
+  --alert: #D6262C;
+  --alert-deep: #A91E23;
+  --chest: #4FA3D8;
+  --chance: #F7941D;
+  --highlight: #FFF1B8;
+  --disabled: #EDEDED;
+  --on-band: #FFFFFF;
+  --scrim: rgba(28, 28, 28, 0.45);
+  --font: "Open Sans", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  color-scheme: light;
+}
+html, body { height: 100%; }
+[hidden] { display: none !important; }
+body {
+  background: var(--table);
+  color: var(--ink);
+  font-family: var(--font);
+  font-weight: 600;
+  font-size: 15px;
+  -webkit-tap-highlight-color: transparent;
+}
+.app {
+  max-width: 480px;
+  margin: 0 auto;
+  padding-inline: 16px;
+  padding-block: 12px 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 100%;
+  box-sizing: border-box;
+  border-inline: 6px solid var(--rim);
+}
+button { font-family: inherit; }
+.btn {
+  font: 700 15px/1.1 var(--font);
+  color: var(--ink);
+  background: var(--panel);
+  border: 2px solid var(--ink);
+  border-radius: 6px;
+  min-height: 48px;
+  padding: 0 14px;
+  cursor: pointer;
+}
+.btn:hover:not(:disabled) { background: var(--highlight); }
+.btn:active:not(:disabled) { background: var(--gold); }
+.btn:disabled { background: var(--disabled); color: var(--ink-soft); border-color: var(--ink-soft); cursor: default; }
+.btn.primary { background: var(--gold); }
+.btn.primary:disabled { background: var(--disabled); }
+.btn.small { min-height: 48px; min-width: 48px; font-size: 14px; padding: 0 10px; white-space: nowrap; }
+.btn.emoji { font-size: 22px; padding: 0; }
+:focus-visible { outline: 3px solid var(--chest); outline-offset: 2px; }
+
+/* Top bar */
+.top { display: flex; align-items: center; gap: 8px; }
+.plate {
+  background: var(--alert);
+  color: var(--on-band);
+  border: 2px solid var(--ink);
+  border-radius: 6px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  font-size: 14px;
+  padding: 6px 10px;
+  white-space: nowrap;
+}
+.top .spacer { flex: 1; }
+/* Narrow phones: the plate and three buttons must fit without a sideways scroll. */
+@media (max-width: 380px) {
+  .top { gap: 6px; }
+  .plate { font-size: 13px; letter-spacing: 0.03em; padding: 6px 8px; }
+  .top .btn.small { padding: 0 8px; min-width: 44px; }
+}
+@media (max-width: 340px) {
+  .top { gap: 4px; }
+  .plate { font-size: 12px; letter-spacing: 0; padding: 5px 6px; }
+  .top .btn.small { padding: 0 6px; font-size: 13px; }
+}
+.status-row { display: flex; align-items: center; gap: 10px; }
+.status { margin: 0; flex: 1; min-width: 0; font-size: 20px; font-weight: 800; text-wrap: balance; min-height: 1.4em; }
+.timer { font-size: 22px; font-weight: 800; color: var(--alert); font-variant-numeric: tabular-nums; }
+.meta { margin: -8px 0 0; font-size: 13px; color: var(--ink-soft); font-variant-numeric: tabular-nums; }
+
+/* Emote strip: preset emotes and phrases only (the all-ages decision). */
+.emotes {
+  background: var(--panel);
+  border: 2px solid var(--ink);
+  border-radius: 8px;
+  padding: 8px;
+  display: flex; flex-direction: column; gap: 6px;
+}
+.emotes .row { display: grid; gap: 6px; }
+.emotes .pics { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+.emotes .words { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.emotes .btn { padding: 0 4px; font-size: 13px; }
+.emotes .pics .btn { font-size: 24px; }
+
+/* Seats */
+.opponents { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.seat {
+  background: var(--panel);
+  border: 1.5px solid var(--ink);
+  border-radius: 10px;
+  padding: 8px 10px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 2px 8px;
+  align-items: center;
+  box-shadow: 0 2px 4px rgba(28, 28, 28, 0.15);
+  transition: background 0.2s, box-shadow 0.2s;
+}
+.seat.active { background: var(--highlight); border-width: 3px; padding: 6.5px 8.5px; }
+.avatar {
+  grid-row: span 3;
+  width: 38px; height: 38px;
+  border-radius: 50%;
+  border: 2px solid var(--ink);
+  display: grid; place-items: center;
+  color: var(--on-band);
+  font-weight: 800;
+  font-size: 17px;
+}
+.seat.active .avatar { box-shadow: 0 0 0 3px var(--gold); }
+.name { font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.coins { display: flex; align-items: center; gap: 10px; font-size: 13px; font-variant-numeric: tabular-nums; }
+.coin { display: inline-flex; align-items: center; gap: 4px; }
+.coin i { width: 12px; height: 12px; border-radius: 50%; border: 1.5px solid var(--ink); display: inline-block; }
+.coin.b i { background: var(--bronze); }
+.coin.g i { background: var(--gold); }
+.minihand { display: inline-flex; gap: 2px; margin-left: auto; }
+.minihand i { width: 7px; height: 11px; background: var(--card); border: 1px solid var(--ink); display: inline-block; }
+.pips { display: flex; gap: 4px; flex-wrap: wrap; min-height: 22px; }
+.pip {
+  position: relative;
+  min-width: 20px; height: 22px;
+  background: var(--c);
+  color: var(--bt);
+  border: 1px solid var(--ink);
+  font-size: 12px; font-weight: 800;
+  display: grid; place-items: center;
+  font-variant-numeric: tabular-nums;
+}
+.pip .r {
+  position: absolute; right: -6px; top: -7px;
+  width: 13px; height: 13px; border-radius: 50%;
+  background: var(--panel); color: var(--ink);
+  border: 1.5px solid var(--ink);
+  font-size: 8px; line-height: 10px; text-align: center; font-weight: 800;
+}
+.mine-wrap { position: relative; }
+.bubble {
+  position: absolute; right: 12px; top: -26px;
+  background: var(--panel);
+  border: 2px solid var(--ink);
+  border-radius: 12px;
+  padding: 4px 10px;
+  font-size: 16px;
+  box-shadow: 0 2px 6px rgba(28, 28, 28, 0.2);
+  animation: pop 2.6s ease-out forwards;
+  pointer-events: none;
+}
+.bubble.pic { font-size: 28px; padding: 2px 10px; }
+@keyframes pop { 0% { opacity: 0; translate: 0 6px; } 8% { opacity: 1; translate: 0 0; } 85% { opacity: 1; } 100% { opacity: 0; } }
+
+/* Market */
+.label { font-size: 13px; color: var(--ink-soft); letter-spacing: 0.04em; text-transform: uppercase; }
+.market-row { display: flex; gap: 10px; align-items: flex-start; }
+.supply-box { display: flex; flex-direction: column; align-items: center; gap: 4px; flex: none; }
+.supply-box small { font-size: 12px; font-variant-numeric: tabular-nums; }
+.divider { width: 2px; align-self: stretch; background: var(--rim); flex: none; }
+.market { display: flex; gap: 6px; overflow-x: auto; padding: 4px 2px 8px; min-width: 0; flex: 1; min-height: calc(var(--mw) * 1.4 + 12px); }
+.market-empty { font-size: 13px; color: var(--ink-soft); align-self: center; }
+
+/* Share cards, drawn like title deeds */
+.card {
+  --w: 88px;
+  position: relative;
+  width: var(--w);
+  aspect-ratio: 5 / 7;
+  flex: none;
+  box-sizing: border-box;
+  font-size: calc(var(--w) * 0.1);
+  background: var(--card);
+  color: var(--ink);
+  border: 2px solid var(--ink);
+  border-radius: 0.7em;
+  padding: 0.45em;
+  display: flex; flex-direction: column; gap: 0.3em;
+  text-align: center;
+  cursor: pointer;
+  transition: transform 0.18s ease-out, box-shadow 0.18s, filter 0.18s;
+  box-shadow: 0 2px 5px rgba(28, 28, 28, 0.18);
+  /* Press and hold shows a close-up, so no text selection or phone callout. */
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+.card:disabled, .card[aria-disabled="true"] { cursor: default; filter: saturate(0.55) brightness(0.9); }
+.card.passive:disabled, .card.passive[aria-disabled="true"] { filter: none; }
+.band {
+  position: relative;
+  background: var(--c);
+  color: var(--bt);
+  border: 1.5px solid var(--ink);
+  height: 3.9em;
+  flex: none;
+  display: flex; flex-direction: column; justify-content: flex-end; align-items: center;
+  padding-bottom: 0.35em;
+}
+.band .n { position: absolute; left: 0.3em; top: 0.1em; font-size: 1.6em; font-weight: 800; line-height: 1.1; }
+.band .of { font-size: 0.55em; letter-spacing: 0.08em; opacity: 0.85; }
+.band .nm { font-size: 1.05em; font-weight: 800; letter-spacing: 0.02em; line-height: 1.1; }
+.band svg { position: absolute; right: 0.35em; top: 0.35em; width: 1.2em; height: 1.2em; fill: currentColor; }
+.full { font-size: 0.72em; line-height: 1.2; border-bottom: 1px solid var(--ink-soft); padding-bottom: 0.3em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.art { flex: 1; background: var(--tint); border: 1px solid var(--ink-soft); display: grid; place-items: center; min-height: 0; }
+.art svg { width: 2.4em; height: 2.4em; fill: var(--c); }
+.issued { font-size: 0.64em; border-top: 1px solid var(--ink-soft); padding-top: 0.3em; white-space: nowrap; }
+.card.mini .full, .card.mini .issued { display: none; }
+.coin-badge {
+  position: absolute; left: 50%; top: 62%;
+  transform: translate(-50%, -50%);
+  width: 2.9em; height: 2.9em; border-radius: 50%;
+  background: var(--bronze); color: var(--on-band);
+  border: 0.25em solid var(--ink);
+  display: grid; place-items: center;
+  font-size: 1.2em; font-weight: 800;
+}
+.card.back { cursor: pointer; justify-content: space-between; align-items: stretch; }
+.stripes { display: grid; grid-template-columns: repeat(6, 1fr); gap: 0.15em; height: 0.9em; }
+.stripes i { display: block; }
+.back-title { font-weight: 800; line-height: 1.05; font-size: 1.25em; }
+.back-title span { display: block; font-size: 0.75em; letter-spacing: 0.04em; }
+
+/* Prompt and actions */
+.actions { display: flex; flex-direction: column; gap: 8px; align-items: center; }
+.prompt { margin: 0; text-align: center; font-size: 15px; text-wrap: balance; min-height: 2.6em; display: grid; place-items: center; white-space: pre-line; }
+.buttons { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; min-height: 48px; }
+.btn.danger { background: var(--alert); color: var(--on-band); }
+.btn.danger:hover:not(:disabled), .btn.danger:active:not(:disabled) { background: var(--alert-deep); }
+
+/* Hand */
+.hand { display: flex; justify-content: center; padding-top: 18px; min-height: calc(var(--hw) * 1.4 + 26px); }
+.hand .card { --w: var(--hw); margin-inline: -3px; transform-origin: 50% 100%; }
+.hand .card.selected { z-index: 2; border-color: var(--gold); border-width: 3px; box-shadow: 0 0 0 3px var(--gold), 0 8px 14px rgba(28, 28, 28, 0.25); }
+/* The card you are holding stays marked under its close-up. */
+.card.held { z-index: 3; box-shadow: 0 0 0 3px var(--chest), 0 8px 14px rgba(28, 28, 28, 0.25); }
+
+/* Close-up: press and hold any hand or Market card. It sits above everything
+   and ignores the pointer, so letting go always lands on the card underneath. */
+.peek { position: fixed; left: 0; top: 0; z-index: 30; pointer-events: none; animation: peek-in 0.14s ease-out; }
+.peek .card { --w: min(56vw, 220px); cursor: default; box-shadow: 0 0 0 3px var(--chest), 0 14px 30px rgba(28, 28, 28, 0.35); }
+@keyframes peek-in { from { opacity: 0; scale: 0.85; } to { opacity: 1; scale: 1; } }
+
+.arrive { animation: arrive 0.45s ease-out; }
+.bump { animation: bump 0.5s ease-out; }
+@keyframes arrive { from { opacity: 0; translate: 0 -24px; scale: 0.85; } to { opacity: 1; translate: 0 0; scale: 1; } }
+@keyframes bump { 0% { scale: 1; } 40% { scale: 1.3; } 100% { scale: 1; } }
+
+/* Urgency rim: pulses red while your own step runs out. */
+.glow {
+  position: fixed; inset: 0;
+  border: 12px solid var(--alert);
+  pointer-events: none;
+  z-index: 5;
+  animation: pulse 0.66s ease-in-out infinite alternate;
+}
+@keyframes pulse { from { opacity: 0.3; } to { opacity: 0.9; } }
+
+/* Log */
+.log ol { list-style: none; margin: 6px 0 0; padding: 0; display: flex; flex-direction: column; gap: 4px; font-size: 13px; font-weight: 500; }
+.log li { display: flex; gap: 6px; align-items: baseline; }
+.log li b { font-weight: 700; }
+.log li .t { color: var(--ink-soft); font-variant-numeric: tabular-nums; min-width: 2.2em; font-size: 12px; }
+.note { font-size: 12px; font-weight: 500; color: var(--ink-soft); margin: 0; }
+
+/* Overlays */
+.overlay {
+  position: fixed; inset: 0;
+  background: var(--scrim);
+  display: grid; place-items: center;
+  padding: 16px;
+  z-index: 10;
+  overflow-y: auto;
+}
+.overlay.coach { z-index: 20; }
+.deed {
+  width: min(440px, 100%);
+  max-height: calc(100vh - 32px);
+  display: flex; flex-direction: column;
+  background: var(--panel);
+  border: 2px solid var(--ink);
+  border-radius: 10px;
+  box-shadow: 0 6px 16px rgba(28, 28, 28, 0.3);
+  overflow: hidden;
+}
+.deed > h2 {
+  margin: 0;
+  background: var(--band, var(--chest));
+  color: var(--band-ink, var(--on-band));
+  border-bottom: 2px solid var(--ink);
+  text-align: center;
+  font-size: 22px; font-weight: 800;
+  padding: 12px;
+  text-wrap: balance;
+}
+.deed .body { padding: 16px 18px 18px; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; }
+.deed h3 { margin: 4px 0 0; font-size: 17px; font-weight: 800; }
+.deed p { margin: 0; font-weight: 500; line-height: 1.45; max-width: 65ch; }
+.deed .tag { font-size: 12px; letter-spacing: 0.08em; color: var(--ink-soft); font-weight: 700; }
+.coach-text { white-space: pre-line; font-size: 17px; }
+.choice { display: flex; gap: 6px; flex-wrap: wrap; }
+.choice .btn[aria-pressed="true"] { background: var(--gold); }
+.row-end { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
+.row-split { display: flex; gap: 8px; justify-content: space-between; flex-wrap: wrap; }
+.divs { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 0; list-style: none; font-weight: 500; }
+.divs li { display: flex; gap: 8px; align-items: center; }
+.chip { width: 14px; height: 14px; border: 1px solid var(--ink); background: var(--c); flex: none; }
+.scores { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.scores td, .scores th { padding: 6px 4px; border-bottom: 1px solid var(--rim); text-align: left; font-size: 14px; }
+.scores th { font-size: 12px; color: var(--ink-soft); font-weight: 700; }
+.scores td.num, .scores th.num { text-align: right; }
+.scores tr.you td { background: var(--highlight); }
+.rank { display: inline-grid; place-items: center; width: 26px; height: 26px; border-radius: 50%; border: 1.5px solid var(--ink); font-size: 12px; font-weight: 800; }
+.rank.r1 { background: var(--gold); }
+.co-list { margin: 0; padding: 0; list-style: none; display: grid; gap: 4px; font-weight: 500; }
+.co-list li { display: flex; gap: 8px; align-items: center; }
+.toggles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+
+/* Get ready: turn order, who starts, then a 4-3-2-1 count. */
+.order { margin: 0; padding: 0; list-style: none; display: grid; gap: 6px; counter-reset: seat; }
+.order li { display: flex; align-items: center; gap: 10px; font-size: 16px; counter-increment: seat; }
+.order li::before { content: counter(seat); min-width: 1.2em; text-align: right; color: var(--ink-soft); font-variant-numeric: tabular-nums; }
+.order .avatar { grid-row: auto; width: 30px; height: 30px; font-size: 14px; flex: none; }
+.order .who { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.order .tag { font-size: 11px; }
+.order li.first { font-weight: 800; }
+.first-line { margin: 0; text-align: center; font-size: 20px; font-weight: 800; }
+.count { margin: 0; text-align: center; font-size: 72px; line-height: 1; font-weight: 800; font-variant-numeric: tabular-nums; color: var(--alert); min-height: 1em; }
+.count.go { color: var(--ink); }
+.count.tick { animation: bump 0.4s ease-out; }
+.fade-out { animation: fade-out 0.25s ease-in forwards; }
+@keyframes fade-out { to { opacity: 0; } }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+  .glow { opacity: 0.8; }
+}
+</style>
+
+<div class="app" id="app" style="--mw: 72px; --hw: clamp(76px, 21.5vw, 100px);">
+  <header class="top">
+    <div class="plate">BIG BUSINESS</div>
+    <span class="spacer"></span>
+    <button class="btn small emoji" id="emoteBtn" type="button" aria-label="Emotes" aria-expanded="false">😊</button>
+    <button class="btn small" id="rulesBtn" type="button" aria-label="Rules and settings">?</button>
+    <button class="btn small" id="newBtn" type="button">New game</button>
+  </header>
+  <div class="emotes" id="emotePanel" hidden>
+    <div class="row pics" id="emotePics"></div>
+    <div class="row words" id="emoteWords"></div>
+  </div>
+  <div class="status-row">
+    <p class="status" id="status" aria-live="polite"></p>
+    <span class="timer" id="timer" hidden></span>
+  </div>
+  <p class="meta" id="meta"></p>
+  <section class="opponents" id="opponents" aria-label="Other investors"></section>
+  <section aria-label="The Market">
+    <div class="label">The Market</div>
+    <div class="market-row">
+      <div class="supply-box">
+        <button class="card back mini passive" id="supply" type="button" style="--w: var(--mw)" aria-label="Share supply">
+          <span class="stripes" id="stripesTop"></span>
+          <span class="back-title">BIG<span>BUSINESS</span></span>
+          <span class="stripes" id="stripesBottom"></span>
+        </button>
+        <small id="supplyCount"></small>
+      </div>
+      <div class="divider"></div>
+      <div class="market" id="market"></div>
+    </div>
+  </section>
+  <section class="actions">
+    <p class="prompt" id="prompt"></p>
+    <div class="buttons">
+      <button class="btn primary" id="drawBtn" type="button" hidden>Draw from supply</button>
+      <button class="btn primary" id="keepBtn" type="button" hidden>Keep</button>
+      <button class="btn" id="sellBtn" type="button" hidden>Sell to Market</button>
+      <button class="btn" id="cancelBtn" type="button" hidden>Cancel</button>
+    </div>
+  </section>
+  <section class="mine-wrap" aria-label="Your seat">
+    <div id="mine"></div>
+    <div class="bubble" id="bubble" hidden></div>
+  </section>
+  <section class="hand" id="hand" aria-label="Your hand"></section>
+  <section class="log" aria-label="Latest moves">
+    <div class="label">Latest moves</div>
+    <ol id="log"></ol>
+  </section>
+  <p class="note">You play against the game's own bots, running its real rules engine in your browser. Online play, other players' emotes, progression and the season board need the app.</p>
+</div>
+
+<div class="glow" id="glow" hidden></div>
+<div class="peek" id="peek" hidden aria-hidden="true"></div>
+
+<div class="overlay" id="readyPanel" hidden>
+  <div class="deed" role="dialog" aria-modal="true" aria-labelledby="readyTitle">
+    <h2 id="readyTitle">Get ready</h2>
+    <div class="body">
+      <span class="tag">TURN ORDER</span>
+      <ol class="order" id="readyOrder"></ol>
+      <p class="first-line" id="readyFirst"></p>
+      <p class="count" id="readyCount" aria-live="polite"></p>
+      <p class="note" style="text-align: center">Collect shares, hold the most of a company, and cash in on dividend day. Press and hold any card to see it up close.</p>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="forfeitPanel" hidden>
+  <div class="deed" role="dialog" aria-modal="true" aria-labelledby="forfeitTitle" style="--band: var(--alert);">
+    <h2 id="forfeitTitle">Forfeit this game?</h2>
+    <div class="body">
+      <p>A bot plays your seat for the rest of the game and you can't come back to it. It counts as a loss.</p>
+      <div class="row-end">
+        <button class="btn danger" id="forfeitYes" type="button">Forfeit</button>
+        <button class="btn primary" id="forfeitNo" type="button">Keep playing</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="forfeitDone" hidden>
+  <div class="deed" role="dialog" aria-modal="true" aria-labelledby="forfeitDoneTitle" style="--band: var(--alert);">
+    <h2 id="forfeitDoneTitle">You forfeited</h2>
+    <div class="body">
+      <p>A bot took your seat and this table is closed. Start a new game whenever you're ready.</p>
+      <div class="row-end">
+        <button class="btn" id="forfeitLook" type="button">See the table</button>
+        <button class="btn" id="forfeitChange" type="button">Change table</button>
+        <button class="btn primary" id="forfeitAgain" type="button">Play again</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="newPanel" hidden>
+  <div class="deed" role="dialog" aria-modal="true" aria-labelledby="newTitle">
+    <h2 id="newTitle">New game</h2>
+    <div class="body">
+      <h3>Investors at the table</h3>
+      <div class="choice" id="seatChoice"></div>
+      <p>You play against bots. More investors means a smaller supply and tighter majorities.</p>
+      <h3>Turn timer</h3>
+      <div class="choice" id="timerChoice"></div>
+      <p>Quick play uses 30 seconds a step. When time runs out the table plays a simple move for you.</p>
+      <h3>Bot speed</h3>
+      <div class="choice" id="speedChoice"></div>
+      <div class="row-split">
+        <button class="btn" id="tutorialStart" type="button">How to play (tutorial)</button>
+        <span class="row-end">
+          <button class="btn" id="newCancel" type="button">Cancel</button>
+          <button class="btn primary" id="newStart" type="button">Deal the shares</button>
+        </span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="rulesPanel" hidden>
+  <div class="deed" role="dialog" aria-modal="true" aria-labelledby="rulesTitle">
+    <h2 id="rulesTitle">How Big Business works</h2>
+    <div class="body" id="rulesBody"></div>
+  </div>
+</div>
+
+<div class="overlay" id="endPanel" hidden>
+  <div class="deed" role="dialog" aria-modal="true" aria-labelledby="endTitle" style="--band: var(--gold); --band-ink: var(--ink);">
+    <h2 id="endTitle">Dividend day</h2>
+    <div class="body">
+      <ul class="divs" id="endDivs"></ul>
+      <table class="scores">
+        <thead><tr><th></th><th>Investor</th><th class="num">Bronze</th><th class="num">Gold</th><th class="num">Capital</th></tr></thead>
+        <tbody id="endScores"></tbody>
+      </table>
+      <div class="row-end">
+        <button class="btn" id="endLook" type="button">See the table</button>
+        <button class="btn" id="endChange" type="button">Change table</button>
+        <button class="btn primary" id="endAgain" type="button">Play again</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="overlay coach" id="coachPanel" hidden>
+  <div class="deed" role="dialog" aria-modal="true" aria-labelledby="coachTitle" style="--band: var(--chance);">
+    <h2 id="coachTitle"></h2>
+    <div class="body">
+      <span class="tag">TUTORIAL</span>
+      <p class="coach-text" id="coachBody"></p>
+      <div class="row-end">
+        <button class="btn" id="coachSkip" type="button">Skip tutorial</button>
+        <button class="btn primary" id="coachGot" type="button">Got it</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>var BB=(()=>{var L=Object.defineProperty;var le=Object.getOwnPropertyDescriptor;var ie=Object.getOwnPropertyNames;var me=Object.prototype.hasOwnProperty;var pe=(e,t)=>{for(var n in t)L(e,n,{get:t[n],enumerable:!0})},fe=(e,t,n,o)=>{if(t&&typeof t=="object"||typeof t=="function")for(let a of ie(t))!me.call(e,a)&&a!==n&&L(e,a,{get:()=>t[a],enumerable:!(o=le(t,a))||o.enumerable});return e};var de=e=>fe(L({},"__esModule",{value:!0}),e);var ze={};pe(ze,{COMPANIES:()=>_,TUTORIAL_SEED:()=>ce,applyAction:()=>J,autoAction:()=>ee,botAction:()=>oe,createGame:()=>Z,playerView:()=>V});var _=[{id:0,key:"solar",name:"Sunny Side Solar",shares:5,color:"#F5C542"},{id:1,key:"foods",name:"Pinecone Foods",shares:6,color:"#4CAF6A"},{id:2,key:"freight",name:"Tidewater Freight",shares:7,color:"#3B82F6"},{id:3,key:"robotics",name:"Cogwheel Robotics",shares:8,color:"#F4813F"},{id:4,key:"air",name:"Nimbus Air",shares:9,color:"#8B5CF6"},{id:5,key:"motors",name:"Redline Motors",shares:10,color:"#E5484D"}],S=6,P=45,R=5,G=3,$=10,z=3,F=7,N=3;function K(e){let t=e>>>0,n=()=>{t=t+1831565813>>>0;let o=t;return o=Math.imul(o^o>>>15,o|1),o^=o+Math.imul(o^o>>>7,o|61),((o^o>>>14)>>>0)/4294967296};return{next:n,int:o=>Math.floor(n()*o)}}function U(e,t){for(let n=e.length-1;n>0;n--){let o=t.int(n+1),a=e[n];e[n]=e[o],e[o]=a}return e}var M=class extends Error{constructor(t){super(t),this.name="RulesError"}};function be(){let e=[],t=0;for(let n=0;n<S;n++){let o=_[n];if(o)for(let a=0;a<o.shares;a++)e.push({id:t++,company:o.id})}return e}function Z(e,t,n={},o=0){if(e.length<z||e.length>F)throw new M(`need ${z}-${F} seats, got ${e.length}`);let a=K(t),r=U(be(),a);if(r.length!==P)throw new M("deck size");let i=r.splice(0,R),s=U(e.slice(),a).map(l=>({id:l.id,name:l.name,isBot:l.isBot,connected:!l.isBot,hand:r.splice(0,G),portfolio:[],bronze:$,gold:0,autoMoves:0})),c={seed:t,options:{stepSeconds:n.stepSeconds===void 0?30:n.stepSeconds},supply:r,removed:i,market:[],seats:s,active:0,phase:"take",turn:1,tookCompany:null,tokens:[null,null,null,null,null,null],seq:0,deadline:0,result:null};return c.deadline=B(c,o),c}function B(e,t){return e.options.stepSeconds<=0||t<=0?0:t+e.options.stepSeconds*1e3}function O(e,t){let n=0;for(let o of e.market)e.tokens[o.card.company]!==t&&n++;return n}function H(e,t,n){return e.tokens[n.company]!==t}function X(e,t){for(let n=0;n<e.hand.length;n++){let o=e.hand[n];if(o&&o.id===t)return n}return-1}function ye(e,t){for(let n=0;n<e.market.length;n++){let o=e.market[n];if(o&&o.card.id===t)return n}return-1}function T(e,t){let n=[];if(e.phase==="ended"||t!==e.active)return n;let o=e.seats[t];if(!o)return n;if(e.phase==="take"){e.supply.length>0&&o.bronze>=O(e,t)&&n.push({type:"take_supply"});for(let a of e.market)H(e,t,a.card)&&n.push({type:"take_market",cardId:a.card.id})}else for(let a of o.hand)n.push({type:"play_portfolio",cardId:a.id}),a.company!==e.tookCompany&&n.push({type:"play_market",cardId:a.id});return n}function he(e,t,n){let o=T(e,t);for(let a of o)if(a.type===n.type&&(a.type==="take_supply"||"cardId"in a&&"cardId"in n&&a.cardId===n.cardId))return!0;return!1}function Se(e){return JSON.parse(JSON.stringify(e))}function J(e,t,n,o=0,a=!1){if(!he(e,t,n))throw new M(`illegal action ${n.type} for seat ${t} in phase ${e.phase}`);let r=Se(e),i=[],m=r.seats[t];switch(n.type){case"take_supply":{let s=O(r,t);for(let l of r.market)r.tokens[l.card.company]!==t&&l.coins++;m.bronze-=s;let c=r.supply.pop();m.hand.push(c),r.tookCompany=c.company,i.push({type:"took_supply",seat:t,cost:s});break}case"take_market":{let s=ye(r,n.cardId),c=r.market.splice(s,1)[0];m.bronze+=c.coins,m.hand.push(c.card),r.tookCompany=c.card.company,i.push({type:"took_market",seat:t,card:c.card,coins:c.coins});break}case"play_portfolio":{let s=X(m,n.cardId),c=m.hand.splice(s,1)[0];m.portfolio.push(c),i.push({type:"played",seat:t,card:c,to:"portfolio"});break}case"play_market":{let s=X(m,n.cardId),c=m.hand.splice(s,1)[0];r.market.push({card:c,coins:0}),i.push({type:"played",seat:t,card:c,to:"market"});break}}return r.seq++,r.phase==="take"?(r.phase="play",r.deadline=B(r,o),i.push({type:"step",seat:t,phase:"play",turn:r.turn}),{state:r,events:i}):(m.autoMoves=a?m.autoMoves+1:0,ke(r,i),r.tookCompany=null,r.supply.length===0?(ge(r,i),{state:r,events:i}):(r.active=(r.active+1)%r.seats.length,r.phase="take",r.turn++,r.deadline=B(r,o),i.push({type:"step",seat:r.active,phase:"take",turn:r.turn}),{state:r,events:i}))}function v(e,t){let n=0;for(let o of e.portfolio)o.company===t&&n++;return n}function Q(e,t){let n=-1,o=0,a=!1;for(let r=0;r<e.seats.length;r++){let i=v(e.seats[r],t);i>o?(o=i,n=r,a=!1):i===o&&i>0&&(a=!0)}return n<0||a?null:n}function ke(e,t){for(let n=0;n<S;n++){let o=n,a=Q(e,o),r=e.tokens[o];a!==null&&a!==r&&(e.tokens[o]=a,t.push({type:"token_moved",company:o,from:r===void 0?null:r,to:a}))}}function ge(e,t){let n=[];for(let o of e.seats){n.push(o.hand.slice());for(let a of o.hand)o.portfolio.push(a);o.hand=[]}t.push({type:"hands_revealed",hands:n}),e.phase="ended",e.deadline=0,e.result=Ce(e),t.push({type:"game_ended",result:e.result})}function Ce(e){let t=e.seats.length,n=[],o=[];for(let s=0;s<t;s++){let c=[];for(let l=0;l<t;l++)c.push(0);o.push(c)}for(let s=0;s<S;s++){let c=s,l=Q(e,c),u=[];if(l!==null)for(let f=0;f<t;f++){if(f===l)continue;let p=v(e.seats[f],c);p>0&&(u.push({from:f,to:l,coins:p}),o[f][l]=o[f][l]+p)}n.push({company:c,majority:l,payments:u})}let a=[];for(let s=0;s<t;s++)a.push(0);for(let s=0;s<t;s++){let c=e.seats[s],l=c.bronze,u=o[s],f=0;for(let p=0;p<t;p++)f+=u[p];for(;f>0&&l>0;)for(let p=0;p<t&&l>0;p++)u[p]>0&&(u[p]=u[p]-1,f--,l--,a[p]=a[p]+1);c.bronze=l}for(let s=0;s<t;s++)e.seats[s].gold+=a[s];let r=e.seats.map((s,c)=>({seat:c,bronze:s.bronze,gold:s.gold,score:s.bronze+s.gold*N,rank:0})),i=r.slice().sort((s,c)=>{if(c.score!==s.score)return c.score-s.score;if(c.gold!==s.gold)return c.gold-s.gold;let l=e.seats[s.seat].portfolio.length,u=e.seats[c.seat].portfolio.length;return l-u}),m=0;for(let s=0;s<i.length;s++){let c=i[s],l=i[s-1];l!==void 0&&l.score===c.score&&l.gold===c.gold&&e.seats[l.seat].portfolio.length===e.seats[c.seat].portfolio.length||(m=s+1),c.rank=m}return{companies:n,scores:r}}function w(e,t){let n=v(e,t);for(let o of e.hand)o.company===t&&n++;return n}function ee(e,t=0){let n=e.active,o=e.seats[n],a=T(e,n);if(a.length===0)throw new M("no legal action");if(e.phase==="take"){let m=O(e,n),s=e.supply.length>0&&o.bronze>=m,c=[];for(let f of e.market)H(e,n,f.card)&&c.push(f);let u=(()=>{let f=null,p=-1;for(let b of c){let k=b.coins*100+w(o,b.card.company)*10+Math.floor(t*10);k>p&&(p=k,f=b)}return f})();return u&&u.coins>=2?{type:"take_market",cardId:u.card.id}:s&&m<=1?{type:"take_supply"}:u?{type:"take_market",cardId:u.card.id}:s?{type:"take_supply"}:a[0]}if(e.market.length>0){let m=null,s=-1;for(let c of o.hand){let l=w(o,c.company);if(l<2)continue;let u=_[c.company],f=l*100+(u?u.shares:0);f>s&&(s=f,m=c)}if(m)return{type:"play_portfolio",cardId:m.id}}if(e.market.length<4){let m=null;for(let s of o.hand)s.company!==e.tookCompany&&w(o,s.company)===1&&(m===null||s.company<m.company)&&(m=s);if(m)return{type:"play_market",cardId:m.id}}let r=null,i=-1;for(let m of o.hand){let s=_[m.company],c=w(o,m.company)*100+(s?s.shares:0)+Math.floor(t*3);c>i&&(i=c,r=m)}return r?{type:"play_portfolio",cardId:r.id}:a[0]}function V(e,t){let n=e.phase==="ended",o=e.seats.map((r,i)=>{let m=[];for(let c=0;c<S;c++)e.tokens[c]===i&&m.push(c);let s={id:r.id,name:r.name,isBot:r.isBot,connected:r.connected,handCount:r.hand.length,portfolio:r.portfolio.slice(),bronze:r.bronze,gold:r.gold,tokens:m};return(i===t||n)&&(s.hand=r.hand.slice()),s}),a=t!==null&&t===e.active&&e.phase==="take";return{you:t,seats:o,market:e.market.map(r=>({card:r.card,coins:r.coins})),supplyCount:e.supply.length,removedCount:e.removed.length,active:e.active,phase:e.phase,turn:e.turn,tookCompany:e.tookCompany,tokens:e.tokens.slice(),seq:e.seq,deadline:e.deadline,drawCost:a?O(e,t):null,legal:t===null?[]:T(e,t),result:e.result}}var Ae=1.2,xe=.5,_e=.5,Me=.1,I=8,Ie=3,Ee=15,Oe=.3,Te=1,Pe=.75;function oe(e,t){return Re(V(e,e.active),t)}function Re(e,t){let n=e.legal;if(n.length===0)throw new M("no legal action");if(n.length===1)return n[0];let o=Ge(e),a=re(e),r=Ne(e),i=ve(e)?Te:0,m=[];if(e.phase==="take"){let l=e.seats[o.me].bronze;for(let u of n)if(u.type==="take_supply"){if(r)return u;let f=0;for(let b=0;b<S;b++){let k=o.unseenTotal>0?o.unseen[b]/o.unseenTotal:0;if(k<=0)continue;let E=o.mine.slice();E[b]=E[b]+1,f+=k*j(o,a.concat([{id:-1,company:b}]),E,b,!1,i,null)}let p=e.drawCost===null?0:e.drawCost;m.push({action:u,value:l-p+f})}else if(u.type==="take_market"){let f=null;for(let k of e.market)k.card.id===u.cardId&&(f=k);if(!f)continue;let p=o.mine.slice();p[f.card.company]=p[f.card.company]+1;let b=j(o,a.concat([f.card]),p,f.card.company,!1,i,null);m.push({action:u,value:l+f.coins+b})}}else{let l=e.tookCompany===null?-1:e.tookCompany;j(o,a,o.mine.slice(),l,r,i,m)}let s=null,c=-1/0;for(let l of m){let u=l.value+Me*t();u>c&&(c=u,s=l)}return s?s.action:n[0]}function x(e){let t=[];for(let n=0;n<e;n++)t.push(0);return t}function re(e){let t=e.seats[e.you];return t&&t.hand?t.hand.slice():[]}function Ge(e){let t=e.seats.length,n=e.you,o=[],a=[],r=x(S),i=x(S),m=x(S);for(let u=0;u<t;u++){let f=x(S),p=e.seats[u];if(p)for(let b of p.portfolio)f[b.company]=f[b.company]+1;for(let b=0;b<S;b++)i[b]=i[b]+f[b];o.push(f),a.push(p?p.handCount:0)}for(let u=0;u<S;u++)r[u]=o[n][u];for(let u of re(e))r[u.company]=r[u.company]+1,i[u.company]=i[u.company]+1;for(let u of e.market)m[u.card.company]=m[u.card.company]+1,i[u.card.company]=i[u.card.company]+1;let s=x(S),c=0;for(let u=0;u<S;u++){let f=_[u],p=Math.max(0,(f?f.shares:0)-i[u]);s[u]=p,c+=p}let l={n:t,me:n,port:o,handCount:a,mine:r,unseen:s,unseenTotal:c,market:m,supply:e.supplyCount,own:[],plain:[]};for(let u=0;u<S;u++){let f=r[u]+1;l.own.push(ne(l,u,f,!0)),l.plain.push(ne(l,u,f,!1))}return l}function Ne(e){let n=P-R-e.seats.length*G-e.supplyCount;return e.turn-1-n>Ie*n+Ee}function ve(e){let t=e.you,n=e.seats[t];if(!n)return!1;let o=Math.floor((e.turn-1-t)/e.seats.length)+1;return n.portfolio.length<Math.floor(Oe*o)}function we(e,t){let n=[1];for(let o=0;o<e;o++){let a=x(n.length+1);for(let r=0;r<n.length;r++){let i=n[r];a[r]=a[r]+i*(1-t),a[r+1]=a[r+1]+i*t}n=a}return n}function Ve(e,t,n){if(n<=0||t<=0||t>=1)return we(e,t);let o=1/n-1,a=t*o,r=(1-t)*o,i=[],m=0;for(let s=0;s<=e;s++){let c=1;for(let l=0;l<s;l++)c*=(a+l)*(e-l)/(l+1);for(let l=0;l<e-s;l++)c*=r+l;for(let l=0;l<e;l++)c/=a+r+l;i.push(c),m+=c}for(let s=0;s<=e;s++)i[s]=i[s]/m;return i}function ae(e){let t=[],n=Math.exp(-e),o=0;for(let a=0;a<I;a++)a>0&&(n=n*e/a),t.push(n),o+=n;return t[I-1]=t[I-1]+Math.max(0,1-o),t}function De(e,t){if(e<=0)return ae(0);let n=[],o=e/(t+e),a=Math.pow(t/(t+e),t),r=0;for(let i=0;i<I;i++)i>0&&(a=a*(i+t-1)*o/i),n.push(a),r+=a;return n[I-1]=n[I-1]+Math.max(0,1-r),n}function Le(e,t){let n=x(e.length+t.length-1);for(let o=0;o<e.length;o++){let a=e[o];if(a!==0)for(let r=0;r<t.length;r++)n[o+r]=n[o+r]+a*t[r]}return n}function ne(e,t,n,o){let{n:a,me:r}=e,i=e.unseenTotal>0?e.unseen[t]/e.unseenTotal:0,m=Ae*(e.supply*i+e.market[t]),s=o?m/a:0,c=a>1?(m-s)/(a-1):0,l=De(c,xe),u=[],f=[],p=n+I+1;for(let d=0;d<a;d++){if(d===r)continue;let g=e.handCount[d],h=f[g];h||(h=Le(Ve(g,i,_e),l),f[g]=h);let y=x(e.port[d][t]).concat(h);y.length>p&&(p=y.length),u.push(y)}let b=[];for(let d of u){for(;d.length<p;)d.push(0);let g=[],h=0;for(let y=0;y<p;y++)g.push(h),h+=d[y];g.push(h),b.push(g)}let k=u.length,E=x(p);for(let d=1;d<p;d++){let g=0;for(let h=0;h<k;h++){let y=u[h][d];for(let C=0;C<k&&y>0;C++)C!==h&&(y*=b[C][d]);g+=y}E[d]=g}let D=x(p+1);for(let d=p-1;d>=0;d--)D[d]=D[d+1]+(d+1<p?E[d+1]:0);let q=[];for(let d=0;d<k;d++){let g=u[d],h=[0],y=0;for(let C=0;C<p;C++)y+=C*g[C],h.push(y);q.push(h)}let ue=d=>{if(d<=0)return 0;let g=Math.min(d,p),h=0;for(let y=0;y<k;y++){let C=q[y][g];for(let A=0;A<k&&C>0;A++)A!==y&&(C*=b[A][g]);h+=C}return h},W=ae(s),Y=[];for(let d=0;d<=n;d++){let g=0,h=0;for(let y=0;y<W.length;y++){let C=W[y],A=d+y;g+=C*ue(A),A>0&&A<p&&(h+=C*A*D[A])}Y.push(N*g-h)}return Y}function se(e){let t=0;for(let n=1;n<S;n++)e[n]>=e[t]&&(t=n);return t}function te(e,t){let n=se(t),o=0;for(let a=0;a<S;a++){let r=a===n?e.own[a]:e.plain[a];o+=r[Math.max(0,Math.min(t[a],r.length-1))]}return o}function j(e,t,n,o,a,r,i){let m=te(e,n),s=se(n),c=-1/0;for(let l of t){let u=l.company,f=n[u];n[u]=f-1;let p=te(e,n);n[u]=f;let b=f>=2?Pe:0,k=m+.01*(m-p)+(u===s?r:0)+b;i&&i.push({action:{type:"play_portfolio",cardId:l.id},value:k}),k>c&&(c=k),!(u===o||a)&&(i&&i.push({action:{type:"play_market",cardId:l.id},value:p}),p>c&&(c=p))}return c}var ce=20260928;return de(ze);})();
+</script>
+<script>
+(() => {
+  "use strict";
+  // Client look per company (client/scripts/game/companies.gd): band colour,
+  // ink text on the yellow band, and an icon silhouette for colourblind play.
+  const LOOK = [
+    { short: "Solar", color: "#F2C230", inkBand: true, sides: 0 },
+    { short: "Foods", color: "#3F9E4F", inkBand: false, sides: 3 },
+    { short: "Freight", color: "#2E6FD8", inkBand: false, sides: 4 },
+    { short: "Robotics", color: "#F07A1E", inkBand: false, sides: 6 },
+    { short: "Air", color: "#7B4FC6", inkBand: false, sides: 8 },
+    { short: "Motors", color: "#D6262C", inkBand: false, sides: 5 },
+  ];
+  // Same as server/src/match/protocol.ts and state.ts.
+  const BOT_NAMES = ["Intern Ivy", "Analyst Avi", "Broker Bo", "Auditor Ada", "CEO Cal", "Investor Ines"];
+  const TUTORIAL_BOT_THINK_MS = 1800;
+  const EMOTE_COOLDOWN_MS = 2000;
+  const SPEEDS = { Relaxed: 1400, Normal: 850, Fast: 350 };
+  const TIMERS = [0, 20, 30, 45];
+  const URGENT_SECONDS = 5;
+  // Same as server/src/match/state.ts: real games open with a 4 s countdown.
+  const GET_READY_MS = 4000;
+  // Same as client/scripts/ui/card_view.gd: a press this long is a hold, not a tap.
+  const HOLD_MS = 350;
+  const HOLD_SLOP = 10;
+  const STORE_KEY = "big-business-table-v2";
+  const SAVE_VERSION = 2;
+  // Preset emotes and phrases: the only chat there is (client/scripts/net/protocol.gd).
+  const EMOTES = [
+    ["wave", "👋"], ["think", "🤔"], ["laugh", "😄"], ["wow", "😮"], ["cry", "😢"], ["clap", "👏"],
+    ["hello", "Hello!"], ["good_move", "Good move"], ["oops", "Oops"], ["thanks", "Thanks"],
+    ["gg", "Good game"], ["hurry_up", "Your turn!"], ["nice", "Nice"], ["no_way", "No way!"],
+  ];
+  const RULES = [
+    ["The goal", "Collect shares in six companies. When the game ends, whoever holds the most shares of a company collects a dividend from everyone else who holds it. Most capital wins."],
+    ["Your turn: take, then play", "Every turn has two steps. First take one share: draw the top share of the supply, or pick a share from the Market. Then play one share from your hand: keep it in your portfolio, or sell it to the Market."],
+    ["Drawing costs coins", "Before you draw, put 1 coin on every share in the Market, except companies whose regulator token you hold. If you can't pay, you can't draw.\n\nTaking a share from the Market is free, and you collect every coin on it."],
+    ["Selling to the Market", "A share you sell goes into the Market with no coins on it. You can't sell a share of the company you took this turn."],
+    ["Regulator tokens", "Whoever has strictly the most shares of a company in their portfolio holds its token, shown as an R on their pip. On a tie the token stays where it is.\n\nWith a token you pay nothing onto that company's Market shares when drawing, but you can't take that company from the Market."],
+    ["The end of the game", "When the last supply share is drawn, that player finishes their turn and the game ends. Every hand joins its owner's portfolio, so the shares you are holding count."],
+    ["Dividend day", "For each company, the sole majority holder collects 1 coin per share from every other player who holds that company. A tie for the most pays nothing.\n\nCoins received as dividends turn gold and are worth 3. Other coins are worth 1."],
+    ["Who wins", "The most capital wins. Ties go to more gold coins, then to fewer shares in the portfolio."],
+    ["Looking closer", "Press and hold any card in your hand or the Market to see it up close. Letting go never plays or takes it."],
+  ];
+  // The tutorial coach's cards, word for word from client/scripts/ui/coach.gd.
+  const STEPS = {
+    welcome: ["Welcome to Big Business", "Six companies are up for grabs. Collect shares, and on dividend day whoever holds the most shares of a company gets paid by everyone else who holds that company. Most capital wins.\n\nYou play against two bots. Take your time: there is no timer in the tutorial."],
+    first_take: ["Your turn: take a share", "Every turn has two steps: take one share, then play one share.\n\nThe Market is empty right now, so draw from the supply. Later, drawing costs 1 coin for every share sitting in the Market."],
+    first_play: ["Now play a share", "Tap a card in your hand. You can keep it in your portfolio (face up, it counts toward majorities) or sell it to the Market (anyone can take it later).\n\nOne rule: you can't sell the company you just took."],
+    first_sell: ["Selling to the Market", "This time, sell a share. It goes into the Market with no coins on it, and anyone can take it later.\n\nSell companies you are not collecting: every share you hold of a company someone else leads costs you a coin on dividend day."],
+    bot_paid: ["Drawing costs coins", "%s drew from the supply and paid 1 coin onto every share in the Market.\n\nThose coins stay on the shares. Whoever takes a share from the Market collects its coins."],
+    take_with_coins: ["Free money in the Market", "A Market share with coins on it is worth grabbing: taking from the Market is free and you pocket the coins.\n\nDrawing from the supply instead would cost you 1 coin per Market share."],
+    token_first: ["The regulator token", "%s now holds the most %s shares and gets that company's regulator token.\n\nWhile you hold a token you can't take that company from the Market, but you also don't pay onto its shares when you draw."],
+    token_blocks: ["Your token at work", "You hold the %s token, so that %s share in the Market is off limits for you. Everyone else can take it.\n\nThe upside: drawing is cheaper for you while those shares sit there."],
+    endgame_near: ["The supply is almost empty", "When the last share is drawn, the game ends after that player's turn.\n\nThe three cards still in your hand join your portfolio, so they count. Plan the final reveal."],
+    dividend: ["Dividend day", "For each company, the sole majority holder collects 1 coin per share from every other holder. Coins received flip to gold and are worth 3.\n\nTies pay nothing. You now know every rule: press Play again for a real game."],
+  };
+  const FORCED_TURNS = 2;
+
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+  let settings = { seats: 3, speed: "Normal", timer: 30, sound: true, vibration: true };
+  let mode = "game";
+  let state = null;
+  let me = -1;
+  let log = [];
+  let selected = -1;
+  let timer = 0;
+  let fresh = new Set();
+  let bumped = new Set();
+  let draft = {};
+  let announcedTurn = -1;
+  let lastTick = -1;
+  let lastEmoteAt = 0;
+  let restriction = {};
+  // Epoch ms when the get-ready countdown ends; 0 once play has begun.
+  let startsAt = 0;
+  let forfeited = false;
+  let readyShown = -1;
+  let lastMarketKey = "";
+  const hold = { timer: 0, el: null, x: 0, y: 0, active: false, swallow: false };
+  const coach = { enabled: false, seen: {}, queue: [], showing: false, view: null };
+
+  // ---------------------------------------------------------------------------
+  // Sounds: the app's placeholder recipes (client/scripts/ui/sfx.gd), made with
+  // the same maths at the same sample rate. Browsers only start audio after a tap.
+  // ---------------------------------------------------------------------------
+
+  const Sfx = (() => {
+    const RATE = 22050;
+    let ctx = null;
+    const buffers = {};
+    function toneSamples(freqs, seconds, decay, gain) {
+      const n = Math.floor(seconds * RATE);
+      const out = new Float32Array(n);
+      for (let i = 0; i < n; i++) {
+        const t = i / RATE;
+        let v = 0;
+        for (const f of freqs) v += Math.sin(2 * Math.PI * f * t);
+        out[i] = (v / freqs.length) * Math.min(1, t / 0.004) * Math.exp(-decay * t) * gain;
+      }
+      return out;
+    }
+    function seq(notes, gain, decay) {
+      let offset = 0, total = 0;
+      for (const [, d] of notes) { total = Math.max(total, offset + 0.5); offset += d; }
+      const out = new Float32Array(Math.floor(total * RATE));
+      offset = 0;
+      for (const [f, d] of notes) {
+        const s = toneSamples([f, f * 2], 0.5, decay, gain);
+        const start = Math.floor(offset * RATE);
+        for (let i = 0; i < s.length && start + i < out.length; i++) out[start + i] += s[i];
+        offset += d;
+      }
+      return out;
+    }
+    function noise(seconds, gain, smooth) {
+      let seed = 7;
+      const rnd = () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296 * 2 - 1; };
+      const n = Math.floor(seconds * RATE);
+      const out = new Float32Array(n);
+      const alpha = Math.min(1, Math.max(0.05, 1 - smooth));
+      let lp = 0;
+      for (let i = 0; i < n; i++) { lp += alpha * (rnd() - lp); out[i] = lp * gain * Math.sin(Math.PI * (i / n)); }
+      return out;
+    }
+    function mix(a, b) {
+      const out = new Float32Array(Math.max(a.length, b.length));
+      for (let i = 0; i < a.length; i++) out[i] += a[i];
+      for (let i = 0; i < b.length; i++) out[i] += b[i];
+      return out;
+    }
+    const RECIPES = {
+      deal: () => noise(0.09, 0.35, 0.02),
+      place: () => mix(toneSamples([140], 0.12, 30, 0.7), noise(0.05, 0.25, 0.3)),
+      coin: () => seq([[1760, 0.05], [2349, 0.09]], 0.35, 25),
+      gold: () => seq([[1319, 0.06], [1760, 0.06], [2637, 0.16]], 0.35, 14),
+      turn: () => seq([[784, 0.12], [1175, 0.28]], 0.45, 7),
+      tick: () => toneSamples([1200], 0.035, 60, 0.3),
+      fanfare: () => seq([[523, 0.14], [659, 0.14], [784, 0.14], [1047, 0.5]], 0.45, 4),
+    };
+    function unlock() {
+      try {
+        if (!ctx) ctx = new (window.AudioContext || window.webkitAudioContext)();
+        if (ctx.state === "suspended") ctx.resume();
+      } catch (e) {
+        ctx = null;
+      }
+    }
+    function play(name, delayMs, volume) {
+      if (!settings.sound || !ctx || !RECIPES[name]) return;
+      try {
+        let buf = buffers[name];
+        if (!buf) {
+          const data = RECIPES[name]();
+          buf = ctx.createBuffer(1, data.length, RATE);
+          buf.getChannelData(0).set(data);
+          buffers[name] = buf;
+        }
+        const src = ctx.createBufferSource();
+        src.buffer = buf;
+        const g = ctx.createGain();
+        g.gain.value = volume === undefined ? 1 : volume;
+        src.connect(g);
+        g.connect(ctx.destination);
+        src.start(ctx.currentTime + (delayMs || 0) / 1000);
+      } catch (e) {
+        /* audio refused: play silently */
+      }
+    }
+    return { unlock, play };
+  })();
+
+  let tapped = false;
+  document.addEventListener("pointerdown", () => { tapped = true; });
+  function buzz(ms) {
+    // Browsers refuse vibration until the viewer has tapped the page.
+    if (!settings.vibration || !tapped || !navigator.vibrate) return;
+    try { navigator.vibrate(ms); } catch (e) { /* not allowed here */ }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Drawing helpers
+  // ---------------------------------------------------------------------------
+
+  function tint(hex) {
+    const n = parseInt(hex.slice(1), 16);
+    const mixc = (v) => Math.round(v + (255 - v) * 0.82);
+    return `rgb(${mixc(n >> 16)}, ${mixc((n >> 8) & 255)}, ${mixc(n & 255)})`;
+  }
+
+  function icon(company) {
+    const sides = LOOK[company].sides;
+    if (sides === 0) return '<svg viewBox="-10 -10 20 20" aria-hidden="true"><circle r="8"/></svg>';
+    const pts = [];
+    for (let i = 0; i < sides; i++) {
+      const a = (Math.PI * 2 * i) / sides - Math.PI / 2;
+      pts.push(`${(Math.cos(a) * 8.6).toFixed(2)},${(Math.sin(a) * 8.6).toFixed(2)}`);
+    }
+    return `<svg viewBox="-10 -10 20 20" aria-hidden="true"><polygon points="${pts.join(" ")}"/></svg>`;
+  }
+
+  function companyVars(company) {
+    const look = LOOK[company];
+    return `--c:${look.color};--bt:${look.inkBand ? "var(--ink)" : "var(--on-band)"};--tint:${tint(look.color)}`;
+  }
+
+  function cardHTML(card, opts) {
+    const info = BB.COMPANIES[card.company];
+    const look = LOOK[card.company];
+    // WHY: fresh and bumped hold only the cards that moved in the last action
+    // and render() empties them, so a later redraw (selecting a card,
+    // cancelling) never replays the arrival animation.
+    const moving = !opts.still;
+    const cls = ["card", opts.mini ? "mini" : "", opts.passive ? "passive" : "", moving && fresh.has(card.id) ? "arrive" : "", opts.selected ? "selected" : ""].join(" ");
+    const tag = opts.still ? "div" : "button";
+    const coins = opts.coins || 0;
+    const label = `${info.name} share${coins ? `, ${coins} coin${coins === 1 ? "" : "s"} on it` : ""}`;
+    const style = `${companyVars(card.company)}${opts.style ? ";" + opts.style : ""}`;
+    // aria-disabled rather than disabled: disabled buttons get no pointer
+    // events, and any card can be held for a close-up.
+    const attrs = opts.still ? 'role="img"' : `type="button" data-id="${card.id}" aria-disabled="${opts.disabled ? "true" : "false"}"`;
+    return `<${tag} ${attrs} class="${cls}" style="${style}" aria-label="${esc(label)}">
+      <span class="band"><span class="n">${info.shares}</span><span class="of">SHARE OF</span><span class="nm">${look.short.toUpperCase()}</span>${icon(card.company)}</span>
+      <span class="full">${esc(info.name)}</span>
+      <span class="art">${icon(card.company)}</span>
+      <span class="issued">${info.shares} shares issued</span>
+      ${coins ? `<span class="coin-badge${moving && bumped.has(card.id) ? " bump" : ""}">${coins}</span>` : ""}
+    </${tag}>`;
+  }
+
+  function avatarColor(name) {
+    let h = 0;
+    for (const ch of name) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+    return `hsl(${h % 360}, 45%, 45%)`;
+  }
+
+  function seatHTML(sv, idx, view, isMe) {
+    const active = view.phase !== "ended" && view.active === idx;
+    const counts = [0, 0, 0, 0, 0, 0];
+    for (const c of sv.portfolio) counts[c.company]++;
+    let pips = "";
+    for (let c = 0; c < 6; c++) {
+      if (!counts[c]) continue;
+      const token = sv.tokens.indexOf(c) >= 0 ? '<span class="r" title="Regulator token">R</span>' : "";
+      pips += `<span class="pip" style="${companyVars(c)}" title="${esc(BB.COMPANIES[c].name)}: ${counts[c]}">${counts[c]}${token}</span>`;
+    }
+    const hand = isMe ? "" : `<span class="minihand" aria-label="${sv.handCount} shares in hand">${"<i></i>".repeat(sv.handCount)}</span>`;
+    const name = isMe ? "Your portfolio" : esc(sv.name);
+    return `<div class="seat${active ? " active" : ""}${isMe ? " me" : ""}">
+      <div class="avatar" style="background:${avatarColor(sv.name)}">${esc(sv.name.charAt(0))}</div>
+      <div class="name">${name}</div>
+      <div class="coins"><span class="coin b" title="Bronze coins, worth 1"><i></i>${sv.bronze}</span>${sv.gold ? `<span class="coin g" title="Gold coins, worth 3"><i></i>${sv.gold}</span>` : ""}${hand}</div>
+      <div class="pips">${pips || '<span class="note">No shares kept yet</span>'}</div>
+    </div>`;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Tutorial coach (client/scripts/ui/coach.gd): each card fires once, queued,
+  // and the learner's first two turns only allow the coached move.
+  // ---------------------------------------------------------------------------
+
+  function coachReset(on, seen) {
+    coach.enabled = on;
+    coach.seen = seen || {};
+    coach.queue = [];
+    coach.showing = false;
+    $("coachPanel").hidden = true;
+  }
+
+  function coachFire(id, args) {
+    if (!coach.enabled || coach.seen[id] || !STEPS[id]) return;
+    coach.seen[id] = true;
+    let body = STEPS[id][1];
+    for (const a of args || []) body = body.replace("%s", a);
+    coach.queue.push({ title: STEPS[id][0], body });
+    coachShowNext();
+  }
+
+  function coachShowNext() {
+    if (coach.showing || !coach.queue.length || !coach.enabled) return;
+    const item = coach.queue.shift();
+    coach.showing = true;
+    $("coachTitle").textContent = item.title;
+    $("coachBody").textContent = item.body;
+    $("coachPanel").hidden = false;
+    $("coachGot").focus();
+  }
+
+  function coachGotIt() {
+    coach.showing = false;
+    $("coachPanel").hidden = true;
+    coachShowNext();
+    save();
+    if (!coach.showing) schedule();
+  }
+
+  function coachSkip() {
+    coachReset(false, coach.seen);
+    save();
+    render();
+    schedule();
+  }
+
+  /** Which of my turns this view is (1 for my first), or 0 when it isn't my turn. */
+  function myTurnIndex(view) {
+    if (view.you === null || view.phase === "ended" || view.active !== view.you) return 0;
+    return Math.floor((view.turn - 1 - view.you) / view.seats.length) + 1;
+  }
+
+  function hasLegal(view, type, id) {
+    return view.legal.some((a) => a.type === type && (id === undefined || a.cardId === id));
+  }
+
+  /** The coached move on the learner's first turns, or {} for free play. */
+  function coachRestriction(view) {
+    if (!coach.enabled) return {};
+    const index = myTurnIndex(view);
+    if (index < 1 || index > FORCED_TURNS) return {};
+    if (view.phase === "take") {
+      if (index === 2) {
+        for (const slot of view.market) {
+          if (slot.coins > 0 && hasLegal(view, "take_market", slot.card.id)) return { take: "market_coins", hint: "Tutorial: take the Market share with coins on it." };
+        }
+      }
+      if (hasLegal(view, "take_supply")) return { take: "supply", hint: "Tutorial: draw from the supply." };
+      return {};
+    }
+    if (index === 1) return { play: "portfolio", hint: "Tutorial: keep a share this time. Tap a card, then Keep." };
+    if (hasLegal(view, "play_market")) return { play: "market", hint: "Tutorial: sell a share to the Market this time." };
+    return {};
+  }
+
+  function coachOnView(view) {
+    if (!coach.enabled) return;
+    coach.view = view;
+    const mine = view.you !== null && view.active === view.you;
+    coachFire("welcome");
+    if (view.phase === "ended") { coachFire("dividend"); return; }
+    if (!mine) return;
+    if (view.phase === "take") {
+      if (view.market.length === 0) coachFire("first_take");
+      if (view.supplyCount <= 3) coachFire("endgame_near");
+      const myTokens = view.seats[view.you].tokens;
+      for (const slot of view.market) {
+        if (myTokens.indexOf(slot.card.company) >= 0) {
+          const name = BB.COMPANIES[slot.card.company].name;
+          coachFire("token_blocks", [name, name]);
+          break;
+        }
+      }
+      for (const slot of view.market) {
+        if (slot.coins > 0 && myTokens.indexOf(slot.card.company) < 0) { coachFire("take_with_coins"); break; }
+      }
+    } else {
+      coachFire("first_play");
+      if (coachRestriction(view).play === "market") coachFire("first_sell");
+    }
+  }
+
+  function coachOnEvents(events, before) {
+    if (!coach.enabled) return;
+    for (const e of events) {
+      if (e.type === "took_supply" && e.seat !== me && e.cost > 0) {
+        coachFire("bot_paid", [before.seats[e.seat].name]);
+      } else if (e.type === "token_moved") {
+        coachFire("token_first", [e.to === me ? "You" : before.seats[e.to].name, BB.COMPANIES[e.company].name]);
+      }
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Game flow
+  // ---------------------------------------------------------------------------
+
+  function nameOf(seat) {
+    return seat === me ? "You" : state.seats[seat].name;
+  }
+
+  function addLog(text) {
+    log.unshift({ turn: state ? state.turn : 1, text });
+    if (log.length > 7) log.length = 7;
+  }
+
+  function resetTable() {
+    clearTimeout(timer);
+    log = [];
+    selected = -1;
+    fresh = new Set();
+    bumped = new Set();
+    announcedTurn = -1;
+    lastTick = -1;
+    startsAt = 0;
+    forfeited = false;
+    readyShown = -1;
+    lastMarketKey = "";
+    endHold();
+    for (const id of ["endPanel", "readyPanel", "forfeitPanel", "forfeitDone"]) $(id).hidden = true;
+  }
+
+  function inCountdown() {
+    return startsAt > 0 && Date.now() < startsAt;
+  }
+
+  /** A real game you are still playing: the top-bar button reads Forfeit. */
+  function canForfeit() {
+    return !!state && mode === "game" && !forfeited && state.phase !== "ended";
+  }
+
+  function newGame() {
+    resetTable();
+    mode = "game";
+    coachReset(false);
+    const defs = [{ id: "you", name: "You", isBot: false }];
+    for (let i = 0; i < settings.seats - 1; i++) defs.push({ id: `bot:${i}`, name: BOT_NAMES[i], isBot: true });
+    // The first step's timer starts when the countdown ends, as on the server.
+    startsAt = Date.now() + GET_READY_MS;
+    state = BB.createGame(defs, Math.floor(Math.random() * 0x7fffffff), { stepSeconds: settings.timer }, startsAt);
+    me = state.seats.findIndex((s) => s.id === "you");
+    addLog(`<b>New game</b> with ${settings.seats} investors${settings.timer ? `, ${settings.timer} s a step` : ", no timer"}. ${state.active === me ? "You go" : esc(state.seats[state.active].name) + " goes"} first.`);
+    save();
+    render();
+    showGetReady();
+    schedule();
+  }
+
+  /** The tutorial exactly as the server deals it: fixed seed, two slow bots, no timer, you first. */
+  function startTutorial() {
+    resetTable();
+    mode = "tutorial";
+    coachReset(true);
+    const defs = [{ id: "you", name: "You", isBot: false }, { id: "bot:0", name: BOT_NAMES[0], isBot: true }, { id: "bot:1", name: BOT_NAMES[1], isBot: true }];
+    state = BB.createGame(defs, BB.TUTORIAL_SEED, { stepSeconds: 0 }, 0);
+    const h = state.seats.findIndex((s) => s.id === "you");
+    if (h > 0) state.seats = state.seats.slice(h).concat(state.seats.slice(0, h));
+    me = 0;
+    addLog("<b>Tutorial:</b> you go first against two bots, with no timer.");
+    save();
+    render();
+    schedule();
+  }
+
+  function schedule() {
+    clearTimeout(timer);
+    if (!state || forfeited || state.phase === "ended" || state.active === me) return;
+    if (mode === "tutorial" && coach.showing) return; // bots wait while a coach card is open
+    // A bot that goes first waits for the countdown, then thinks as usual.
+    const wait = startsAt > 0 ? Math.max(0, startsAt - Date.now()) : 0;
+    const delay = wait + (mode === "tutorial" ? TUTORIAL_BOT_THINK_MS : SPEEDS[settings.speed]);
+    timer = setTimeout(() => {
+      const action = mode === "tutorial" ? BB.autoAction(state, 0) : BB.botAction(state, Math.random);
+      apply(state.active, action, false);
+    }, delay);
+  }
+
+  function apply(seat, action, auto) {
+    if (forfeited || inCountdown()) return;
+    const before = BB.playerView(state, me);
+    let result;
+    try {
+      result = BB.applyAction(state, seat, action, state.options.stepSeconds > 0 ? Date.now() : 0, !!auto);
+    } catch (e) {
+      $("prompt").textContent = "That move isn't allowed right now.";
+      return;
+    }
+    state = result.state;
+    fresh = new Set();
+    bumped = new Set();
+    coachOnEvents(result.events, before);
+    describe(result.events, before);
+    sounds(result.events);
+    selected = -1;
+    save();
+    render();
+    if (state.phase === "ended") showEnd();
+    else schedule();
+  }
+
+  function describe(events, before) {
+    const coinsBefore = {};
+    for (const m of before.market) coinsBefore[m.card.id] = m.coins;
+    for (const e of events) {
+      const who = e.seat !== undefined ? esc(nameOf(e.seat)) : "";
+      const co = (c) => `<b>${esc(BB.COMPANIES[c].name)}</b>`;
+      if (e.type === "took_supply") {
+        const card = state.seats[e.seat].hand[state.seats[e.seat].hand.length - 1];
+        if (card) fresh.add(card.id);
+        for (const m of state.market) if (m.coins > (coinsBefore[m.card.id] || 0)) bumped.add(m.card.id);
+        addLog(`${who} drew from the supply${e.cost ? `, paying ${e.cost} coin${e.cost === 1 ? "" : "s"} onto the Market` : " for free"}.`);
+      } else if (e.type === "took_market") {
+        fresh.add(e.card.id);
+        addLog(`${who} took ${co(e.card.company)} from the Market${e.coins ? ` and collected ${e.coins} coin${e.coins === 1 ? "" : "s"}` : ""}.`);
+      } else if (e.type === "played") {
+        fresh.add(e.card.id);
+        addLog(e.to === "portfolio" ? `${who} kept ${co(e.card.company)}.` : `${who} sold ${co(e.card.company)} to the Market.`);
+      } else if (e.type === "token_moved") {
+        addLog(`${esc(nameOf(e.to))} ${e.to === me ? "hold" : "holds"} the ${co(e.company)} regulator token.`);
+      } else if (e.type === "game_ended") {
+        addLog("<b>Dividend day.</b> Hands join portfolios and dividends are paid.");
+      }
+    }
+  }
+
+  /** Same cues as the app's table: coins, deal, place, a gold chime per paying company, fanfare. */
+  function sounds(events) {
+    let at = 0;
+    for (const e of events) {
+      if (e.type === "took_supply") {
+        if (e.cost > 0) { Sfx.play("coin", at); at += 150; }
+        Sfx.play("deal", at); at += 120;
+      } else if (e.type === "took_market") {
+        Sfx.play(e.coins > 0 ? "coin" : "deal", at); at += 120;
+      } else if (e.type === "played") {
+        Sfx.play("place", at); at += 120;
+        if (e.seat === me) buzz(25);
+      } else if (e.type === "game_ended") {
+        for (const d of e.result.companies) {
+          if (d.payments.length) { Sfx.play("gold", at); at += 380; }
+        }
+        Sfx.play("fanfare", at + 150);
+      }
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Rendering
+  // ---------------------------------------------------------------------------
+
+  /** Legal, and the coached move while the tutorial restricts the first turns. */
+  function allowed(view, type, id) {
+    if (!hasLegal(view, type, id)) return false;
+    if (type === "take_supply") return restriction.take !== "market_coins";
+    if (type === "take_market") {
+      if (restriction.take === "supply") return false;
+      if (restriction.take === "market_coins") {
+        const slot = view.market.find((m) => m.card.id === id);
+        return !!slot && slot.coins > 0;
+      }
+      return true;
+    }
+    if (type === "play_portfolio") return restriction.play !== "market";
+    if (type === "play_market") return restriction.play !== "portfolio";
+    return true;
+  }
+
+  function cardPlayable(view, id) {
+    return restriction.play === "market" ? allowed(view, "play_market", id) : hasLegal(view, "play_portfolio", id);
+  }
+
+  function hinted(text) {
+    return restriction.hint ? `${restriction.hint}\n${text}` : text;
+  }
+
+  function render() {
+    const view = BB.playerView(state, me);
+    const mine = view.active === me && view.phase !== "ended";
+    // Your cards only respond while the table is actually playing.
+    const live = mine && !forfeited && !inCountdown();
+    const seats = view.seats;
+    restriction = coachRestriction(view);
+
+    $("newBtn").textContent = canForfeit() ? "Forfeit" : "New game";
+
+    $("meta").textContent = `${mode === "tutorial" ? "Tutorial · " : ""}Turn ${view.turn} · ${view.supplyCount} shares left in the supply · ${seats.length} investors`;
+    if (forfeited) $("status").textContent = "You forfeited";
+    else if (inCountdown()) $("status").textContent = "Get ready…";
+    else if (view.phase === "ended") $("status").textContent = "Dividend day";
+    else if (mine) $("status").textContent = view.phase === "take" ? "Your turn: take a share" : "Your turn: play a share";
+    else $("status").textContent = `${seats[view.active].name} is ${view.phase === "take" ? "choosing a share" : "playing a share"}…`;
+
+    let opp = "";
+    for (let k = 1; k < seats.length; k++) {
+      const idx = (me + k) % seats.length;
+      opp += seatHTML(seats[idx], idx, view, false);
+    }
+    $("opponents").innerHTML = opp;
+    $("mine").innerHTML = seatHTML(seats[me], me, view, true);
+
+    // Supply and Market.
+    const canDraw = live && view.phase === "take" && allowed(view, "take_supply");
+    $("supply").disabled = !canDraw;
+    $("supply").style.opacity = view.supplyCount > 0 ? "1" : "0.35";
+    $("supplyCount").textContent = `${view.supplyCount} left`;
+    const slots = view.market.map((m) => {
+      const takeable = live && view.phase === "take" && allowed(view, "take_market", m.card.id);
+      return { m, takeable, passive: !live || view.phase !== "take" };
+    });
+    // Redraw the Market only when something in it changed, so a redraw for
+    // your own selection does not restart an arriving card or coin.
+    const marketKey = JSON.stringify(slots.map((x) => [x.m.card.id, x.m.coins, x.takeable, x.passive]));
+    if (marketKey !== lastMarketKey) {
+      lastMarketKey = marketKey;
+      $("market").innerHTML = slots.length === 0
+        ? '<span class="market-empty">Empty. Sold shares land here.</span>'
+        : slots.map((x) => cardHTML(x.m.card, { mini: true, coins: x.m.coins, disabled: !x.takeable, passive: x.passive, style: "--w: var(--mw)" })).join("");
+    }
+
+    // Hand.
+    const hand = seats[me].hand || [];
+    renderHand(view, live, hand);
+
+    // Prompt and buttons.
+    const draw = $("drawBtn"), keep = $("keepBtn"), sell = $("sellBtn"), cancel = $("cancelBtn");
+    draw.hidden = keep.hidden = sell.hidden = cancel.hidden = true;
+    let prompt = "";
+    if (forfeited) {
+      prompt = "You forfeited this game. Press New game to play again.";
+    } else if (inCountdown()) {
+      prompt = "The first turn starts in a moment.";
+    } else if (view.phase === "ended") {
+      prompt = "Every hand has joined its portfolio.";
+    } else if (!mine) {
+      prompt = "Watch the table: every move shows up in the list below.";
+    } else if (view.phase === "take") {
+      const cost = view.drawCost || 0;
+      draw.hidden = false;
+      draw.disabled = !canDraw;
+      draw.textContent = `Draw from supply (${cost === 0 ? "free" : `${cost} coin${cost === 1 ? "" : "s"}`})`;
+      prompt = hinted(hasLegal(view, "take_supply")
+        ? view.market.length
+          ? "Tap a Market share to take it with its coins, or draw from the supply."
+          : "The Market is empty, so draw from the supply."
+        : "You can't afford to draw. Take a share from the Market.");
+    } else if (selected < 0) {
+      prompt = hinted("Tap a share in your hand to play it.");
+    } else {
+      const card = hand.find((c) => c.id === selected);
+      keep.hidden = sell.hidden = cancel.hidden = false;
+      keep.disabled = !allowed(view, "play_portfolio", selected);
+      sell.disabled = !allowed(view, "play_market", selected);
+      const blocked = !hasLegal(view, "play_market", selected) ? " You can't sell the company you just took." : "";
+      prompt = hinted(`${BB.COMPANIES[card.company].name}: keep it in your portfolio or sell it to the Market?${blocked}`);
+    }
+    $("prompt").textContent = prompt;
+
+    $("log").innerHTML = log.map((l) => `<li><span class="t">T${l.turn}</span><span>${l.text}</span></li>`).join("");
+
+    // A chime and a buzz once when your turn starts (after the countdown).
+    if (mine && !forfeited && !inCountdown() && view.phase === "take" && view.turn !== announcedTurn) {
+      announcedTurn = view.turn;
+      Sfx.play("turn");
+      buzz(40);
+    }
+    // A held card that was just redrawn away takes its close-up with it.
+    if (hold.active && hold.el && !hold.el.isConnected) endHold();
+    // The moves in fresh and bumped have now been drawn once.
+    fresh = new Set();
+    bumped = new Set();
+    coachOnView(view);
+  }
+
+  /**
+   * The hand fan. While the same cards are in hand, each card is updated in
+   * place, so selecting or cancelling slides the card instead of redrawing
+   * the hand (which replayed the newest card's arrival).
+   */
+  function renderHand(view, live, hand) {
+    const box = $("hand");
+    const n = hand.length;
+    const playStep = live && view.phase === "play";
+    const specs = hand.map((c, i) => {
+      const t = n <= 1 ? 0 : i / (n - 1) - 0.5;
+      const lift = c.id === selected ? -16 : Math.abs(t) * 8;
+      return {
+        card: c,
+        disabled: !(playStep && cardPlayable(view, c.id)),
+        passive: !playStep,
+        selected: c.id === selected,
+        transform: `translateY(${lift}px) rotate(${(t * 10).toFixed(1)}deg)`,
+      };
+    });
+    const shown = Array.from(box.children, (el) => el.dataset.id);
+    const same = shown.length === n && hand.every((c, i) => shown[i] === String(c.id));
+    if (!same) {
+      box.innerHTML = specs
+        .map((x) => cardHTML(x.card, { disabled: x.disabled, passive: x.passive, selected: x.selected, style: `transform: ${x.transform}` }))
+        .join("");
+    }
+    specs.forEach((x, i) => {
+      const el = box.children[i];
+      el.setAttribute("aria-disabled", String(x.disabled));
+      el.setAttribute("aria-pressed", String(x.selected));
+      el.classList.toggle("passive", x.passive);
+      el.classList.toggle("selected", x.selected);
+      el.style.transform = x.transform;
+    });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Get ready (real games only; the tutorial opens with its welcome card)
+  // ---------------------------------------------------------------------------
+
+  function showGetReady() {
+    if (!inCountdown()) return;
+    const seats = state.seats;
+    let order = "";
+    for (let k = 0; k < seats.length; k++) {
+      const i = (state.active + k) % seats.length;
+      const who = i === me ? "You" : seats[i].name;
+      order += `<li class="${k === 0 ? "first" : ""}"><span class="avatar" style="background:${avatarColor(seats[i].name)}">${esc(seats[i].name.charAt(0))}</span><span class="who">${esc(who)}</span>${seats[i].isBot ? '<span class="tag">BOT</span>' : ""}</li>`;
+    }
+    $("readyOrder").innerHTML = order;
+    $("readyFirst").textContent = state.active === me ? "You go first!" : `${seats[state.active].name} goes first`;
+    readyShown = -1;
+    const panel = $("readyPanel");
+    panel.classList.remove("fade-out");
+    panel.hidden = false;
+    updateGetReady();
+  }
+
+  /** Called from the 200 ms tick: count down, then "Go!" and fade away. */
+  function updateGetReady() {
+    const panel = $("readyPanel");
+    if (panel.hidden || startsAt === 0) return;
+    const left = startsAt - Date.now();
+    const count = $("readyCount");
+    if (left > 0) {
+      const n = Math.ceil(left / 1000);
+      if (n !== readyShown) {
+        readyShown = n;
+        count.textContent = String(n);
+        count.className = "count";
+        void count.offsetWidth;
+        count.className = "count tick";
+        Sfx.play("tick", 0, 0.6);
+      }
+      return;
+    }
+    startsAt = 0;
+    count.textContent = "Go!";
+    count.className = "count go tick";
+    save();
+    render(); // the turn chime waited for the countdown
+    setTimeout(() => {
+      panel.classList.add("fade-out");
+      setTimeout(() => { panel.hidden = true; panel.classList.remove("fade-out"); }, 260);
+    }, 350);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Forfeit
+  // ---------------------------------------------------------------------------
+
+  function onTopButton() {
+    if (canForfeit()) {
+      $("forfeitPanel").hidden = false;
+      $("forfeitNo").focus();
+    } else {
+      openNew();
+    }
+  }
+
+  function forfeit() {
+    $("forfeitPanel").hidden = true;
+    if (!canForfeit()) return;
+    clearTimeout(timer);
+    forfeited = true;
+    startsAt = 0;
+    selected = -1;
+    endHold();
+    $("readyPanel").hidden = true;
+    $("glow").hidden = true;
+    $("timer").hidden = true;
+    state.seats[me].isBot = true;
+    addLog("<b>You forfeited.</b> A bot took your seat and the table closed.");
+    save();
+    render();
+    showForfeitDone();
+  }
+
+  function showForfeitDone() {
+    $("forfeitDone").hidden = false;
+    $("forfeitAgain").focus();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Close-up: press and hold a card in your hand or the Market
+  // ---------------------------------------------------------------------------
+
+  function heldCard(el) {
+    const id = Number(el.dataset.id);
+    const view = BB.playerView(state, me);
+    const inHand = (view.seats[me].hand || []).find((c) => c.id === id);
+    if (inHand) return { card: inHand, coins: 0 };
+    const slot = view.market.find((m) => m.card.id === id);
+    return slot ? { card: slot.card, coins: slot.coins } : null;
+  }
+
+  function onHoldStart(ev) {
+    hold.swallow = false;
+    if (ev.button > 0 || !(ev.target instanceof Element)) return;
+    const el = ev.target.closest("#hand .card, #market .card");
+    if (!el || !state) return;
+    endHold();
+    hold.el = el;
+    hold.x = ev.clientX;
+    hold.y = ev.clientY;
+    hold.timer = setTimeout(beginHold, HOLD_MS);
+  }
+
+  function onHoldMove(ev) {
+    if (hold.timer && Math.hypot(ev.clientX - hold.x, ev.clientY - hold.y) > HOLD_SLOP) {
+      clearTimeout(hold.timer);
+      hold.timer = 0;
+    }
+  }
+
+  function onHoldEnd() {
+    clearTimeout(hold.timer);
+    hold.timer = 0;
+    if (hold.active) endHold();
+    else hold.el = null;
+  }
+
+  function beginHold() {
+    hold.timer = 0;
+    const el = hold.el;
+    if (!el || !el.isConnected) return;
+    const found = heldCard(el);
+    if (!found) return;
+    hold.active = true;
+    // The release that ends a hold must not also select or take the card.
+    hold.swallow = true;
+    el.classList.add("held");
+    const box = $("peek");
+    box.innerHTML = cardHTML(found.card, { coins: found.coins, still: true });
+    box.hidden = false;
+    const rect = el.getBoundingClientRect();
+    const w = box.offsetWidth, h = box.offsetHeight;
+    const vw = document.documentElement.clientWidth, vh = window.innerHeight;
+    // Above the held card when it fits, so the finger does not cover it.
+    let y = rect.top - h - 14;
+    if (y < 12) y = rect.bottom + 14;
+    y = Math.max(12, Math.min(y, vh - h - 12));
+    const x = Math.max(16, Math.min(rect.left + rect.width / 2 - w / 2, vw - w - 16));
+    box.style.transform = `translate(${Math.round(x)}px, ${Math.round(y)}px)`;
+    buzz(15);
+  }
+
+  function endHold() {
+    clearTimeout(hold.timer);
+    hold.timer = 0;
+    hold.active = false;
+    if (hold.el) hold.el.classList.remove("held");
+    hold.el = null;
+    const box = $("peek");
+    box.hidden = true;
+    box.innerHTML = "";
+  }
+
+  /** Turn timer: the red rim and a tick each second under five seconds on your own step. */
+  function tickTimer() {
+    updateGetReady();
+    if (!state || forfeited || inCountdown() || state.phase === "ended" || state.deadline <= 0 || state.active !== me) {
+      $("timer").hidden = true;
+      $("glow").hidden = true;
+      lastTick = -1;
+      return;
+    }
+    const remaining = Math.ceil((state.deadline - Date.now()) / 1000);
+    $("timer").hidden = false;
+    $("timer").textContent = `${Math.max(0, remaining)}s`;
+    const urgent = remaining > 0 && remaining <= URGENT_SECONDS;
+    $("glow").hidden = !urgent;
+    if (urgent && remaining !== lastTick) {
+      lastTick = remaining;
+      Sfx.play("tick", 0, 0.6);
+      if (remaining <= 2) buzz(20);
+    }
+    if (!urgent) lastTick = -1;
+    if (Date.now() >= state.deadline) {
+      addLog("Time ran out, so the table played a simple move for you.");
+      apply(me, BB.autoAction(state, 0), true);
+    }
+  }
+
+  function showEnd() {
+    const r = state.result;
+    const seats = state.seats;
+    $("endDivs").innerHTML = r.companies
+      .map((d) => {
+        const name = esc(BB.COMPANIES[d.company].name);
+        if (d.majority === null) return `<li><span class="chip" style="${companyVars(d.company)}"></span><span>${name}: no sole majority, no dividend</span></li>`;
+        const paid = d.payments.reduce((s, p) => s + p.coins, 0);
+        const holds = d.majority === me ? "hold" : "holds";
+        if (paid === 0) return `<li><span class="chip" style="${companyVars(d.company)}"></span><span>${name}: <b>${esc(nameOf(d.majority))}</b> ${holds} it alone, so no one pays</span></li>`;
+        return `<li><span class="chip" style="${companyVars(d.company)}"></span><span>${name}: <b>${esc(nameOf(d.majority))}</b> ${d.majority === me ? "collect" : "collects"} ${paid} coin${paid === 1 ? "" : "s"}</span></li>`;
+      })
+      .join("");
+    const order = r.scores.slice().sort((a, b) => a.rank - b.rank || b.score - a.score);
+    $("endScores").innerHTML = order
+      .map((s) => `<tr class="${s.seat === me ? "you" : ""}"><td><span class="rank r${s.rank}">${s.rank}</span></td><td>${esc(s.seat === me ? "You" : seats[s.seat].name)}</td><td class="num">${s.bronze}</td><td class="num">${s.gold}</td><td class="num"><b>${s.score}</b></td></tr>`)
+      .join("");
+    const mineScore = r.scores.find((s) => s.seat === me);
+    $("endTitle").textContent = mineScore && mineScore.rank === 1 ? "Dividend day: you win" : "Dividend day";
+    $("endPanel").hidden = false;
+    if (!coach.showing) $("endAgain").focus();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Input
+  // ---------------------------------------------------------------------------
+
+  function onMarket(ev) {
+    const btn = ev.target.closest(".card");
+    if (hold.swallow) { hold.swallow = false; return; }
+    if (!btn || btn.getAttribute("aria-disabled") === "true" || inCountdown()) return;
+    const id = Number(btn.dataset.id);
+    if (!allowed(BB.playerView(state, me), "take_market", id)) return;
+    apply(me, { type: "take_market", cardId: id }, false);
+  }
+
+  function onHand(ev) {
+    const btn = ev.target.closest(".card");
+    if (hold.swallow) { hold.swallow = false; return; }
+    if (!btn || btn.getAttribute("aria-disabled") === "true") return;
+    const id = Number(btn.dataset.id);
+    selected = selected === id ? -1 : id;
+    render();
+  }
+
+  function playSelected(type) {
+    if (selected < 0) return;
+    if (!allowed(BB.playerView(state, me), type, selected)) return;
+    apply(me, { type, cardId: selected }, false);
+  }
+
+  function drawShare() {
+    if (forfeited || inCountdown() || state.active !== me || !allowed(BB.playerView(state, me), "take_supply")) return;
+    apply(me, { type: "take_supply" }, false);
+  }
+
+  function sendEmote(id, text, pic) {
+    const now = Date.now();
+    if (now - lastEmoteAt < EMOTE_COOLDOWN_MS) return;
+    lastEmoteAt = now;
+    const b = $("bubble");
+    b.hidden = true;
+    b.textContent = text;
+    b.className = pic ? "bubble pic" : "bubble";
+    void b.offsetWidth;
+    b.hidden = false;
+    clearTimeout(sendEmote.t);
+    sendEmote.t = setTimeout(() => { b.hidden = true; }, 2600);
+    $("emotePanel").hidden = true;
+    $("emoteBtn").setAttribute("aria-expanded", "false");
+  }
+
+  function openNew() {
+    draft = { seats: settings.seats, speed: settings.speed, timer: settings.timer };
+    renderChoices();
+    $("newPanel").hidden = false;
+    $("newStart").focus();
+  }
+
+  function renderChoices() {
+    $("seatChoice").innerHTML = [3, 4, 5, 6, 7]
+      .map((n) => `<button type="button" class="btn" data-seats="${n}" aria-pressed="${draft.seats === n}">${n}</button>`)
+      .join("");
+    $("timerChoice").innerHTML = TIMERS
+      .map((s) => `<button type="button" class="btn" data-timer="${s}" aria-pressed="${draft.timer === s}">${s ? `${s} s` : "Off"}</button>`)
+      .join("");
+    $("speedChoice").innerHTML = Object.keys(SPEEDS)
+      .map((s) => `<button type="button" class="btn" data-speed="${s}" aria-pressed="${draft.speed === s}">${s}</button>`)
+      .join("");
+  }
+
+  function buildRules() {
+    let html = RULES.map(([t, b]) => `<h3>${esc(t)}</h3><p style="white-space: pre-line">${esc(b)}</p>`).join("");
+    html += "<h3>The companies</h3><p>Shares issued per company. Five shares are set aside unseen at the start of every game.</p><ul class=\"co-list\">";
+    html += BB.COMPANIES.map((c) => `<li><span class="chip" style="${companyVars(c.id)}"></span>${esc(c.name)}: ${c.shares}</li>`).join("");
+    html += '</ul><h3>Settings</h3><div class="toggles"><button class="btn" id="soundToggle" type="button"></button><button class="btn" id="vibrationToggle" type="button"></button></div>';
+    html += '<p class="note">Vibration works on phones whose browser allows it.</p>';
+    html += '<div class="row-end"><button class="btn primary" id="rulesClose" type="button">Close</button></div>';
+    $("rulesBody").innerHTML = html;
+    refreshToggles();
+  }
+
+  function refreshToggles() {
+    $("soundToggle").textContent = `Sound: ${settings.sound ? "on" : "off"}`;
+    $("vibrationToggle").textContent = `Vibration: ${settings.vibration ? "on" : "off"}`;
+  }
+
+  function stripes() {
+    return LOOK.map((l) => `<i style="background:${l.color}"></i>`).join("");
+  }
+
+  // ---------------------------------------------------------------------------
+  // Persistence (this browser only) and live-update state
+  // ---------------------------------------------------------------------------
+
+  function snapshot() {
+    return { version: SAVE_VERSION, state, settings, log, mode, startsAt, forfeited, coach: { enabled: coach.enabled, seen: coach.seen } };
+  }
+
+  function save() {
+    try {
+      localStorage.setItem(STORE_KEY, JSON.stringify(snapshot()));
+    } catch (e) {
+      /* storage unavailable: the game still works for this visit */
+    }
+  }
+
+  function restore(data) {
+    if (!data || data.version !== SAVE_VERSION || !data.state || !Array.isArray(data.state.seats)) return false;
+    const idx = data.state.seats.findIndex((s) => s.id === "you");
+    if (idx < 0) return false;
+    state = data.state;
+    me = idx;
+    settings = Object.assign({ seats: 3, speed: "Normal", timer: 30, sound: true, vibration: true }, data.settings || {});
+    log = Array.isArray(data.log) ? data.log : [];
+    mode = data.mode === "tutorial" ? "tutorial" : "game";
+    const c = data.coach || {};
+    coachReset(mode === "tutorial" && c.enabled !== false, c.seen || {});
+    forfeited = !!data.forfeited && mode === "game";
+    // A countdown cut short by a reload starts over; a step timer restarts
+    // on return rather than expiring at once.
+    startsAt = !forfeited && data.startsAt > Date.now() ? Date.now() + GET_READY_MS : 0;
+    if (state.deadline > 0 && state.phase !== "ended") state.deadline = (startsAt || Date.now()) + state.options.stepSeconds * 1000;
+    return true;
+  }
+
+  function boot(hot) {
+    $("stripesTop").innerHTML = stripes();
+    $("stripesBottom").innerHTML = stripes();
+    buildRules();
+    $("emotePics").innerHTML = EMOTES.slice(0, 6).map(([id, t]) => `<button class="btn" type="button" data-emote="${id}" data-pic="1" aria-label="Send ${id} emote">${t}</button>`).join("");
+    $("emoteWords").innerHTML = EMOTES.slice(6).map(([id, t]) => `<button class="btn" type="button" data-emote="${id}">${esc(t)}</button>`).join("");
+    document.addEventListener("pointerdown", Sfx.unlock);
+    document.addEventListener("keydown", Sfx.unlock);
+    $("market").addEventListener("click", onMarket);
+    $("hand").addEventListener("click", onHand);
+    $("supply").addEventListener("click", drawShare);
+    $("drawBtn").addEventListener("click", drawShare);
+    $("keepBtn").addEventListener("click", () => playSelected("play_portfolio"));
+    $("sellBtn").addEventListener("click", () => playSelected("play_market"));
+    $("cancelBtn").addEventListener("click", () => { selected = -1; render(); });
+    $("emoteBtn").addEventListener("click", () => {
+      const open = $("emotePanel").hidden;
+      $("emotePanel").hidden = !open;
+      $("emoteBtn").setAttribute("aria-expanded", String(open));
+    });
+    $("emotePanel").addEventListener("click", (e) => {
+      const b = e.target.closest("[data-emote]");
+      if (b) sendEmote(b.dataset.emote, b.textContent, !!b.dataset.pic);
+    });
+    $("rulesBtn").addEventListener("click", () => { $("rulesPanel").hidden = false; $("rulesClose").focus(); });
+    $("rulesBody").addEventListener("click", (e) => {
+      if (e.target.id === "rulesClose") $("rulesPanel").hidden = true;
+      if (e.target.id === "soundToggle") { settings.sound = !settings.sound; refreshToggles(); save(); }
+      if (e.target.id === "vibrationToggle") { settings.vibration = !settings.vibration; refreshToggles(); save(); buzz(30); }
+    });
+    $("newBtn").addEventListener("click", onTopButton);
+    $("forfeitYes").addEventListener("click", forfeit);
+    $("forfeitNo").addEventListener("click", () => { $("forfeitPanel").hidden = true; });
+    $("forfeitAgain").addEventListener("click", newGame);
+    $("forfeitChange").addEventListener("click", () => { $("forfeitDone").hidden = true; openNew(); });
+    $("forfeitLook").addEventListener("click", () => { $("forfeitDone").hidden = true; });
+    document.addEventListener("pointerdown", onHoldStart);
+    document.addEventListener("pointermove", onHoldMove);
+    document.addEventListener("pointerup", onHoldEnd);
+    document.addEventListener("pointercancel", onHoldEnd);
+    window.addEventListener("blur", onHoldEnd);
+    // A long press on a phone opens the browser's menu unless the page claims it.
+    for (const id of ["hand", "market"]) $(id).addEventListener("contextmenu", (e) => { if (e.target.closest(".card")) e.preventDefault(); });
+    $("newCancel").addEventListener("click", () => { $("newPanel").hidden = true; });
+    $("newStart").addEventListener("click", () => { Object.assign(settings, draft); $("newPanel").hidden = true; newGame(); });
+    $("tutorialStart").addEventListener("click", () => { $("newPanel").hidden = true; startTutorial(); });
+    $("seatChoice").addEventListener("click", (e) => { const b = e.target.closest("[data-seats]"); if (b) { draft.seats = Number(b.dataset.seats); renderChoices(); } });
+    $("timerChoice").addEventListener("click", (e) => { const b = e.target.closest("[data-timer]"); if (b) { draft.timer = Number(b.dataset.timer); renderChoices(); } });
+    $("speedChoice").addEventListener("click", (e) => { const b = e.target.closest("[data-speed]"); if (b) { draft.speed = b.dataset.speed; renderChoices(); } });
+    $("endAgain").addEventListener("click", newGame);
+    $("endChange").addEventListener("click", () => { $("endPanel").hidden = true; openNew(); });
+    $("endLook").addEventListener("click", () => { $("endPanel").hidden = true; });
+    $("coachGot").addEventListener("click", coachGotIt);
+    $("coachSkip").addEventListener("click", coachSkip);
+    document.addEventListener("keydown", (e) => {
+      if (e.key !== "Escape") return;
+      for (const id of ["rulesPanel", "newPanel", "endPanel", "forfeitPanel", "forfeitDone"]) $(id).hidden = true;
+      $("emotePanel").hidden = true;
+    });
+
+    let stored = null;
+    try {
+      stored = JSON.parse(localStorage.getItem(STORE_KEY) || "null");
+    } catch (e) {
+      stored = null;
+    }
+    if (restore(hot) || restore(stored)) {
+      render();
+      if (forfeited) showForfeitDone();
+      else if (state.phase === "ended") showEnd();
+      else {
+        showGetReady();
+        schedule();
+      }
+    } else {
+      startTutorial();
+    }
+    setInterval(tickTimer, 200);
+    if (window.claude && window.claude.hot && window.claude.hot.snapshot) {
+      window.claude.hot.snapshot(snapshot);
+    }
+  }
+
+  const hot = window.claude && window.claude.hot;
+  if (hot && hot.ready) hot.ready(boot);
+  else boot(hot && hot.data ? hot.data : {});
+})();
+</script>

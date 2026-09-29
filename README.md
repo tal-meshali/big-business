@@ -14,6 +14,7 @@ The mechanics are a re-themed implementation of a well-known share-collecting ca
 | `docs/design/rules-spec.md` | Authoritative rules, including every ruling the engine implements |
 | `server/` | Nakama runtime: pure TypeScript rules engine with tests, authoritative match handler, room-code RPCs, Docker Compose for local play |
 | `client/` | Godot 4.6 project: Nakama connection, lobby, table, help screen, synthesised sounds, headless smoke, screenshot and end-to-end tests |
+| `web/` | Browser table against bots (the page behind the shared web demo): the real engine and bots bundled in by `node web/build.mjs` |
 | `docs/deploy.md` | Single-VPS deployment with Docker Compose and automatic TLS |
 | `docs/conventions.md` | Dependency-graph rules enforced by `tools/graph_check.py` (pre-push hook and CI) |
 | `docs/TODO-local.md` | Work that needs a local machine: phone builds, playtests, store accounts, art |
@@ -51,6 +52,8 @@ Phase 2 (soft-launch features), cloud-doable parts complete: preset emotes and p
 Phase 2 polish, cloud-doable parts: a heuristic bot for real games that clearly beats the old placeholder policy (rules-spec section 8.2), a rules and help screen (lobby and "?" at the table) with support and privacy links, tutorial v2 (the first two turns only allow the coached move), a bundled emoji font so emotes render on every phone, mutes and blocks that survive restarts, 48 px touch targets enforced by the smoke test, a 4-card hand that stays on screen, placeholder sounds and haptics, a red timer glow under five seconds, reconnect on app resume, and a server field that accepts `https://` addresses.
 
 First playtest fixes: bots keep shares at a steady pace instead of cycling the Market, a get-ready countdown with the turn order before the first turn (the table also no longer misses the game's first view), a Forfeit button that hands your seat to a bot, and press-and-hold on any card for a close-up.
+
+Second playtest fixes: bots lock pairs into their Portfolio, so they keep about half their plays from their first or second turn (tutorial bots too, once the Market has a share). The browser table (`web/`) gets the same engine plus the countdown, Forfeit, the card close-up, a selected card drawn above its neighbours, and no replayed arrival animation when you select or cancel a card.
 
 Code conventions (acyclic, layered dependency graph checked with graphify on every push and in CI) are in `docs/conventions.md`.
 

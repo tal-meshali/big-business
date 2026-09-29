@@ -258,10 +258,22 @@ describe('botAction decisions', () => {
     }
   });
 
+  it('locks a pair into the Portfolio on its first turn instead of selling a stray share', () => {
+    const s = fixture();
+    s.seats[0]!.hand = [card(32, 5), card(33, 5), card(20, 2)];
+    const r = applyAction(s, 0, { type: 'take_supply' }); // draws company 4
+    for (let seed = 1; seed <= 20; seed++) {
+      const a = botAction(r.state, makeRng(seed).next);
+      expect(a.type).toBe('play_portfolio');
+      expect(r.state.seats[0]!.hand.find((c) => c.id === (a as { cardId: number }).cardId)!.company).toBe(5);
+    }
+  });
+
   it('commits its focus company to the Portfolio once it falls behind the keep pace', () => {
     const s = fixture();
     s.seats[0]!.portfolio = [];
-    s.seats[0]!.hand = [card(32, 5), card(33, 5), card(20, 2)];
+    // No pair in hand: only the keep pace can make it keep.
+    s.seats[0]!.hand = [card(32, 5), card(10, 3), card(20, 2)];
     const r = applyAction(s, 0, { type: 'take_supply' }); // draws company 4
     // Seat 0's first turn: no pace to keep yet, so a stray share may be sold.
     const early = new Set<string>();
@@ -283,6 +295,7 @@ describe('botAction decisions', () => {
       let sells = 0;
       let stuck = 0;
       let bots = 0;
+      let firstKeepTotal = 0;
       for (let seed = 1; seed <= 30; seed++) {
         const human = seed % n;
         const policies: Policy[] = [];
@@ -291,10 +304,23 @@ describe('botAction decisions', () => {
         const rng = makeRng(seed).next;
         const initial = state.supply.length;
         let mid: number[] | null = null;
+        const plays: number[] = [];
+        const firstKeep: number[] = [];
+        for (let i = 0; i < n; i++) {
+          plays.push(0);
+          firstKeep.push(0);
+        }
         while (state.phase !== 'ended') {
           const action = (policies[state.active] as Policy)(state, rng);
-          if (state.active !== human && action.type === 'play_portfolio') keeps++;
-          if (state.active !== human && action.type === 'play_market') sells++;
+          if (state.active !== human && state.phase === 'play') {
+            plays[state.active] = (plays[state.active] as number) + 1;
+            if (action.type === 'play_portfolio') {
+              keeps++;
+              if (firstKeep[state.active] === 0) firstKeep[state.active] = plays[state.active] as number;
+            } else {
+              sells++;
+            }
+          }
           state = applyAction(state, state.active, action).state;
           if (!mid && state.supply.length <= initial / 2) mid = state.seats.map((x) => x.portfolio.length);
         }
@@ -302,13 +328,17 @@ describe('botAction decisions', () => {
           if (i === human) continue;
           bots++;
           if (mid![i]! <= 1) stuck++;
+          expect(firstKeep[i]).toBeGreaterThan(0);
+          firstKeepTotal += firstKeep[i] as number;
         }
       }
-      // Measured on these deals: 33% and 35% of plays kept, 0% and 2% of bots
-      // with at most one Portfolio share at mid-game (23%, 26%, 18% and 32%
-      // before the keep pace).
-      expect(keeps / (keeps + sells)).toBeGreaterThan(0.28);
-      expect(stuck / bots).toBeLessThan(0.08);
+      // Measured on these deals: 47% and 59% of plays kept, the first keep on
+      // a bot's 2.1st and 1.9th turn on average, and 0% and 8% of bots with at
+      // most one Portfolio share at mid-game. With the keep pace alone: 33% and
+      // 35% kept, first keep on turn 3; before it, 18 to 32% of bots stuck.
+      expect(keeps / (keeps + sells)).toBeGreaterThan(0.42);
+      expect(firstKeepTotal / bots).toBeLessThan(2.6);
+      expect(stuck / bots).toBeLessThan(0.12);
     }
   }, 30_000);
 

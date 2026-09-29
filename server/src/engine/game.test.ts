@@ -435,6 +435,20 @@ describe('full games with auto-moves', () => {
     expect(r.state.market.length).toBe(1);
   });
 
+  it('autoAction keeps a pair once the Market has a share, and sells a lone share into an empty Market', () => {
+    const s = fixture();
+    s.seats[0]!.hand = [card(10, 1), card(11, 1), card(12, 3)];
+    // Empty Market: the lone share is sold, so the next seat has a share to pay onto.
+    let r = applyAction(s, 0, { type: 'take_supply' }); // takes company 5
+    expect(autoAction(r.state)).toEqual({ type: 'play_market', cardId: 12 });
+    // One share in the Market: the company-1 pair goes to the Portfolio instead.
+    s.market = [{ card: card(20, 2), coins: 0 }];
+    r = applyAction(s, 0, { type: 'take_supply' });
+    const a = autoAction(r.state);
+    expect(a.type).toBe('play_portfolio');
+    expect([10, 11]).toContain((a as { cardId: number }).cardId);
+  });
+
   it('autoAction always returns a legal action', () => {
     let state = createGame(seats(5), 77, { stepSeconds: 0 });
     for (let i = 0; i < 200 && state.phase !== 'ended'; i++) {

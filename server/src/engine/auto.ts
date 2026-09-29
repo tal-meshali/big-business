@@ -53,10 +53,32 @@ export function autoAction(state: GameState, tieBreak = 0): Action {
     return legal[0] as Action;
   }
 
-  // Play step. Minority shares cost coins on dividend day, so a lone share of
-  // a company we are not collecting is sold to the Market (when allowed and
-  // the Market is not crowded). Otherwise keep the company we hold most of;
-  // tie -> larger company.
+  // Play step. A pair (or more) of one company goes to the Portfolio first,
+  // the company we hold most of; tie -> larger company.
+  // WHY: selling every lone share first meant tutorial bots sold on each of
+  // their first three turns, which learners read as "bots never keep". The
+  // rule waits for a non-empty Market so the tutorial's opening still shows a
+  // bot selling, the next one paying onto that share, and the learner taking
+  // it with its coins (coach steps bot_paid and take_with_coins).
+  if (state.market.length > 0) {
+    let pair: Card | null = null;
+    let pairScore = -1;
+    for (const card of me.hand) {
+      const held = heldCount(me, card.company);
+      if (held < 2) continue;
+      const company = COMPANIES[card.company];
+      const score = held * 100 + (company ? company.shares : 0);
+      if (score > pairScore) {
+        pairScore = score;
+        pair = card;
+      }
+    }
+    if (pair) return { type: 'play_portfolio', cardId: pair.id };
+  }
+  // Minority shares cost coins on dividend day, so a lone share of a company
+  // we are not collecting is sold to the Market (when allowed and the Market
+  // is not crowded). Otherwise keep the company we hold most of; tie -> larger
+  // company.
   if (state.market.length < 4) {
     let dump: Card | null = null;
     for (const card of me.hand) {

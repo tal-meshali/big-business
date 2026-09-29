@@ -2,6 +2,10 @@ class_name UiTheme
 ## Builds the shared Godot Theme in code: ink-on-white buttons and inputs
 ## with square-ish corners, so every screen matches the deed-card look.
 
+const EMOJI_FONT_PATH := "res://fonts/emoji_subset.ttf"
+## The only bitmap strike in Noto Color Emoji.
+const EMOJI_STRIKE_PX := 109
+
 static var _cached: Theme = null
 
 
@@ -9,6 +13,7 @@ static func get_theme() -> Theme:
 	if _cached != null:
 		return _cached
 	var t := Theme.new()
+	t.default_font = ui_font()
 
 	var normal := _box(Companies.PANEL, Companies.INK, 2)
 	var hover := _box(Companies.HIGHLIGHT, Companies.INK, 2)
@@ -41,6 +46,21 @@ static func get_theme() -> Theme:
 	t.set_stylebox("panel", "ScrollContainer", scroll_bg)
 	_cached = t
 	return t
+
+
+## The built-in UI font with the bundled emoji subset as a fallback.
+## WHY: phones differ in which system emoji font Godot can reach, and a
+## colour bitmap font only scales to the label size when told to, so the
+## emotes and medals ship with the app instead of relying on the OS.
+static func ui_font() -> Font:
+	var font := FontVariation.new()
+	font.base_font = ThemeDB.fallback_font
+	var emoji: FontFile = load(EMOJI_FONT_PATH)
+	if emoji != null:
+		emoji.fixed_size = EMOJI_STRIKE_PX
+		emoji.fixed_size_scale_mode = TextServer.FIXED_SIZE_SCALE_ENABLED
+		font.fallbacks = [emoji]
+	return font
 
 
 static func _box(bg: Color, border: Color, width: int) -> StyleBoxFlat:

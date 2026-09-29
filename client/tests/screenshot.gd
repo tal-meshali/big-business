@@ -2,7 +2,8 @@ extends SceneTree
 ## Renders the lobby and a mid-game table with a fake view and saves PNGs.
 ## Needs a display (use xvfb-run on Linux):
 ##   xvfb-run -a godot --rendering-driver opengl3 --path client --script res://tests/screenshot.gd -- out_dir
-## Output: <out_dir>/lobby.png, <out_dir>/table.png, <out_dir>/dividend.png
+## Output: <out_dir>/lobby.png, help.png, table.png, play_step.png, dividend.png,
+## tutorial.png, emotes.png
 
 
 func _init() -> void:
@@ -22,6 +23,9 @@ func _run() -> void:
 	root.add_child(main)
 	await _settle()
 	await _save(out_dir + "/lobby.png")
+	main._on_help()
+	await _settle()
+	await _save(out_dir + "/help.png")
 	main.queue_free()
 
 	var table = load("res://scenes/table.tscn").instantiate()

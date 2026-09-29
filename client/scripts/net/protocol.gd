@@ -31,11 +31,22 @@ const EMOTES := [
 ]
 
 
+const EMOJI_COUNT := 6
+
+
 static func emote_text(id: String) -> String:
 	for e in EMOTES:
 		if e["id"] == id:
 			return e["text"]
 	return ""
+
+
+## The first six presets are pictures; the rest are phrases.
+static func is_emoji(id: String) -> bool:
+	for i in EMOJI_COUNT:
+		if EMOTES[i]["id"] == id:
+			return true
+	return false
 
 
 static func take_supply() -> Dictionary:

@@ -103,13 +103,22 @@ func _build_layout() -> void:
 	_timer_label.add_theme_font_size_override("font_size", 22)
 	_timer_label.add_theme_color_override("font_color", Companies.ALERT)
 	top.add_child(_timer_label)
+	var help := Button.new()
+	help.text = "?"
+	help.tooltip_text = "Rules"
+	help.custom_minimum_size = Vector2(52, 52)
+	help.pressed.connect(func() -> void: HelpScreen.open_over(self))
+	top.add_child(help)
 	_emote_button = Button.new()
 	_emote_button.text = "😊"
 	_emote_button.tooltip_text = "Emotes"
+	_emote_button.custom_minimum_size = Vector2(56, 52)
+	_emote_button.add_theme_font_size_override("font_size", 26)
 	_emote_button.pressed.connect(_toggle_emote_bar)
 	top.add_child(_emote_button)
 	var leave := Button.new()
 	leave.text = "Leave"
+	leave.custom_minimum_size = Vector2(0, 52)
 	leave.pressed.connect(_on_leave)
 	top.add_child(leave)
 
@@ -253,9 +262,10 @@ func _build_social_layer() -> void:
 	for e in Protocol.EMOTES:
 		var b := Button.new()
 		b.text = e["text"]
-		b.custom_minimum_size = Vector2(0, 44)
+		b.custom_minimum_size = Vector2(0, 52)
 		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		b.add_theme_font_size_override("font_size", 15)
+		# Emoji read at a glance only when larger than the phrase text.
+		b.add_theme_font_size_override("font_size", 26 if Protocol.is_emoji(e["id"]) else 15)
 		var id: String = e["id"]
 		b.pressed.connect(func() -> void:
 			Net.send_emote(id)
@@ -264,6 +274,11 @@ func _build_social_layer() -> void:
 
 	# Seat menu: mute, report, block. Opened by tapping an opponent's seat.
 	_seat_menu = PopupMenu.new()
+	# Touch-sized rows: the default popup rows are ~25 px tall.
+	_seat_menu.add_theme_font_size_override("font_size", 24)
+	_seat_menu.add_theme_constant_override("v_separation", 24)
+	_seat_menu.add_theme_constant_override("item_start_padding", 24)
+	_seat_menu.add_theme_constant_override("item_end_padding", 32)
 	_seat_menu.add_item("Mute", 0)
 	_seat_menu.add_item("Report", 1)
 	_seat_menu.add_item("Block", 2)
@@ -301,10 +316,10 @@ func _on_emote_shown(seat: int, emote: String) -> void:
 	var text := Protocol.emote_text(emote)
 	if text.is_empty():
 		return
-	_show_bubble(seat, text)
+	_show_bubble(seat, text, 32 if Protocol.is_emoji(emote) else 20)
 
 
-func _show_bubble(seat: int, text: String) -> void:
+func _show_bubble(seat: int, text: String, font_size: int = 20) -> void:
 	var old = _emote_bubbles.get(seat)
 	if old != null and is_instance_valid(old):
 		old.queue_free()
@@ -319,7 +334,7 @@ func _show_bubble(seat: int, text: String) -> void:
 	bubble.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var label := Label.new()
 	label.text = text
-	label.add_theme_font_size_override("font_size", 20)
+	label.add_theme_font_size_override("font_size", font_size)
 	bubble.add_child(label)
 	_fx_layer.add_child(bubble)
 	var anchor := _seat_anchor(seat)
@@ -341,7 +356,11 @@ func _on_seat_pressed(seat_idx: int, at: Vector2) -> void:
 		return
 	_seat_menu_target = seat_idx
 	var uid := String(seats[seat_idx].get("id", ""))
-	_seat_menu.set_item_text(0, "Unmute" if Net.is_muted(uid) else "Mute")
+	var blocked: bool = Net.is_blocked(uid)
+	_seat_menu.set_item_text(0, "Unmute" if Net.muted.has(uid) else "Mute")
+	_seat_menu.set_item_disabled(0, blocked)
+	_seat_menu.set_item_text(2, "Blocked" if blocked else "Block")
+	_seat_menu.set_item_disabled(2, blocked)
 	_seat_menu.position = Vector2i(at)
 	_seat_menu.popup()
 
@@ -354,8 +373,8 @@ func _on_seat_menu(id: int) -> void:
 	var who := String(seats[_seat_menu_target].get("name", "player"))
 	match id:
 		0:
-			Net.mute_player(uid, not Net.is_muted(uid))
-			_status.text = "%s %s" % [who, "muted" if Net.is_muted(uid) else "unmuted"]
+			Net.mute_player(uid, not Net.muted.has(uid))
+			_status.text = "%s %s" % [who, "muted" if Net.muted.has(uid) else "unmuted"]
 		1:
 			var ok: bool = await Net.report_player(uid, "behaviour")
 			_status.text = "Report sent. Thank you." if ok else "Report failed, try again"

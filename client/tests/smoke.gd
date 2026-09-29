@@ -102,6 +102,8 @@ func _run() -> void:
 
 	failures += await _coach_checks()
 	failures += await _social_checks()
+	failures += await _touch_checks()
+	failures += await _help_checks()
 
 	if failures == 0:
 		print("SMOKE OK")
@@ -276,6 +278,164 @@ func _social_checks() -> int:
 		failures += 1
 	if main._xp_bar.min_value != 50 or main._xp_bar.max_value != 200 or main._xp_bar.value != 120:
 		push_error("xp bar bounds wrong: %s %s %s" % [main._xp_bar.min_value, main._xp_bar.max_value, main._xp_bar.value])
+		failures += 1
+	main.queue_free()
+	return failures
+
+
+## Every button is at least 48 px in both directions (phone touch target),
+## a tap on the seat's timer arc opens the seat menu, mutes survive a
+## restart, and blocked players stay hidden.
+func _touch_checks() -> int:
+	var failures := 0
+	# Headless windows default to 64x64; input outside the window is dropped.
+	root.size = Vector2i(720, 1280)
+	var table = load("res://scenes/table.tscn").instantiate()
+	root.add_child(table)
+	await process_frame
+	var v := {
+		"you": 0,
+		"seats": [
+			{"id": "me", "name": "You", "isBot": false, "connected": true, "handCount": 3,
+			 "hand": [{"id": 1, "company": 0}, {"id": 2, "company": 3}, {"id": 3, "company": 5}], "portfolio": [], "bronze": 10, "gold": 0, "tokens": []},
+			{"id": "u-bo", "name": "Bo", "isBot": false, "connected": true, "handCount": 3, "portfolio": [], "bronze": 10, "gold": 0, "tokens": []},
+			{"id": "u-cy", "name": "Cy", "isBot": false, "connected": true, "handCount": 3, "portfolio": [], "bronze": 10, "gold": 0, "tokens": []},
+		],
+		"market": [], "supplyCount": 20, "removedCount": 5, "active": 1, "phase": "take", "turn": 2,
+		"tookCompany": null, "tokens": [null, null, null, null, null, null], "seq": 3,
+		"deadline": Time.get_unix_time_from_system() * 1000.0 + 20000.0, "drawCost": null, "legal": [], "result": null,
+	}
+	table._on_view(v)
+	table._toggle_emote_bar()
+	await process_frame
+	await process_frame
+	failures += _check_button_sizes(table, "table")
+	table._toggle_emote_bar()
+
+	# Tap the left edge of the timer arc around Bo's avatar (radius 29 px).
+	var bo_view = null
+	for sv in table._seat_views:
+		if sv.visible and sv.seat_index == 1:
+			bo_view = sv
+	if bo_view == null:
+		push_error("Bo's seat view should be visible")
+		return failures + 1
+	var at: Vector2 = bo_view.get_global_transform_with_canvas() * Vector2(34 - 29, SeatView.H / 2.0)
+	for pressed in [true, false]:
+		var ev := InputEventMouseButton.new()
+		ev.button_index = MOUSE_BUTTON_LEFT
+		ev.pressed = pressed
+		ev.position = at
+		ev.global_position = at
+		root.push_input(ev)
+		await process_frame
+	if table._seat_menu_target != 1:
+		push_error("a tap on the timer arc should open the seat menu for seat 1, got %d" % table._seat_menu_target)
+		failures += 1
+	table._seat_menu.hide()
+
+	# Mutes are saved and reloaded; blocks hide emotes and lock the menu.
+	var net: Node = root.get_node("Net")
+	net.mute_player("u-cy", true)
+	net.muted.clear()
+	net._load_settings()
+	if not net.is_muted("u-cy"):
+		push_error("a mute should survive a restart")
+		failures += 1
+	net.mute_player("u-cy", false)
+	net.blocked["u-bo"] = true
+	var count: int = table._fx_layer.get_child_count()
+	table._on_emote_shown(1, "wave")
+	await process_frame
+	if table._fx_layer.get_child_count() != count:
+		push_error("blocked players must not show bubbles")
+		failures += 1
+	table._on_seat_pressed(1, Vector2(100, 100))
+	if not table._seat_menu.is_item_disabled(2) or table._seat_menu.get_item_text(2) != "Blocked":
+		push_error("the seat menu should show a blocked player as Blocked")
+		failures += 1
+	table._seat_menu.hide()
+	net.blocked.erase("u-bo")
+	table.queue_free()
+
+	var main = load("res://scenes/main.tscn").instantiate()
+	root.add_child(main)
+	await process_frame
+	await process_frame
+	failures += _check_button_sizes(main, "lobby")
+	main.queue_free()
+	return failures
+
+
+func _check_button_sizes(scene: Node, where: String) -> int:
+	var failures := 0
+	for b in scene.find_children("*", "Button", true, false):
+		if b is CardView or not b.is_visible_in_tree():
+			continue
+		if b.size.x < 48 or b.size.y < 48:
+			push_error("%s button '%s' is %s, under the 48 px touch target" % [where, b.text, b.size])
+			failures += 1
+	return failures
+
+
+## Server field parsing, and the rules / help overlay from the lobby and table.
+func _help_checks() -> int:
+	var failures := 0
+	var cases := {
+		"127.0.0.1": ["http", "127.0.0.1", 7350],
+		" 192.168.1.20:7351 ": ["http", "192.168.1.20", 7351],
+		"https://play.example.com": ["https", "play.example.com", 443],
+		"HTTPS://play.example.com:8443/": ["https", "play.example.com", 8443],
+		"http://10.0.0.5": ["http", "10.0.0.5", 80],
+		"": ["http", "127.0.0.1", 7350],
+	}
+	var net: Node = root.get_node("Net")
+	for text in cases:
+		var a: Dictionary = net.parse_address(text)
+		var want: Array = cases[text]
+		if [a["scheme"], a["host"], a["port"]] != want:
+			push_error("parse_address(%s) = %s, want %s" % [text, a, want])
+			failures += 1
+	var saved := [net.scheme, net.host, net.port]
+	for text in ["127.0.0.1", "https://play.example.com", "http://10.0.0.5:8080"]:
+		net.set_server_address(text)
+		if net.server_address() != text:
+			push_error("server_address should round-trip %s, got %s" % [text, net.server_address()])
+			failures += 1
+	net.scheme = saved[0]
+	net.host = saved[1]
+	net.port = saved[2]
+
+	var main = load("res://scenes/main.tscn").instantiate()
+	root.add_child(main)
+	await process_frame
+	main._on_help()
+	await process_frame
+	await process_frame
+	var helps: Array = main.find_children("*", "HelpScreen", true, false)
+	if helps.size() != 1:
+		push_error("Rules and help should open one help screen, got %d" % helps.size())
+		return failures + 1
+	var help: HelpScreen = helps[0]
+	var text := ""
+	for l in help.find_children("*", "Label", true, false):
+		text += l.text + "\n"
+	for section in HelpScreen.SECTIONS:
+		if not text.contains(section["title"]):
+			push_error("help is missing section %s" % section["title"])
+			failures += 1
+	for c in Companies.DATA:
+		if not text.contains("%s: %d" % [c["name"], c["shares"]]):
+			push_error("help should list %s's share count" % c["name"])
+			failures += 1
+	if help._email_button.disabled != AppInfo.SUPPORT_EMAIL.is_empty() or help._privacy_button.disabled != AppInfo.PRIVACY_URL.is_empty():
+		push_error("contact buttons should be enabled exactly when AppInfo is filled in")
+		failures += 1
+	failures += _check_button_sizes(help, "help")
+	help.close_help()
+	await process_frame
+	if main.find_children("*", "HelpScreen", true, false).size() != 0:
+		push_error("Close should remove the help screen")
 		failures += 1
 	main.queue_free()
 	return failures

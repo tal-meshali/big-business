@@ -36,7 +36,8 @@ func _run() -> void:
 
 	var started := Time.get_ticks_msec()
 	var acted_seq := -1
-	while Time.get_ticks_msec() - started < 120000:
+	# WHY: 20 s lobby wait plus ~70 s of bot think time leaves little slack at 120 s.
+	while Time.get_ticks_msec() - started < 240000:
 		await create_timer(0.1).timeout
 		var v: Dictionary = state["view"]
 		if v.is_empty():

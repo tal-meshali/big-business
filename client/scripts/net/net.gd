@@ -15,9 +15,12 @@ signal reconnecting(attempt: int)
 signal reconnected
 
 const SETTINGS_PATH := "user://net.cfg"
+const DEFAULT_PORT := 7350
+## Nakama friend state 3 is "blocked by me".
+const FRIEND_STATE_BLOCKED := 3
 
 var host: String = "127.0.0.1"
-var port: int = 7350
+var port: int = DEFAULT_PORT
 var scheme: String = "http"
 var server_key: String = "defaultkey"
 
@@ -29,8 +32,11 @@ var user_id: String = ""
 var display_name: String = ""
 ## True while the current match is the tutorial (coach overlay on).
 var tutorial_mode: bool = false
-## Players muted locally (user id -> true). Not persisted across launches.
+## Players muted locally (user id -> true), saved in SETTINGS_PATH.
 var muted: Dictionary = {}
+## Players this account has blocked (user id -> true), loaded from the
+## server's friends list on connect so blocks survive reinstalls too.
+var blocked: Dictionary = {}
 var _reconnect_attempts: int = 0
 var _closing: bool = false
 
@@ -46,6 +52,8 @@ func _load_settings() -> void:
 		port = cfg.get_value("server", "port", port)
 		scheme = cfg.get_value("server", "scheme", scheme)
 		display_name = cfg.get_value("player", "name", "")
+		for id in cfg.get_value("social", "muted", PackedStringArray()):
+			muted[String(id)] = true
 
 
 func save_settings() -> void:
@@ -54,7 +62,48 @@ func save_settings() -> void:
 	cfg.set_value("server", "port", port)
 	cfg.set_value("server", "scheme", scheme)
 	cfg.set_value("player", "name", display_name)
+	cfg.set_value("social", "muted", PackedStringArray(muted.keys()))
 	cfg.save(SETTINGS_PATH)
+
+
+## Parses what the player typed in the lobby's server field:
+## "127.0.0.1" or "host:7350" (plain http, port 7350 unless given), or a
+## URL such as "https://play.example.com" (port 443 unless given), which is
+## how the TLS deployment in docs/deploy.md is reached.
+static func parse_address(text: String) -> Dictionary:
+	var t := text.strip_edges()
+	var out := {"scheme": "http", "host": "127.0.0.1", "port": DEFAULT_PORT}
+	var sep := t.find("://")
+	if sep >= 0:
+		out["scheme"] = "https" if t.substr(0, sep).to_lower() == "https" else "http"
+		out["port"] = 443 if out["scheme"] == "https" else 80
+		t = t.substr(sep + 3)
+	var slash := t.find("/")
+	if slash >= 0:
+		t = t.substr(0, slash)
+	var colon := t.rfind(":")
+	if colon > 0 and t.substr(colon + 1).is_valid_int():
+		out["port"] = int(t.substr(colon + 1))
+		t = t.substr(0, colon)
+	if not t.is_empty():
+		out["host"] = t
+	return out
+
+
+func set_server_address(text: String) -> void:
+	var a := parse_address(text)
+	scheme = a["scheme"]
+	host = a["host"]
+	port = a["port"]
+
+
+## The server as the lobby field shows it: a bare host for the local
+## default, a URL otherwise.
+func server_address() -> String:
+	if scheme == "http" and port == DEFAULT_PORT:
+		return host
+	var default_port := 443 if scheme == "https" else 80
+	return "%s://%s%s" % [scheme, host, "" if port == default_port else ":%d" % port]
 
 
 func is_connected_to_server() -> bool:
@@ -89,8 +138,18 @@ func connect_to_server() -> bool:
 	socket.received_match_presence.connect(_on_match_presence)
 	socket.closed.connect(_on_socket_closed)
 	_reconnect_attempts = 0
+	await _load_blocked()
 	connected.emit()
 	return true
+
+
+func _load_blocked() -> void:
+	var res = await client.list_friends_async(session, FRIEND_STATE_BLOCKED, 1000)
+	if res == null or res.is_exception():
+		return
+	blocked.clear()
+	for f in res.friends:
+		blocked[f.user.id] = true
 
 
 func _persistent_device_id() -> String:
@@ -225,9 +284,10 @@ func report_player(target_user_id: String, reason: String, note: String = "") ->
 	return not rpc.is_exception()
 
 
-## Blocks a player server-side (they can no longer friend or message you) and mutes them locally.
+## Blocks a player server-side (they can no longer friend or message you)
+## and hides their emotes from now on.
 func block_player(target_user_id: String) -> bool:
-	muted[target_user_id] = true
+	blocked[target_user_id] = true
 	var res: NakamaAsyncResult = await client.block_friends_async(session, [target_user_id])
 	return not res.is_exception()
 
@@ -237,10 +297,16 @@ func mute_player(target_user_id: String, on: bool = true) -> void:
 		muted[target_user_id] = true
 	else:
 		muted.erase(target_user_id)
+	save_settings()
 
 
+func is_blocked(target_user_id: String) -> bool:
+	return blocked.has(target_user_id)
+
+
+## True when this player's emotes should be hidden (muted or blocked).
 func is_muted(target_user_id: String) -> bool:
-	return muted.has(target_user_id)
+	return muted.has(target_user_id) or blocked.has(target_user_id)
 
 
 func _on_match_state(state: NakamaRTAPI.MatchData) -> void:

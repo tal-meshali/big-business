@@ -52,6 +52,8 @@ var _seat_menu_target: int = -1
 var _reconnect_overlay: ColorRect
 var _reconnect_label: Label
 var sfx: Sfx
+## Tutorial: the coached move for this view ({} = anything legal).
+var _restriction: Dictionary = {}
 var _glow: Panel
 var _last_tick := -1
 var _announced_turn := -1
@@ -450,6 +452,10 @@ func enable_coach() -> void:
 		return
 	coach = Coach.new()
 	add_child(coach)
+	# Skipping lifts the first-turn restrictions straight away.
+	coach.finished.connect(func() -> void:
+		if not view.is_empty():
+			_render())
 
 
 # ---------------------------------------------------------------------------
@@ -457,19 +463,21 @@ func enable_coach() -> void:
 # ---------------------------------------------------------------------------
 
 func _on_draw_pressed() -> void:
+	if not _allowed("take_supply"):
+		return
 	Net.send_action(Protocol.take_supply())
 	_set_buttons_enabled(false)
 
 
 func _on_market_card_pressed(card_id: int) -> void:
-	if not _is_my_turn() or view.get("phase") != "take":
+	if not _is_my_turn() or view.get("phase") != "take" or not _allowed("take_market", card_id):
 		return
 	Net.send_action(Protocol.take_market(card_id))
 	_set_buttons_enabled(false)
 
 
 func _on_hand_card_pressed(card_id: int) -> void:
-	if not _is_my_turn() or view.get("phase") != "play":
+	if not _is_my_turn() or view.get("phase") != "play" or not _card_playable(card_id):
 		return
 	_selected_card = -1 if _selected_card == card_id else card_id
 	for cv in _hand_cards:
@@ -478,13 +486,13 @@ func _on_hand_card_pressed(card_id: int) -> void:
 
 
 func _on_keep_pressed() -> void:
-	if _selected_card >= 0:
+	if _selected_card >= 0 and _allowed("play_portfolio"):
 		Net.send_action(Protocol.play_portfolio(_selected_card))
 		_set_buttons_enabled(false)
 
 
 func _on_sell_pressed() -> void:
-	if _selected_card >= 0:
+	if _selected_card >= 0 and _allowed("play_market", _selected_card):
 		Net.send_action(Protocol.play_market(_selected_card))
 		_set_buttons_enabled(false)
 
@@ -582,6 +590,37 @@ func _legal(type: String, card_id: int = -1) -> bool:
 	return false
 
 
+## Legal, and the coached move while the tutorial restricts the first turns.
+func _allowed(type: String, card_id: int = -1) -> bool:
+	if not _legal(type, card_id):
+		return false
+	var take := String(_restriction.get("take", ""))
+	var play := String(_restriction.get("play", ""))
+	match type:
+		"take_supply":
+			return take != "market_coins"
+		"take_market":
+			if take == "supply":
+				return false
+			if take == "market_coins":
+				for slot in view.get("market", []):
+					if int(slot["card"]["id"]) == card_id:
+						return int(slot.get("coins", 0)) > 0
+				return false
+		"play_portfolio":
+			return play != "market"
+		"play_market":
+			return play != "portfolio"
+	return true
+
+
+## A hand card may be selected if the move the tutorial wants is possible with it.
+func _card_playable(card_id: int) -> bool:
+	if String(_restriction.get("play", "")) == "market":
+		return _allowed("play_market", card_id)
+	return _legal("play_portfolio", card_id)
+
+
 # ---------------------------------------------------------------------------
 # Rendering
 # ---------------------------------------------------------------------------
@@ -593,6 +632,7 @@ func _render() -> void:
 	var seats: Array = view.get("seats", [])
 	var active := int(view.get("active", 0))
 	_selected_card = -1
+	_restriction = coach.restriction(view) if coach != null else {}
 
 	_render_status(phase, seats, active)
 	_render_seats(seats, active, phase)
@@ -665,7 +705,7 @@ func _render_market(phase: String) -> void:
 		var card: Dictionary = slot.get("card", {})
 		var cv := CardView.new()
 		cv.setup(int(card.get("id", -1)), int(card.get("company", 0)), int(slot.get("coins", 0)))
-		cv.selectable = _is_my_turn() and phase == "take" and _legal("take_market", cv.card_id)
+		cv.selectable = _is_my_turn() and phase == "take" and _allowed("take_market", cv.card_id)
 		cv.card_pressed.connect(_on_market_card_pressed)
 		_market_row.add_child(cv)
 	var supply := int(view.get("supplyCount", 0))
@@ -699,8 +739,7 @@ func _render_hand(seats: Array, phase: String) -> void:
 		var t := 0.0 if count == 1 else (float(i) / (count - 1) - 0.5)
 		cv.rotation = deg_to_rad(t * 12.0)
 		cv.set_rest_position(Vector2(x0 + i * spacing, 50 + abs(t) * 20))
-		var can_play := _is_my_turn() and phase == "play"
-		cv.selectable = can_play
+		cv.selectable = _is_my_turn() and phase == "play" and _card_playable(cv.card_id)
 		cv.card_pressed.connect(_on_hand_card_pressed)
 		_hand_layer.add_child(cv)
 		_hand_cards.append(cv)
@@ -725,24 +764,29 @@ func _update_prompt() -> void:
 		var cost_text := ""
 		if cost != null:
 			cost_text = "free" if int(cost) == 0 else "%d coin%s onto the Market" % [int(cost), "" if int(cost) == 1 else "s"]
-		_prompt.text = "Take a share from the Market, or draw from the supply (%s)" % cost_text
+		_prompt.text = _hinted("Take a share from the Market, or draw from the supply (%s)" % cost_text)
 		_draw_button.visible = true
-		_draw_button.disabled = not _legal("take_supply")
+		_draw_button.disabled = not _allowed("take_supply")
 		return
 	# Play step.
 	if _selected_card < 0:
-		_prompt.text = "Tap a card in your hand"
+		_prompt.text = _hinted("Tap a card in your hand")
 		return
 	var company := -1
 	for cv in _hand_cards:
 		if cv.card_id == _selected_card:
 			company = cv.company
-	_prompt.text = "%s: keep it in your portfolio or sell it to the Market?" % Companies.name_of(company)
+	_prompt.text = _hinted("%s: keep it in your portfolio or sell it to the Market?" % Companies.name_of(company))
 	_keep_button.visible = true
 	_sell_button.visible = true
 	_cancel_button.visible = true
-	_keep_button.disabled = not _legal("play_portfolio", _selected_card)
-	_sell_button.disabled = not _legal("play_market", _selected_card)
+	_keep_button.disabled = not _allowed("play_portfolio", _selected_card)
+	_sell_button.disabled = not _allowed("play_market", _selected_card)
+
+
+func _hinted(text: String) -> String:
+	var hint := String(_restriction.get("hint", ""))
+	return text if hint.is_empty() else "%s\n%s" % [hint, text]
 
 
 func _render_result(seats: Array) -> void:

@@ -187,7 +187,15 @@ async function testPrivateRoom() {
   if (mine.length !== 2) fail(`season leaderboard should have 2 records for this game, got ${JSON.stringify(lb.records)}`);
   const top = mine.sort((x, y) => Number(y.score) - Number(x.score))[0];
   if (top.owner_id !== winnerPlayer.userId || Number(top.subscore) !== 1) fail('winner should lead the season records with a win');
-  log('progression: xp', prof.progress.xp, 'level', prof.progress.level, '; season records', lb.records.length);
+  // The season resets at 00:00 UTC on the 1st (cron '0 0 1 * *'), so every record expires then.
+  const now = new Date();
+  const nextReset = Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1);
+  for (const r of mine) {
+    if (Date.parse(r.expiry_time || '') !== nextReset) {
+      fail(`season record should expire at the monthly reset ${new Date(nextReset).toISOString()}, got ${r.expiry_time}`);
+    }
+  }
+  log('progression: xp', prof.progress.xp, 'level', prof.progress.level, '; season records', lb.records.length, '; season resets', new Date(nextReset).toISOString());
 
   // Daily bonus: once per day, streak starts at 1.
   const d1 = await rpc(a, 'claim_daily');

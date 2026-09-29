@@ -105,6 +105,7 @@ func _run() -> void:
 	failures += await _touch_checks()
 	failures += await _help_checks()
 	failures += await _feedback_checks()
+	failures += await _forced_turn_checks()
 
 	if failures == 0:
 		print("SMOKE OK")
@@ -531,4 +532,109 @@ func _feedback_checks() -> int:
 
 	# With no session the resume check must do nothing.
 	root.get_node("Net").check_connection()
+	return failures
+
+
+## Tutorial v2: the learner's first two turns only allow the coached move.
+func _forced_turn_checks() -> int:
+	var failures := 0
+	var table = load("res://scenes/table.tscn").instantiate()
+	root.add_child(table)
+	table.enable_coach()
+	table.coach.seen = {"welcome": true, "first_take": true, "first_play": true, "take_with_coins": true, "bot_paid": true, "endgame_near": true}
+	await process_frame
+	var hand := [{"id": 1, "company": 0}, {"id": 2, "company": 3}, {"id": 3, "company": 5}, {"id": 4, "company": 5}]
+	var v := {
+		"you": 0,
+		"seats": [
+			{"id": "me", "name": "You", "isBot": false, "connected": true, "handCount": 4, "hand": hand, "portfolio": [], "bronze": 10, "gold": 0, "tokens": []},
+			{"id": "bot:0", "name": "Ivy", "isBot": true, "connected": true, "handCount": 3, "portfolio": [], "bronze": 10, "gold": 0, "tokens": []},
+			{"id": "bot:1", "name": "Avi", "isBot": true, "connected": true, "handCount": 3, "portfolio": [], "bronze": 10, "gold": 0, "tokens": []},
+		],
+		"market": [], "supplyCount": 30, "removedCount": 5, "active": 0, "phase": "play", "turn": 1,
+		"tookCompany": 5, "tokens": [null, null, null, null, null, null], "seq": 1, "deadline": 0, "drawCost": null,
+		"legal": [
+			{"type": "play_portfolio", "cardId": 1}, {"type": "play_portfolio", "cardId": 2}, {"type": "play_portfolio", "cardId": 3}, {"type": "play_portfolio", "cardId": 4},
+			{"type": "play_market", "cardId": 1}, {"type": "play_market", "cardId": 2},
+		],
+		"result": null,
+	}
+	# Turn 1, play: keep only.
+	table._on_view(v)
+	await process_frame
+	table._on_hand_card_pressed(1)
+	await process_frame
+	if table._keep_button.disabled or not table._sell_button.disabled:
+		push_error("turn 1 should allow Keep and not Sell")
+		failures += 1
+	if not table._prompt.text.begins_with("Tutorial: keep"):
+		push_error("turn 1 prompt should carry the coach hint, got %s" % table._prompt.text)
+		failures += 1
+
+	# Turn 2 (turn 4 of a 3-seat game), take: only the Market share with coins.
+	v["turn"] = 4
+	v["phase"] = "take"
+	v["tookCompany"] = null
+	v["drawCost"] = 2
+	v["market"] = [{"card": {"id": 20, "company": 1}, "coins": 2}, {"card": {"id": 21, "company": 2}, "coins": 0}]
+	v["legal"] = [{"type": "take_supply"}, {"type": "take_market", "cardId": 20}, {"type": "take_market", "cardId": 21}]
+	v["seats"][0]["hand"] = hand.slice(0, 3)
+	table._on_view(v.duplicate(true))
+	await process_frame
+	var market: Array = table._market_row.get_children()
+	if not table._draw_button.disabled or market[0].disabled or not market[1].disabled:
+		push_error("turn 2 take should allow only the Market share with coins")
+		failures += 1
+
+	# Turn 2, play: sell only, and only cards that may be sold.
+	v["phase"] = "play"
+	v["tookCompany"] = 1
+	v["drawCost"] = null
+	v["seats"][0]["hand"] = hand.slice(0, 3) + [{"id": 20, "company": 1}]
+	v["legal"] = [
+		{"type": "play_portfolio", "cardId": 1}, {"type": "play_portfolio", "cardId": 2}, {"type": "play_portfolio", "cardId": 3}, {"type": "play_portfolio", "cardId": 20},
+		{"type": "play_market", "cardId": 1}, {"type": "play_market", "cardId": 2}, {"type": "play_market", "cardId": 3},
+	]
+	table._on_view(v.duplicate(true))
+	await process_frame
+	if not table.coach.seen.has("first_sell"):
+		push_error("turn 2 play should explain selling")
+		failures += 1
+	while table.coach.visible:
+		table.coach._on_got_it()
+	table._on_hand_card_pressed(20)
+	if table._selected_card == 20:
+		push_error("the company just taken cannot be selected when selling is forced")
+		failures += 1
+	table._on_hand_card_pressed(2)
+	await process_frame
+	if not table._keep_button.disabled or table._sell_button.disabled:
+		push_error("turn 2 play should allow Sell and not Keep")
+		failures += 1
+
+	# Turn 3: free play again.
+	v["turn"] = 7
+	table._on_view(v.duplicate(true))
+	await process_frame
+	table._on_hand_card_pressed(2)
+	await process_frame
+	if table._keep_button.disabled or table._sell_button.disabled or table._prompt.text.begins_with("Tutorial"):
+		push_error("from turn 3 every legal move is allowed")
+		failures += 1
+
+	# Skipping the tutorial lifts a restriction at once.
+	v["turn"] = 1
+	table._on_view(v.duplicate(true))
+	await process_frame
+	table.coach._on_skip()
+	await process_frame
+	table._on_hand_card_pressed(2)
+	await process_frame
+	if table._sell_button.disabled:
+		push_error("skip should lift the turn 1 restriction")
+		failures += 1
+	if Coach.my_turn_index({"you": 1, "active": 1, "turn": 5, "phase": "take", "seats": [{}, {}, {}]}) != 2:
+		push_error("seat 1's second turn in a 3-seat game is turn 5")
+		failures += 1
+	table.queue_free()
 	return failures

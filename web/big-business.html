@@ -253,6 +253,8 @@ button { font-family: inherit; }
 .prompt { margin: 0; text-align: center; font-size: 15px; text-wrap: balance; min-height: 2.6em; display: grid; place-items: center; white-space: pre-line; }
 .buttons { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; min-height: 48px; }
 .btn.danger { background: var(--alert); color: var(--on-band); }
+/* Forfeit in the top bar: outlined in red so it reads as leaving, not a new deal. */
+.btn.quit { color: var(--alert); border-color: var(--alert); }
 .btn.danger:hover:not(:disabled), .btn.danger:active:not(:disabled) { background: var(--alert-deep); }
 
 /* Hand */
@@ -438,7 +440,7 @@ button { font-family: inherit; }
   <div class="deed" role="dialog" aria-modal="true" aria-labelledby="forfeitTitle" style="--band: var(--alert);">
     <h2 id="forfeitTitle">Forfeit this game?</h2>
     <div class="body">
-      <p>A bot plays your seat for the rest of the game and you can't come back to it. It counts as a loss.</p>
+      <p id="forfeitBody">A bot plays your seat for the rest of the game and you can't come back to it. It counts as a loss.</p>
       <div class="row-end">
         <button class="btn danger" id="forfeitYes" type="button">Forfeit</button>
         <button class="btn primary" id="forfeitNo" type="button">Keep playing</button>
@@ -451,7 +453,7 @@ button { font-family: inherit; }
   <div class="deed" role="dialog" aria-modal="true" aria-labelledby="forfeitDoneTitle" style="--band: var(--alert);">
     <h2 id="forfeitDoneTitle">You forfeited</h2>
     <div class="body">
-      <p>A bot took your seat and this table is closed. Start a new game whenever you're ready.</p>
+      <p id="forfeitDoneBody">A bot took your seat and this table is closed. Start a new game whenever you're ready.</p>
       <div class="row-end">
         <button class="btn" id="forfeitLook" type="button">See the table</button>
         <button class="btn" id="forfeitChange" type="button">Change table</button>
@@ -930,9 +932,9 @@ button { font-family: inherit; }
     return startsAt > 0 && Date.now() < startsAt;
   }
 
-  /** A real game you are still playing: the top-bar button reads Forfeit. */
+  /** Any game you are still playing, the tutorial too: the top-bar button reads Forfeit. */
   function canForfeit() {
-    return !!state && mode === "game" && !forfeited && state.phase !== "ended";
+    return !!state && !forfeited && state.phase !== "ended";
   }
 
   function newGame() {
@@ -1088,6 +1090,7 @@ button { font-family: inherit; }
     restriction = coachRestriction(view);
 
     $("newBtn").textContent = canForfeit() ? "Forfeit" : "New game";
+    $("newBtn").classList.toggle("quit", canForfeit());
 
     $("meta").textContent = `${mode === "tutorial" ? "Tutorial · " : ""}Turn ${view.turn} · ${view.supplyCount} shares left in the supply · ${seats.length} investors`;
     if (forfeited) $("status").textContent = "You forfeited";
@@ -1271,6 +1274,11 @@ button { font-family: inherit; }
 
   function onTopButton() {
     if (canForfeit()) {
+      const tutorial = mode === "tutorial";
+      $("forfeitTitle").textContent = tutorial ? "Forfeit the tutorial?" : "Forfeit this game?";
+      $("forfeitBody").textContent = tutorial
+        ? "The tutorial stops here. You can start it again any time from New game."
+        : "A bot plays your seat for the rest of the game and you can't come back to it. It counts as a loss.";
       $("forfeitPanel").hidden = false;
       $("forfeitNo").focus();
     } else {
@@ -1290,13 +1298,19 @@ button { font-family: inherit; }
     $("glow").hidden = true;
     $("timer").hidden = true;
     state.seats[me].isBot = true;
-    addLog("<b>You forfeited.</b> A bot took your seat and the table closed.");
+    if (mode === "tutorial") coachReset(false, coach.seen);
+    addLog(mode === "tutorial" ? "<b>You forfeited the tutorial.</b>" : "<b>You forfeited.</b> A bot took your seat and the table closed.");
     save();
     render();
     showForfeitDone();
   }
 
   function showForfeitDone() {
+    const tutorial = mode === "tutorial";
+    $("forfeitDoneBody").textContent = tutorial
+      ? "The tutorial is closed. Play a real game, or start the tutorial again from New game."
+      : "A bot took your seat and this table is closed. Start a new game whenever you're ready.";
+    $("forfeitAgain").textContent = tutorial ? "Play a real game" : "Play again";
     $("forfeitDone").hidden = false;
     $("forfeitAgain").focus();
   }
@@ -1538,9 +1552,9 @@ button { font-family: inherit; }
     settings = Object.assign({ seats: 3, speed: "Normal", timer: 30, sound: true, vibration: true }, data.settings || {});
     log = Array.isArray(data.log) ? data.log : [];
     mode = data.mode === "tutorial" ? "tutorial" : "game";
+    forfeited = !!data.forfeited;
     const c = data.coach || {};
-    coachReset(mode === "tutorial" && c.enabled !== false, c.seen || {});
-    forfeited = !!data.forfeited && mode === "game";
+    coachReset(mode === "tutorial" && !forfeited && c.enabled !== false, c.seen || {});
     // A countdown cut short by a reload starts over; a step timer restarts
     // on return rather than expiring at once.
     startsAt = !forfeited && data.startsAt > Date.now() ? Date.now() + GET_READY_MS : 0;

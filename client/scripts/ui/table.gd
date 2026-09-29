@@ -488,7 +488,7 @@ func _on_hand_card_pressed(card_id: int) -> void:
 
 
 func _on_keep_pressed() -> void:
-	if _selected_card >= 0 and _allowed("play_portfolio"):
+	if _selected_card >= 0 and _allowed("play_portfolio", _selected_card):
 		Net.send_action(Protocol.play_portfolio(_selected_card))
 		_set_buttons_enabled(false)
 

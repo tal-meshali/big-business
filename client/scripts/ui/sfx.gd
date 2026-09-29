@@ -157,7 +157,7 @@ static func _mix(streams: Array) -> AudioStreamWAV:
 static func _samples_of(stream: AudioStreamWAV) -> PackedFloat32Array:
 	var data := stream.data
 	var out := PackedFloat32Array()
-	out.resize(data.size() / 2)
+	out.resize(data.size() >> 1)
 	for i in out.size():
 		out[i] = data.decode_s16(i * 2) / 32767.0
 	return out

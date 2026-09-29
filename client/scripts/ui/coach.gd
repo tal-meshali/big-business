@@ -188,7 +188,7 @@ static func my_turn_index(view: Dictionary) -> int:
 	var n: int = view.get("seats", []).size()
 	if n == 0 or int(view.get("active", -1)) != me:
 		return 0
-	return (int(view.get("turn", 1)) - 1 - me) / n + 1
+	return floori(float(int(view.get("turn", 1)) - 1 - me) / n) + 1
 
 
 ## The coached move on the learner's first turns, or {} for free play.

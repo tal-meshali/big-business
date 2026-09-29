@@ -1,8 +1,9 @@
 /**
- * Social RPCs: find a player by exact username, and invite a friend to a
- * private room with a Nakama in-app notification. Adding, accepting,
- * removing, blocking and listing friends happen client-side through
- * Nakama's friends API, so no RPC is needed for them.
+ * Social RPCs: find a player by exact username, invite a friend to a
+ * private room with a Nakama in-app notification, and report which sign-in
+ * providers are linked to the caller's account. Adding, accepting,
+ * removing, blocking and listing friends, and linking Apple / Google,
+ * happen client-side through Nakama's own API, so no RPC is needed for them.
  */
 import { INVITE_CODE } from './protocol';
 
@@ -110,4 +111,35 @@ export const rpcInviteFriend: nkruntime.RpcFunction = (ctx, logger, nk, payload)
   nk.notificationSend(targetId, 'Room invite', { code, fromName, fromUserId: callerId }, INVITE_CODE, callerId, true);
   logger.info('invite %s -> %s room %s', callerId, targetId, code);
   return JSON.stringify({ ok: true });
+};
+
+
+/** What the lobby's account row shows: which sign-in methods the account has. */
+export interface AccountLinks {
+  apple: boolean;
+  google: boolean;
+  device: boolean;
+  username: string;
+}
+
+/**
+ * Reduces a Nakama account to the link flags the client shows.
+ * WHY: the raw account carries email, wallet, devices and every provider id;
+ * the client only needs booleans, and never has to parse the account shape.
+ */
+export function accountLinks(account: { user?: { appleId?: string; googleId?: string; username?: string } | null; devices?: { id: string }[] | null }): AccountLinks {
+  const user = account.user || {};
+  return {
+    apple: !!user.appleId,
+    google: !!user.googleId,
+    device: (account.devices || []).length > 0,
+    username: user.username || '',
+  };
+}
+
+/** RPC account_links: {apple, google, device, username} for the caller. */
+export const rpcAccountLinks: nkruntime.RpcFunction = (ctx, logger, nk, payload) => {
+  void logger; void payload;
+  const userId = requireUser(ctx);
+  return JSON.stringify(accountLinks(nk.accountGetId(userId)));
 };

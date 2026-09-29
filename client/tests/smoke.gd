@@ -113,6 +113,7 @@ func _run() -> void:
 	failures += await _draw_landing_checks()
 	failures += await _friends_checks()
 	failures += await _quests_checks()
+	failures += await _account_checks()
 
 	if failures == 0:
 		print("SMOKE OK")
@@ -1173,4 +1174,67 @@ func _quests_checks() -> int:
 	main.queue_free()
 	panel.queue_free()
 	Cosmetics.reset()
+	return failures
+
+
+## Account linking: no token provider on Linux, so the lobby shows the guest
+## label and hides both link buttons; the pure helpers behave.
+func _account_checks() -> int:
+	var failures := 0
+	var avail: Dictionary = SocialTokens.available()
+	if avail.get("apple", true) or avail.get("google", true):
+		push_error("SocialTokens.available() should be all false on %s, got %s" % [OS.get_name(), avail])
+		failures += 1
+	if SocialTokens.is_mobile():
+		push_error("SocialTokens.is_mobile() should be false in the headless test")
+		failures += 1
+	if SocialTokens.request_apple() != "" or SocialTokens.request_google() != "":
+		push_error("SocialTokens.request_* must return \"\" without a plugin")
+		failures += 1
+
+	var net: Node = root.get_node("Net")
+	if net.describe_account_links({}) != "Guest account (device)":
+		push_error("describe_account_links({}) should be the guest label")
+		failures += 1
+	if net.describe_account_links({"apple": false, "google": false, "device": true}) != "Guest account (device)":
+		push_error("device-only links should be the guest label")
+		failures += 1
+	if net.describe_account_links({"apple": true, "google": false}) != "Signed in with Apple":
+		push_error("apple-only links should say Signed in with Apple")
+		failures += 1
+	if net.describe_account_links({"apple": true, "google": true}) != "Signed in with Apple and Google":
+		push_error("both links should list both providers")
+		failures += 1
+	# Offline: linking with an empty token or no session fails cleanly, and
+	# the RPC wrapper returns {} instead of touching a null client.
+	if await net.link_apple("") or await net.link_google("") or await net.unlink_apple() or await net.unlink_google():
+		push_error("link/unlink must fail without a token or session")
+		failures += 1
+	if not (await net.get_account_links()).is_empty():
+		push_error("get_account_links should be {} while offline")
+		failures += 1
+	# Provider persistence round-trip through user://net.cfg.
+	var previous_provider: String = net.provider
+	net.provider = "apple"
+	net.save_settings()
+	var cfg := ConfigFile.new()
+	if cfg.load(net.SETTINGS_PATH) != OK or cfg.get_value("player", "provider", "") != "apple":
+		push_error("provider should be saved under [player] provider")
+		failures += 1
+	net.provider = previous_provider
+	net.save_settings()
+
+	# WHY: loaded by path, not by class_name: the lobby uses the Net autoload,
+	# which the class-name scan would otherwise pull into the graph as a cycle.
+	var lobby = load("res://scripts/ui/main.gd").new()
+	root.add_child(lobby)
+	await process_frame
+	await process_frame
+	if lobby._account_label.text != "Guest account (device)":
+		push_error("account row should show the guest label offline, got %s" % lobby._account_label.text)
+		failures += 1
+	if lobby._link_apple_button.visible or lobby._link_google_button.visible:
+		push_error("link buttons must be hidden without a token provider")
+		failures += 1
+	lobby.queue_free()
 	return failures

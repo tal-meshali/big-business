@@ -33,6 +33,7 @@ services:
         --console.username ${NAKAMA_CONSOLE_USER}
         --console.password ${NAKAMA_CONSOLE_PASSWORD}
         --console.signing_key ${NAKAMA_CONSOLE_SIGNING_KEY}
+        --social.apple.bundle_id "${APPLE_BUNDLE_ID}"
         --logger.level INFO
     depends_on:
       postgres:

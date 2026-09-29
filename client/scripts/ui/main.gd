@@ -20,6 +20,9 @@ var _quests_button: Button
 var _quests_panel: QuestsPanel
 var _felt: ColorRect
 var _felt_edge: ReferenceRect
+var _account_label: Label
+var _link_apple_button: Button
+var _link_google_button: Button
 var _connected := false
 var _in_lobby := false
 
@@ -33,6 +36,7 @@ func _ready() -> void:
 	Net.server_error.connect(func(m: String) -> void: _status.text = m)
 	if not Net.is_connected_to_server():
 		_on_connect_pressed.call_deferred()
+	_refresh_account_row.call_deferred()
 
 
 func _build() -> void:
@@ -197,6 +201,30 @@ func _build() -> void:
 	_ready_button.pressed.connect(_on_ready_pressed)
 	box.add_child(_ready_button)
 
+	# Account row: guest or linked providers, with link buttons where a
+	# token provider exists (iOS / Android with the plugin installed).
+	var account_row := HBoxContainer.new()
+	account_row.add_theme_constant_override("separation", 8)
+	box.add_child(account_row)
+	_account_label = Label.new()
+	_account_label.text = Net.describe_account_links({})
+	_account_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_account_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_account_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	account_row.add_child(_account_label)
+	_link_apple_button = Button.new()
+	_link_apple_button.text = "Link Apple"
+	_link_apple_button.custom_minimum_size = Vector2(0, 56)
+	_link_apple_button.visible = false
+	_link_apple_button.pressed.connect(_on_link_apple)
+	account_row.add_child(_link_apple_button)
+	_link_google_button = Button.new()
+	_link_google_button.text = "Link Google"
+	_link_google_button.custom_minimum_size = Vector2(0, 56)
+	_link_google_button.visible = false
+	_link_google_button.pressed.connect(_on_link_google)
+	account_row.add_child(_link_google_button)
+
 	# Quests overlay above the lobby, toggled by its button.
 	_quests_panel = QuestsPanel.new()
 	_quests_panel.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -236,7 +264,7 @@ func _on_connect_pressed() -> void:
 	Net.display_name = _name_edit.text.strip_edges()
 	Net.save_settings()
 	_status.text = "Connecting to %s..." % Net.server_address()
-	await Net.connect_to_server()
+	await Net.connect_preferred()
 
 
 func _on_connected() -> void:
@@ -245,6 +273,7 @@ func _on_connected() -> void:
 	_set_online_buttons(true)
 	_board_button.disabled = false
 	_refresh_profile()
+	_refresh_account_row()
 
 
 func _refresh_profile() -> void:
@@ -308,6 +337,41 @@ func _on_show_board() -> void:
 		var me := "  (you)" if r.get("userId", "") == Net.user_id else ""
 		lines.append("#%d  %s  %d pts, %d wins%s" % [int(r.get("rank", 0)), r.get("name", "?"), int(r.get("score", 0)), int(r.get("wins", 0)), me])
 	_board_label.text = "\n".join(lines)
+
+
+## Account row: the label follows the server's view of the account; a link
+## button shows only where SocialTokens can produce a token and that
+## provider is not linked yet.
+func _refresh_account_row() -> void:
+	var links: Dictionary = {}
+	if Net.is_connected_to_server():
+		links = await Net.get_account_links()
+	_account_label.text = Net.describe_account_links(links)
+	var avail: Dictionary = SocialTokens.available()
+	_link_apple_button.visible = bool(avail.get("apple", false)) and not links.get("apple", false)
+	_link_google_button.visible = bool(avail.get("google", false)) and not links.get("google", false)
+	_link_apple_button.disabled = not Net.is_connected_to_server()
+	_link_google_button.disabled = not Net.is_connected_to_server()
+
+
+func _on_link_apple() -> void:
+	var token: String = SocialTokens.request_apple()
+	if token.is_empty():
+		_status.text = "Apple sign-in was cancelled."
+		return
+	if await Net.link_apple(token):
+		_status.text = "Apple linked. Your account now survives a reinstall."
+	_refresh_account_row()
+
+
+func _on_link_google() -> void:
+	var token: String = SocialTokens.request_google()
+	if token.is_empty():
+		_status.text = "Google sign-in was cancelled."
+		return
+	if await Net.link_google(token):
+		_status.text = "Google linked. Your account now survives a reinstall."
+	_refresh_account_row()
 
 
 func _on_failed(reason: String) -> void:

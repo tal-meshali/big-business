@@ -41,6 +41,9 @@ var user_id: String = ""
 var display_name: String = ""
 ## True while the current match is the tutorial (coach overlay on).
 var tutorial_mode: bool = false
+## Sign-in provider used last ("apple", "google" or "" for the device id),
+## persisted so the next launch tries it first when a token is available.
+var provider: String = ""
 ## Players muted locally (user id -> true), saved in SETTINGS_PATH.
 var muted: Dictionary = {}
 ## Players this account has blocked (user id -> true), loaded from the
@@ -65,6 +68,7 @@ func _load_settings() -> void:
 		display_name = cfg.get_value("player", "name", "")
 		for id in cfg.get_value("social", "muted", PackedStringArray()):
 			muted[String(id)] = true
+		provider = String(cfg.get_value("player", "provider", ""))
 
 
 func save_settings() -> void:
@@ -73,6 +77,7 @@ func save_settings() -> void:
 	cfg.set_value("server", "port", port)
 	cfg.set_value("server", "scheme", scheme)
 	cfg.set_value("player", "name", display_name)
+	cfg.set_value("player", "provider", provider)
 	cfg.set_value("social", "muted", PackedStringArray(muted.keys()))
 	cfg.save(SETTINGS_PATH)
 
@@ -122,18 +127,34 @@ func is_connected_to_server() -> bool:
 
 
 ## Authenticate with a persistent device id and open the realtime socket.
+## `connect_preferred` tries the remembered social provider first.
 func connect_to_server() -> bool:
-	client = Nakama.create_client(server_key, host, port, scheme, Nakama.DEFAULT_TIMEOUT, NakamaLogger.LOG_LEVEL.WARNING)
+	_make_client()
 	var device_id := OS.get_unique_id()
 	if device_id.is_empty():
 		device_id = _persistent_device_id()
-	var username := display_name if not display_name.is_empty() else ""
-	session = await client.authenticate_device_async(device_id, username if not username.is_empty() else null, true)
+	session = await client.authenticate_device_async(device_id, _create_username(), true)
 	if session.is_exception():
 		var msg := "auth failed: %s" % session.get_exception().message
 		push_warning(msg)
 		connection_failed.emit(msg)
 		return false
+	return await _open_socket()
+
+
+## Creates the client for the current host settings.
+func _make_client() -> void:
+	client = Nakama.create_client(server_key, host, port, scheme, Nakama.DEFAULT_TIMEOUT, NakamaLogger.LOG_LEVEL.WARNING)
+
+
+## The username to create a new account with, or null to let Nakama pick.
+func _create_username():
+	return display_name if not display_name.is_empty() else null
+
+
+## Adopts `session` and opens the realtime socket on it. Shared by the
+## device-id and social sign-ins so they behave identically after auth.
+func _open_socket() -> bool:
 	user_id = session.user_id
 	if display_name.is_empty():
 		display_name = session.username
@@ -533,3 +554,141 @@ func equip_cosmetic(slot: String, id: String) -> Dictionary:
 	if data.get("ok", false):
 		Cosmetics.apply_equipped(data.get("equipped", {}))
 	return data
+
+
+# --- Account linking (Sign in with Apple / Google) -----------------------------
+# WHY: a device id is lost on reinstall. Linking a provider to the guest
+# account keeps XP, cosmetics and friends; the token itself comes from
+# SocialTokens (native plugins, a local step in docs/TODO-local.md E).
+
+## Which sign-in methods the account has: {apple, google, device, username};
+## {} when offline or on failure.
+func get_account_links() -> Dictionary:
+	if client == null or session == null:
+		return {}
+	var rpc: NakamaAPI.ApiRpc = await client.rpc_async(session, "account_links", "{}")
+	if rpc.is_exception():
+		return {}
+	var data = JSON.parse_string(rpc.payload)
+	return data if data is Dictionary else {}
+
+
+## Text for the lobby's account row from an `account_links` result (or {}
+## before it arrives): "Guest account (device)" or the linked providers.
+static func describe_account_links(links: Dictionary) -> String:
+	var names := PackedStringArray()
+	if links.get("apple", false):
+		names.append("Apple")
+	if links.get("google", false):
+		names.append("Google")
+	if names.is_empty():
+		return "Guest account (device)"
+	return "Signed in with %s" % " and ".join(names)
+
+
+## Links an Apple identity token to the current account.
+func link_apple(identity_token: String) -> bool:
+	if identity_token.is_empty() or client == null or session == null:
+		return false
+	var res: NakamaAsyncResult = await client.link_apple_async(session, identity_token)
+	if res.is_exception():
+		server_error.emit("link failed: %s" % res.get_exception().message)
+		return false
+	provider = "apple"
+	save_settings()
+	return true
+
+
+## Links a Google id token to the current account.
+func link_google(id_token: String) -> bool:
+	if id_token.is_empty() or client == null or session == null:
+		return false
+	var res: NakamaAsyncResult = await client.link_google_async(session, id_token)
+	if res.is_exception():
+		server_error.emit("link failed: %s" % res.get_exception().message)
+		return false
+	provider = "google"
+	save_settings()
+	return true
+
+
+## Unlinks Apple. Nakama needs a fresh identity token to prove ownership, so
+## one is requested from SocialTokens when none is passed.
+func unlink_apple(identity_token: String = "") -> bool:
+	var token := identity_token if not identity_token.is_empty() else SocialTokens.request_apple()
+	if token.is_empty() or client == null or session == null:
+		return false
+	var res: NakamaAsyncResult = await client.unlink_apple_async(session, token)
+	if res.is_exception():
+		server_error.emit("unlink failed: %s" % res.get_exception().message)
+		return false
+	_forget_provider("apple")
+	return true
+
+
+## Unlinks Google; needs a fresh id token, requested when none is passed.
+func unlink_google(id_token: String = "") -> bool:
+	var token := id_token if not id_token.is_empty() else SocialTokens.request_google()
+	if token.is_empty() or client == null or session == null:
+		return false
+	var res: NakamaAsyncResult = await client.unlink_google_async(session, token)
+	if res.is_exception():
+		server_error.emit("unlink failed: %s" % res.get_exception().message)
+		return false
+	_forget_provider("google")
+	return true
+
+
+func _forget_provider(name: String) -> void:
+	if provider == name:
+		provider = ""
+		save_settings()
+
+
+## Authenticates with an Apple identity token instead of the device id and
+## opens the socket. The account is created if the Apple id is new.
+func sign_in_with_apple(identity_token: String) -> bool:
+	if identity_token.is_empty():
+		connection_failed.emit("auth failed: no Apple token")
+		return false
+	_make_client()
+	session = await client.authenticate_apple_async(identity_token, _create_username(), true)
+	return await _finish_social_sign_in("apple")
+
+
+## Authenticates with a Google id token instead of the device id.
+func sign_in_with_google(id_token: String) -> bool:
+	if id_token.is_empty():
+		connection_failed.emit("auth failed: no Google token")
+		return false
+	_make_client()
+	session = await client.authenticate_google_async(id_token, _create_username(), true)
+	return await _finish_social_sign_in("google")
+
+
+func _finish_social_sign_in(name: String) -> bool:
+	if session.is_exception():
+		var msg := "auth failed: %s" % session.get_exception().message
+		push_warning(msg)
+		connection_failed.emit(msg)
+		return false
+	if provider != name:
+		provider = name
+		save_settings()
+	return await _open_socket()
+
+
+## Connects with the remembered provider when a token provider is available
+## on this device, otherwise (or when no token comes back) with the device
+## id. The lobby calls this instead of connect_to_server at launch.
+func connect_preferred() -> bool:
+	var avail: Dictionary = SocialTokens.available()
+	if provider == "apple" and avail.get("apple", false):
+		var token: String = SocialTokens.request_apple()
+		if not token.is_empty():
+			return await sign_in_with_apple(token)
+	elif provider == "google" and avail.get("google", false):
+		var token: String = SocialTokens.request_google()
+		if not token.is_empty():
+			return await sign_in_with_google(token)
+	return await connect_to_server()

@@ -39,6 +39,7 @@ var muted: Dictionary = {}
 var blocked: Dictionary = {}
 var _reconnect_attempts: int = 0
 var _closing: bool = false
+var _reconnecting: bool = false
 
 
 func _ready() -> void:
@@ -136,7 +137,7 @@ func connect_to_server() -> bool:
 		return false
 	socket.received_match_state.connect(_on_match_state)
 	socket.received_match_presence.connect(_on_match_presence)
-	socket.closed.connect(_on_socket_closed)
+	socket.closed.connect(_on_socket_closed.bind(socket))
 	_reconnect_attempts = 0
 	await _load_blocked()
 	connected.emit()
@@ -330,15 +331,35 @@ func _on_match_presence(_event: NakamaRTAPI.MatchPresenceEvent) -> void:
 	pass
 
 
-func _on_socket_closed() -> void:
-	if _closing:
+func _on_socket_closed(closed_socket: NakamaSocket) -> void:
+	# A socket replaced by an earlier reconnect may still report its close.
+	if _closing or closed_socket != socket:
 		return
 	_try_reconnect()
+
+
+## WHY: a phone that sleeps with the app in the background may come back
+## with a socket the server already dropped, and the close is not always
+## reported until the next send. Check on resume and rejoin straight away.
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_APPLICATION_RESUMED or what == NOTIFICATION_APPLICATION_FOCUS_IN:
+		check_connection()
+
+
+## Reconnects (and rejoins the match) if we had a session but the socket is gone.
+func check_connection() -> void:
+	if _closing or _reconnecting or session == null or socket == null:
+		return
+	if not socket.is_connected_to_host():
+		_try_reconnect()
 
 
 ## Reconnect with backoff and rejoin the match we were in; the server keeps
 ## the seat and sends a fresh view on rejoin.
 func _try_reconnect() -> void:
+	if _reconnecting:
+		return
+	_reconnecting = true
 	var previous_match := match_id
 	var previous_tutorial := tutorial_mode
 	for attempt in range(1, 6):
@@ -346,6 +367,7 @@ func _try_reconnect() -> void:
 		reconnecting.emit(attempt)
 		await get_tree().create_timer(minf(1.0 * attempt, 5.0)).timeout
 		if await connect_to_server():
+			_reconnecting = false
 			if not previous_match.is_empty():
 				tutorial_mode = previous_tutorial
 				if await _join_match(previous_match):
@@ -354,5 +376,6 @@ func _try_reconnect() -> void:
 			match_id = ""
 			reconnected.emit()
 			return
+	_reconnecting = false
 	match_id = ""
 	connection_failed.emit("disconnected")

@@ -12,6 +12,8 @@ extends Control
 const FLY_TIME := 0.35
 const COIN_TIME := 0.3
 const HAND_SCALE := 1.35
+## Seconds left on your own step when the table starts to glow and tick.
+const URGENT_SECONDS := 5
 
 var view: Dictionary = {}
 var _my_seat: int = -1
@@ -49,6 +51,10 @@ var _seat_menu: PopupMenu
 var _seat_menu_target: int = -1
 var _reconnect_overlay: ColorRect
 var _reconnect_label: Label
+var sfx: Sfx
+var _glow: Panel
+var _last_tick := -1
+var _announced_turn := -1
 
 
 func _ready() -> void:
@@ -202,6 +208,20 @@ func _build_layout() -> void:
 	_hand_layer.offset_bottom = -24
 	_hand_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_hand_layer)
+
+	# Urgency glow: a pulsing red rim while your own step runs out.
+	_glow = Panel.new()
+	var glow_style := StyleBoxFlat.new()
+	glow_style.draw_center = false
+	glow_style.border_color = Companies.ALERT
+	glow_style.set_border_width_all(12)
+	_glow.add_theme_stylebox_override("panel", glow_style)
+	_glow.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_glow.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_glow.visible = false
+	add_child(_glow)
+	sfx = Sfx.new()
+	add_child(sfx)
 
 	# Effects overlay (flying cards and coins).
 	_fx_layer = Control.new()
@@ -527,9 +547,26 @@ func _process(_delta: float) -> void:
 	var deadline := float(view.get("deadline", 0))
 	if deadline <= 0 or view.get("phase") == "ended":
 		_timer_label.text = ""
+		_glow.visible = false
 		return
 	var remaining := int(ceil((deadline - Time.get_unix_time_from_system() * 1000.0) / 1000.0))
 	_timer_label.text = "%ds" % maxi(remaining, 0)
+	_update_urgency(remaining)
+
+
+## Under URGENT_SECONDS on your own step: pulse the rim and tick each second.
+func _update_urgency(remaining: int) -> void:
+	var urgent := _is_my_turn() and remaining > 0 and remaining <= URGENT_SECONDS
+	_glow.visible = urgent
+	if not urgent:
+		_last_tick = -1
+		return
+	_glow.modulate.a = 0.45 + 0.4 * sin(Time.get_ticks_msec() / 1000.0 * TAU * 1.5)
+	if remaining != _last_tick:
+		_last_tick = remaining
+		sfx.play("tick", -4.0)
+		if remaining <= 2:
+			Sfx.buzz(20)
 
 
 func _is_my_turn() -> bool:
@@ -563,8 +600,18 @@ func _render() -> void:
 	_render_hand(seats, phase)
 	_update_prompt()
 	_render_result(seats)
+	_announce_turn(phase)
 	if coach != null:
 		coach.on_view(view)
+
+
+## A chime and a buzz once when your turn starts.
+func _announce_turn(phase: String) -> void:
+	var turn := int(view.get("turn", 0))
+	if phase == "take" and _is_my_turn() and turn != _announced_turn:
+		_announced_turn = turn
+		sfx.play("turn")
+		Sfx.buzz(40)
 
 
 func _render_status(phase: String, seats: Array, active: int) -> void:
@@ -761,14 +808,17 @@ func _play_events_then_render() -> void:
 				var seat := int(e.get("seat", 0))
 				var cost := int(e.get("cost", 0))
 				if cost > 0:
+					sfx.play("coin")
 					for cv in _market_row.get_children():
 						if cv is CardView:
 							_fly_coin(_seat_anchor(seat), cv.global_position + Vector2(CardView.W / 2.0, CardView.H / 2.0))
 					await get_tree().create_timer(COIN_TIME).timeout
+				sfx.play("deal")
 				await _fly_card(_supply_pile.global_position, _target_for_seat(seat), 0, false)
 			"took_market":
 				var seat := int(e.get("seat", 0))
 				var card: Dictionary = e.get("card", {})
+				sfx.play("coin" if int(e.get("coins", 0)) > 0 else "deal")
 				await _fly_card(_market_card_anchor(int(card.get("id", -1))), _target_for_seat(seat), int(card.get("company", 0)), true)
 			"played":
 				var seat := int(e.get("seat", 0))
@@ -776,6 +826,9 @@ func _play_events_then_render() -> void:
 				var from := _hand_anchor(int(card.get("id", -1))) if seat == _my_seat else _seat_anchor(seat) - Vector2(CardView.W / 2.0, CardView.H / 2.0)
 				var to := _seat_anchor(seat) - Vector2(CardView.W / 2.0, CardView.H / 2.0) if e.get("to") == "portfolio" else _market_row.global_position + Vector2(_market_row.size.x, 0)
 				await _fly_card(from, to, int(card.get("company", 0)), true)
+				sfx.play("place")
+				if seat == _my_seat:
+					Sfx.buzz(25)
 			"game_ended":
 				await _animate_dividends(e.get("result", {}))
 	_animating = false
@@ -830,6 +883,8 @@ func _animate_dividends(result: Dictionary) -> void:
 		_status.text = "%s pays out to %s" % [Companies.name_of(company), seats[int(majority)].get("name", "?")]
 		var to := _seat_anchor(int(majority))
 		var any := false
+		if not div.get("payments", []).is_empty():
+			sfx.play("gold")
 		for p in div.get("payments", []):
 			for i in mini(int(p.get("coins", 0)), 8):
 				_fly_coin(_seat_anchor(int(p.get("from", 0))), to, true)
@@ -838,3 +893,4 @@ func _animate_dividends(result: Dictionary) -> void:
 		if any:
 			await get_tree().create_timer(0.45).timeout
 	_status.text = "Dividend day!"
+	sfx.play("fanfare")

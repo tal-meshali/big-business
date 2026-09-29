@@ -44,6 +44,8 @@ const SECTIONS := [
 
 var _email_button: Button
 var _privacy_button: Button
+var _sound_button: Button
+var _vibration_button: Button
 
 
 func _ready() -> void:
@@ -89,6 +91,16 @@ func _build() -> void:
 	for c in Companies.DATA:
 		sizes.append("%s: %d" % [c["name"], c["shares"]])
 	_add_section(content, "The companies", "Shares issued per company. Five shares are set aside unseen at the start of every game.\n\n" + "\n".join(sizes))
+
+	_add_heading(content, "Settings")
+	Sfx.load_settings()
+	var toggles := HBoxContainer.new()
+	toggles.add_theme_constant_override("separation", 12)
+	content.add_child(toggles)
+	_sound_button = _make_button(toggles, "", _on_toggle_sound)
+	_vibration_button = _make_button(toggles, "", _on_toggle_vibration)
+	_refresh_toggles()
+	_add_body(content, "")
 
 	_add_heading(content, "Help and privacy")
 	_add_body(content, "During a game, tap another player's seat to mute, report or block them. Reports go to our moderators.")
@@ -143,6 +155,23 @@ func _make_button(parent: Control, text: String, handler: Callable) -> Button:
 	b.pressed.connect(handler)
 	parent.add_child(b)
 	return b
+
+
+func _on_toggle_sound() -> void:
+	Sfx.sound_on = not Sfx.sound_on
+	Sfx.save_settings()
+	_refresh_toggles()
+
+
+func _on_toggle_vibration() -> void:
+	Sfx.vibration_on = not Sfx.vibration_on
+	Sfx.save_settings()
+	_refresh_toggles()
+
+
+func _refresh_toggles() -> void:
+	_sound_button.text = "Sound: %s" % ("on" if Sfx.sound_on else "off")
+	_vibration_button.text = "Vibration: %s" % ("on" if Sfx.vibration_on else "off")
 
 
 func close_help() -> void:

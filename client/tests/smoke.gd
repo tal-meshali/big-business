@@ -104,6 +104,7 @@ func _run() -> void:
 	failures += await _social_checks()
 	failures += await _touch_checks()
 	failures += await _help_checks()
+	failures += await _feedback_checks()
 
 	if failures == 0:
 		print("SMOKE OK")
@@ -438,4 +439,96 @@ func _help_checks() -> int:
 		push_error("Close should remove the help screen")
 		failures += 1
 	main.queue_free()
+	return failures
+
+
+## Sounds exist, the turn chime plays once per turn, the rim glows and ticks
+## only on your own step under five seconds, events make sounds, and the
+## help screen toggles sound.
+func _feedback_checks() -> int:
+	var failures := 0
+	var table = load("res://scenes/table.tscn").instantiate()
+	root.add_child(table)
+	await process_frame
+	for sound_name in Sfx.NAMES:
+		var st: AudioStreamWAV = Sfx._streams.get(sound_name)
+		if st == null or st.data.size() < 200:
+			push_error("sound %s should be synthesised" % sound_name)
+			failures += 1
+	var now := Time.get_unix_time_from_system() * 1000.0
+	var v := {
+		"you": 0,
+		"seats": [
+			{"id": "me", "name": "You", "isBot": false, "connected": true, "handCount": 3,
+			 "hand": [{"id": 1, "company": 0}, {"id": 2, "company": 3}, {"id": 3, "company": 5}], "portfolio": [], "bronze": 10, "gold": 0, "tokens": []},
+			{"id": "bot:0", "name": "Ivy", "isBot": true, "connected": true, "handCount": 3, "portfolio": [], "bronze": 10, "gold": 0, "tokens": []},
+			{"id": "bot:1", "name": "Avi", "isBot": true, "connected": true, "handCount": 3, "portfolio": [], "bronze": 10, "gold": 0, "tokens": []},
+		],
+		"market": [{"card": {"id": 20, "company": 1}, "coins": 0}], "supplyCount": 20, "removedCount": 5, "active": 0, "phase": "take", "turn": 4,
+		"tookCompany": null, "tokens": [null, null, null, null, null, null], "seq": 9,
+		"deadline": now + 20000.0, "drawCost": 1, "legal": [{"type": "take_supply"}, {"type": "take_market", "cardId": 20}], "result": null,
+	}
+	table._on_view(v)
+	await process_frame
+	if table.sfx.history.count("turn") != 1:
+		push_error("your turn should chime once, history %s" % [table.sfx.history])
+		failures += 1
+	table._on_view(v.duplicate(true))
+	await process_frame
+	if table.sfx.history.count("turn") != 1:
+		push_error("the same turn must not chime twice")
+		failures += 1
+	if table._glow.visible:
+		push_error("no glow with 20 seconds left")
+		failures += 1
+	v["deadline"] = Time.get_unix_time_from_system() * 1000.0 + 3500.0
+	table._on_view(v.duplicate(true))
+	await process_frame
+	await process_frame
+	if not table._glow.visible or not table.sfx.history.has("tick"):
+		push_error("under five seconds on my step the rim should glow and tick")
+		failures += 1
+	v["active"] = 1
+	v["legal"] = []
+	table._on_view(v.duplicate(true))
+	await process_frame
+	await process_frame
+	if table._glow.visible:
+		push_error("no glow on someone else's step")
+		failures += 1
+
+	# A bot draws (paying a coin) and plays to its portfolio.
+	table.sfx.history.clear()
+	table._on_events(10, [
+		{"type": "took_supply", "seat": 1, "cost": 1},
+		{"type": "step", "seat": 1, "phase": "play", "turn": 4},
+		{"type": "played", "seat": 1, "card": {"id": 30, "company": 2}, "to": "portfolio"},
+	])
+	v["seq"] = 11
+	table._on_view(v.duplicate(true))
+	for i in 180:
+		await process_frame
+		if not table._animating:
+			break
+	for sound_name in ["coin", "deal", "place"]:
+		if not table.sfx.history.has(sound_name):
+			push_error("events should play %s, history %s" % [sound_name, table.sfx.history])
+			failures += 1
+	table.queue_free()
+
+	var holder := Control.new()
+	root.add_child(holder)
+	var help := HelpScreen.open_over(holder)
+	await process_frame
+	var was: bool = Sfx.sound_on
+	help._on_toggle_sound()
+	if Sfx.sound_on == was or not help._sound_button.text.ends_with("off" if was else "on"):
+		push_error("the sound toggle should flip and relabel")
+		failures += 1
+	help._on_toggle_sound()
+	help.close_help()
+	holder.queue_free()
+
+	# With no session the resume check must do nothing.
+	root.get_node("Net").check_connection()
 	return failures

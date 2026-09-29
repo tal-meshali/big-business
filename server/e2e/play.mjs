@@ -2,9 +2,10 @@
  * End-to-end test against a running Nakama (see README). Drives real matches
  * through the public API with the Nakama JS client:
  *   1. private room: 3 humans, ready-up, random legal play until dividend day
- *   2. illegal action is rejected with OP_ERROR
+ *   2. illegal and malformed actions are rejected with OP_ERROR (match survives)
  *   3. leave and rejoin mid-game restores a view
  *   4. friends: mutual add, room invite notification, join by code, refusals
+ *   4b. bad RPC payloads and the report rate limit are rejected cleanly
  *   5. quick play: 1 human, lobby wait, bots fill, game completes
  * Exit code 0 on success.
  */
@@ -49,6 +50,19 @@ async function makePlayer(name) {
 async function rpc(p, id, payload) {
   const r = await p.client.rpc(p.session, id, payload || {});
   return typeof r.payload === 'string' ? JSON.parse(r.payload) : r.payload;
+}
+
+/** Calls an RPC that must fail; returns the server's message (best effort) or fails the run. */
+async function rpcRejected(p, id, payload, what) {
+  try {
+    await rpc(p, id, payload);
+  } catch (e) {
+    try {
+      if (e && typeof e.json === 'function') return String((await e.json()).message || 'error');
+    } catch (_) { /* not a JSON body */ }
+    return String((e && e.message) || e);
+  }
+  fail(`${what} should be rejected`);
 }
 
 async function join(p, matchId) {
@@ -134,6 +148,19 @@ async function testPrivateRoom() {
   if (inactive.errors.length === 0) fail('illegal action should produce OP_ERROR');
   log('illegal action rejected:', inactive.errors[0].message);
 
+  // Malformed actions from the active player: each gets OP_ERROR and none
+  // ends the match (the timeout auto-move below proves the loop still runs).
+  const activeP = [a, b, c].find((p) => p.view.active === p.view.you);
+  const seqBeforeBad = activeP.view.seq;
+  for (const raw of ['null', '5', '[]', '{', '{"type":"cheat"}', '{"type":"take_market","cardId":"1"}', '{"type":"take_supply","cardId":' + '9'.repeat(400) + '}']) {
+    await activeP.socket.sendMatchState(activeP.matchId, OP_ACTION, raw);
+  }
+  await sleep(600);
+  if (activeP.errors.length < 7) fail(`malformed actions should each produce OP_ERROR, got ${activeP.errors.length}`);
+  if (activeP.view.seq !== seqBeforeBad) fail('malformed actions must not change the game');
+  if (activeP.disconnected) fail('malformed actions must not end the match');
+  log('malformed actions rejected:', activeP.errors.map((e) => e.message).join(', '));
+
   // Timeout: nobody acts for > 5s, the server auto-moves the active seat.
   const seqBefore = a.view.seq;
   await sleep(6500);
@@ -152,9 +179,9 @@ async function testPrivateRoom() {
   // Report: files into the moderation queue; self-report rejected.
   const rep = await rpc(a, 'report_player', { userId: b.userId, reason: 'behaviour', matchId: a.matchId, note: 'e2e test report' });
   if (!rep.ok) fail('report_player should succeed');
-  let selfRejected = false;
-  try { await rpc(a, 'report_player', { userId: a.userId, reason: 'other' }); } catch (e) { selfRejected = true; }
-  if (!selfRejected) fail('self report should be rejected');
+  await rpcRejected(a, 'report_player', { userId: a.userId, reason: 'other' }, 'self report');
+  await rpcRejected(a, 'report_player', { userId: 'not-a-user-id', reason: 'other' }, 'report with a junk user id');
+  await rpcRejected(a, 'report_player', { userId: ['x'], reason: { a: 1 }, note: 5 }, 'report with wrong field types');
 
   // Leave and rejoin mid-game.
   const leaver = b;
@@ -250,6 +277,27 @@ async function testTutorial() {
   other.socket.disconnect(true);
 }
 
+async function testRejections() {
+  log('--- rejections: bad payloads and the report rate limit');
+  const [p, target] = await Promise.all([makePlayer('Picky'), makePlayer('Target')]);
+  log('join_room junk code:', await rpcRejected(p, 'join_room', { code: 123456 }, 'join_room with a numeric code'));
+  await rpcRejected(p, 'join_room', { code: ['ABC234'] }, 'join_room with an array code');
+  await rpcRejected(p, 'join_room', { code: 'ABC10O' }, 'join_room with characters outside the alphabet');
+  await rpcRejected(p, 'join_room', { code: 'ZZZZZZ' }, 'join_room for a room that does not exist');
+  await rpcRejected(p, 'invite_friend', { userId: 42, code: 'ABC234' }, 'invite with a numeric user id');
+  await rpcRejected(p, 'find_player', { name: { $ne: '' } }, 'find_player with an object name');
+  // Junk numbers never break create_room: they are clamped or defaulted.
+  const created = await rpc(p, 'create_room', { stepSeconds: -1e12, maxSeats: 'seven' });
+  if (!/^[A-Z2-9]{6}$/.test(created.code)) fail('create_room with junk numbers should still create a room');
+  // Reports: 5 per minute per reporter, then 'too many requests'.
+  for (let i = 0; i < 5; i++) {
+    const rep = await rpc(p, 'report_player', { userId: target.userId, reason: 'other', note: `spam ${i}` });
+    if (!rep.ok) fail(`report ${i} should succeed`);
+  }
+  log('6th report in a minute:', await rpcRejected(p, 'report_player', { userId: target.userId, reason: 'other' }, 'a 6th report within a minute'));
+  for (const q of [p, target]) q.socket.disconnect(true);
+}
+
 async function testFriendsAndInvites() {
   log('--- friends: add both ways, invite to a private room, strangers refused');
   const [host, guest, stranger] = await Promise.all([makePlayer('Host'), makePlayer('Guest'), makePlayer('Stranger')]);
@@ -327,6 +375,7 @@ async function testFriendsAndInvites() {
 try {
   await testPrivateRoom();
   await testFriendsAndInvites();
+  await testRejections();
   await testQuickPlay();
   await testTutorial();
   log('E2E OK');

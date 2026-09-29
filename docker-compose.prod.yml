@@ -27,9 +27,12 @@ services:
         --name bigbiz
         --database.address postgres:${POSTGRES_PASSWORD}@postgres:5432/nakama
         --runtime.js_entrypoint index.js
+        --runtime.js_read_only_globals true
         --socket.server_key ${NAKAMA_SERVER_KEY}
         --session.encryption_key ${NAKAMA_SESSION_KEY}
         --session.refresh_encryption_key ${NAKAMA_REFRESH_KEY}
+        --session.token_expiry_sec 7200
+        --session.refresh_token_expiry_sec 604800
         --console.username ${NAKAMA_CONSOLE_USER}
         --console.password ${NAKAMA_CONSOLE_PASSWORD}
         --console.signing_key ${NAKAMA_CONSOLE_SIGNING_KEY}
@@ -40,7 +43,10 @@ services:
         condition: service_healthy
     expose:
       - "7350"
-      - "7351"
+    ports:
+      # Admin console on the host's loopback only: reach it through an SSH
+      # tunnel (see docs/deploy.md, Security checklist). Never publish 0.0.0.0:7351.
+      - "127.0.0.1:7351:7351"
 
   caddy:
     image: caddy:2-alpine

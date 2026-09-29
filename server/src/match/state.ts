@@ -9,6 +9,11 @@ export interface MatchState {
   params: MatchParams;
   /** Presences currently connected, keyed by user id. */
   presences: { [userId: string]: nkruntime.Presence };
+  /**
+   * Users whose join attempt was accepted but whose matchJoin has not run
+   * yet, so concurrent attempts cannot overfill a lobby. Cleared on join.
+   */
+  pendingJoins: { [userId: string]: true };
   /** Lobby seats in join order (humans only) before the game starts. */
   lobby: LobbySeat[];
   /** Seat index by user id once the game has started. */

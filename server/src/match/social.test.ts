@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { accountLinks, FRIEND_STATE_BLOCKED, FRIEND_STATE_INVITE_SENT, FRIEND_STATE_MUTUAL, inviteError, normalizeCode, type InviteCheck } from './social';
+import { accountLinks, FRIEND_STATE_BLOCKED, FRIEND_STATE_INVITE_SENT, FRIEND_STATE_MUTUAL, FROM_NAME_MAX, inviteError, type InviteCheck } from './social';
 
 function check(over: Partial<InviteCheck> = {}): InviteCheck {
   return {
@@ -13,11 +13,9 @@ function check(over: Partial<InviteCheck> = {}): InviteCheck {
   };
 }
 
-describe('normalizeCode', () => {
-  it('upper-cases, trims and rejects wrong lengths', () => {
-    expect(normalizeCode(' abc234 ')).toBe('ABC234');
-    expect(normalizeCode('abc')).toBe('');
-    expect(normalizeCode(undefined)).toBe('');
+describe('invite sender name', () => {
+  it('is bounded so a long username cannot flood the notification', () => {
+    expect(FROM_NAME_MAX).toBeLessThanOrEqual(32);
   });
 });
 

@@ -234,8 +234,13 @@ async function testPrivateRoom() {
   const wp = await rpc(winnerPlayer, 'get_profile');
   if (wp.progress.wins !== 1 || wp.progress.bestRank !== 1) fail('winner should have a win');
   // Last place earns no season points, so a 3-seat game writes 2 records; the winner leads.
+  // Read the requested owners' records, not the top 10: on a database that
+  // has seen earlier runs the top 10 is full of equal scores from other games.
   const lb = await a.client.listLeaderboardRecords(a.session, 'season', [a.userId, b.userId, c.userId], 10);
-  const mine = (lb.records || []).filter((r) => [a.userId, b.userId, c.userId].includes(r.owner_id));
+  const seen = new Set();
+  const mine = [...(lb.owner_records || []), ...(lb.records || [])]
+    .filter((r) => [a.userId, b.userId, c.userId].includes(r.owner_id))
+    .filter((r) => !seen.has(r.owner_id) && seen.add(r.owner_id));
   if (mine.length !== 2) fail(`season leaderboard should have 2 records for this game, got ${JSON.stringify(lb.records)}`);
   const top = mine.sort((x, y) => Number(y.score) - Number(x.score))[0];
   if (top.owner_id !== winnerPlayer.userId || Number(top.subscore) !== 1) fail('winner should lead the season records with a win');

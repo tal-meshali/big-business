@@ -62,6 +62,7 @@ Payloads are JSON strings.
 | `report_player` | `{userId, reason, matchId?, note?}` | `{ok}`; written to the `reports` storage collection (system user, console-only) |
 | `find_player` | `{name}` | `{userId, username}`; exact username match, never the caller; error `not found` otherwise |
 | `invite_friend` | `{userId, code}` | `{ok}`; caller and target must be mutual friends (Nakama friend state 0), the target must not have blocked the caller, and the code must be a live room. Sends a persistent in-app notification, code 100 (`INVITE_CODE`), subject `Room invite`, content `{code, fromName, fromUserId}` |
+| `account_links` | `{}` | `{apple, google, device, username}`; which sign-in methods the caller's account has (from `accountGetId`), so the lobby can show link state without parsing the raw account. Linking and unlinking Apple / Google use Nakama's own link API from the client; see `docs/deploy.md` "Social sign-in" |
 
 Progression (`src/match/progression.ts`, pure and unit-tested) is applied by the match handler once when a game ends: XP for participation, placement and wins (halved for games against bots only), and season points on the `season` leaderboard (monthly reset, only for games with at least two humans). Adding, accepting, removing and blocking friends use Nakama's friends API from the client; the social RPCs (`src/match/social.ts`, invite rules unit-tested) only look players up and deliver room invites as Nakama in-app notifications (no push).
 

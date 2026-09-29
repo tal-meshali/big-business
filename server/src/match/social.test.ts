@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { FRIEND_STATE_BLOCKED, FRIEND_STATE_INVITE_SENT, FRIEND_STATE_MUTUAL, inviteError, normalizeCode, type InviteCheck } from './social';
+import { accountLinks, FRIEND_STATE_BLOCKED, FRIEND_STATE_INVITE_SENT, FRIEND_STATE_MUTUAL, inviteError, normalizeCode, type InviteCheck } from './social';
 
 function check(over: Partial<InviteCheck> = {}): InviteCheck {
   return {
@@ -43,5 +43,27 @@ describe('inviteError', () => {
 
   it('refuses unknown rooms', () => {
     expect(inviteError(check({ roomExists: false }))).toBe('room not found');
+  });
+});
+
+describe('accountLinks', () => {
+  it('reports a device-only guest account', () => {
+    expect(accountLinks({ user: { username: 'guest1', appleId: '', googleId: '' }, devices: [{ id: 'dev-1' }] })).toEqual({
+      apple: false,
+      google: false,
+      device: true,
+      username: 'guest1',
+    });
+  });
+
+  it('reports linked providers and tolerates missing fields', () => {
+    expect(accountLinks({ user: { username: 'pat', appleId: '001234.abc', googleId: '' }, devices: [] })).toEqual({
+      apple: true,
+      google: false,
+      device: false,
+      username: 'pat',
+    });
+    expect(accountLinks({ user: { googleId: '1099' } })).toEqual({ apple: false, google: true, device: false, username: '' });
+    expect(accountLinks({ user: null, devices: null })).toEqual({ apple: false, google: false, device: false, username: '' });
   });
 });

@@ -53,7 +53,7 @@ Phase 2 polish, cloud-doable parts: a heuristic bot for real games that clearly 
 
 First playtest fixes: bots keep shares at a steady pace instead of cycling the Market, a get-ready countdown with the turn order before the first turn (the table also no longer misses the game's first view), a Forfeit button that hands your seat to a bot, and press-and-hold on any card for a close-up.
 
-Second playtest fixes: bots lock pairs into their Portfolio, so they keep about half their plays from their first or second turn (tutorial bots too, once the Market has a share). The browser table (`web/`) gets the same engine plus the countdown, Forfeit, the card close-up, a selected card drawn above its neighbours, and no replayed arrival animation when you select or cancel a card.
+Second playtest fixes: bots lock pairs into their Portfolio, so they keep about half their plays from their first or second turn (tutorial bots too, once the Market has a share). The browser table (`web/`) gets the same engine plus the countdown, Forfeit, the card close-up, a selected card drawn above its neighbours, and no replayed arrival animation when you select or cancel a card. It now opens in a lobby: resume or forfeit the saved game, set up and deal a table, start the tutorial, open the rules, and see your record in that browser (games, wins, best capital). Every game ends back there.
 
 Code conventions (acyclic, layered dependency graph checked with graphify on every push and in CI) are in `docs/conventions.md`.
 

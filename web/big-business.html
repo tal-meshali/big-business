@@ -3,8 +3,10 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Open+Sans:wght@500;600;700;800&display=swap">
 <style>
-/* Layout: one portrait table column (the app's 720-wide design scaled to the phone):
-   status, opponents on the rim, the Market strip, your prompt, your seat, your hand. */
+/* Layout: two screens in one portrait column (the app's 720-wide design scaled
+   to the phone). The lobby: title deed, the game you left, dealing a new table,
+   your record. The table: status, opponents on the rim, the Market strip, your
+   prompt, your seat, your hand. */
 :root {
   /* The app's own palette (docs/design/theme.md): one board-green world, light only. */
   --table: #C7DFC9;
@@ -82,6 +84,8 @@ button { font-family: inherit; }
   white-space: nowrap;
 }
 .top .spacer { flex: 1; }
+/* At the table the brand plate gives way to the Lobby button on phones. */
+@media (max-width: 459px) { .top .plate { display: none; } }
 /* Narrow phones: the plate and three buttons must fit without a sideways scroll. */
 @media (max-width: 380px) {
   .top { gap: 6px; }
@@ -345,6 +349,43 @@ button { font-family: inherit; }
 .co-list li { display: flex; gap: 8px; align-items: center; }
 .toggles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 
+/* Lobby */
+.lobby .deed { width: 100%; max-height: none; box-sizing: border-box; }
+.hero-band {
+  margin: 0;
+  background: var(--alert);
+  color: var(--on-band);
+  border-bottom: 2px solid var(--ink);
+  text-align: center;
+  font-size: clamp(30px, 9vw, 40px);
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  line-height: 1.1;
+  padding: 16px 12px 14px;
+}
+.hero-body { align-items: center; text-align: center; gap: 8px; }
+.tagline { font-size: 16px; font-weight: 600; text-wrap: balance; }
+.facts { font-size: 12px; font-weight: 700; letter-spacing: 0.08em; color: var(--ink-soft); text-transform: uppercase; }
+/* All six companies fanned like a hand of title deeds. */
+.fan { --fw: clamp(54px, 16vw, 72px); position: relative; width: 100%; height: calc(var(--fw) * 1.4 + 18px); }
+.fan .card { --w: var(--fw); position: absolute; top: 10px; left: calc(50% - var(--fw) / 2); transform-origin: 50% 120%; cursor: default; animation: fan-in 0.5s ease-out backwards; }
+@keyframes fan-in { from { transform: translateY(14px) rotate(0deg); opacity: 0; } }
+.continue-line { font-weight: 600; }
+.continue-seats { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.continue-seats li { display: flex; align-items: center; gap: 8px; font-size: 14px; }
+.continue-seats .avatar { grid-row: auto; width: 26px; height: 26px; font-size: 12px; flex: none; border-width: 1.5px; }
+.continue-seats .who { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.continue-seats .num { font-size: 13px; color: var(--ink-soft); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.now { font-size: 11px; font-weight: 800; letter-spacing: 0.06em; background: var(--highlight); border: 1.5px solid var(--ink); border-radius: 999px; padding: 1px 7px; }
+.deed p.hint { font-size: 13px; color: var(--ink-soft); }
+.btn.wide { width: 100%; }
+.lobby-links { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 6px 0 0; }
+.stats div { background: var(--panel); border: 1.5px solid var(--ink); border-radius: 8px; padding: 8px 10px; min-width: 0; }
+.stats dt { font-size: 11px; font-weight: 700; color: var(--ink-soft); letter-spacing: 0.06em; text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.stats dd { margin: 0; font-size: 22px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.record .note { margin-top: 6px; }
+
 /* Get ready: turn order, who starts, then a 4-3-2-1 count. */
 .order { margin: 0; padding: 0; list-style: none; display: grid; gap: 6px; counter-reset: seat; }
 .order li { display: flex; align-items: center; gap: 10px; font-size: 16px; counter-increment: seat; }
@@ -366,8 +407,68 @@ button { font-family: inherit; }
 }
 </style>
 
-<div class="app" id="app" style="--mw: 72px; --hw: clamp(76px, 21.5vw, 100px);">
+<main class="app lobby" id="lobby" hidden>
+  <section class="deed hero" aria-labelledby="heroTitle">
+    <h1 class="hero-band" id="heroTitle">BIG BUSINESS</h1>
+    <div class="body hero-body">
+      <div class="fan" id="heroFan" aria-hidden="true"></div>
+      <p class="tagline">Collect shares. Corner the market. Cash in on dividend day.</p>
+      <p class="facts">6 companies · 45 shares · 3 to 7 investors</p>
+    </div>
+  </section>
+
+  <section class="deed" id="continueCard" hidden aria-labelledby="continueTitle" style="--band: var(--gold); --band-ink: var(--ink);">
+    <h2 id="continueTitle">Game in progress</h2>
+    <div class="body">
+      <p class="continue-line" id="continueLine"></p>
+      <ul class="continue-seats" id="continueSeats"></ul>
+      <div class="row-end">
+        <button class="btn quit" id="continueForfeit" type="button">Forfeit</button>
+        <button class="btn primary" id="continueResume" type="button">Resume</button>
+      </div>
+    </div>
+  </section>
+
+  <section class="deed" id="welcomeCard" hidden aria-labelledby="welcomeTitle" style="--band: var(--chance);">
+    <h2 id="welcomeTitle">New to Big Business?</h2>
+    <div class="body">
+      <p>The tutorial deals a practice hand against two slow bots and explains each rule the first time it matters. There is no timer, so take your time.</p>
+      <div class="row-end"><button class="btn primary" id="welcomeTutorial" type="button">Start the tutorial</button></div>
+    </div>
+  </section>
+
+  <section class="deed" aria-labelledby="dealTitle">
+    <h2 id="dealTitle">Deal a table</h2>
+    <div class="body">
+      <h3>Investors at the table</h3>
+      <div class="choice" id="seatChoice"></div>
+      <p class="hint">You play against bots. More investors means a smaller supply and tighter majorities.</p>
+      <h3>Turn timer</h3>
+      <div class="choice" id="timerChoice"></div>
+      <p class="hint">Quick play in the app uses 30 seconds a step. When time runs out the table plays a simple move for you.</p>
+      <h3>Bot speed</h3>
+      <div class="choice" id="speedChoice"></div>
+      <button class="btn primary wide" id="dealBtn" type="button">Deal the shares</button>
+    </div>
+  </section>
+
+  <div class="lobby-links">
+    <button class="btn" id="lobbyTutorial" type="button">How to play</button>
+    <button class="btn" id="lobbyRules" type="button">Rules and settings</button>
+  </div>
+
+  <section class="record" aria-labelledby="recordTitle">
+    <div class="label" id="recordTitle">Your record in this browser</div>
+    <dl class="stats" id="recordStats" hidden></dl>
+    <p class="note" id="recordEmpty">No games yet. Every real game you finish or forfeit is counted here.</p>
+  </section>
+
+  <p class="note">You play against the game's own bots, running its real rules engine in your browser. Online play, other players' emotes, progression and the season board need the app.</p>
+</main>
+
+<div class="app" id="app" hidden style="--mw: 72px; --hw: clamp(76px, 21.5vw, 100px);">
   <header class="top">
+    <button class="btn small" id="lobbyBtn" type="button" aria-label="Back to the lobby">‹ Lobby</button>
     <div class="plate">BIG BUSINESS</div>
     <span class="spacer"></span>
     <button class="btn small emoji" id="emoteBtn" type="button" aria-label="Emotes" aria-expanded="false">😊</button>
@@ -417,7 +518,6 @@ button { font-family: inherit; }
     <div class="label">Latest moves</div>
     <ol id="log"></ol>
   </section>
-  <p class="note">You play against the game's own bots, running its real rules engine in your browser. Online play, other players' emotes, progression and the season board need the app.</p>
 </div>
 
 <div class="glow" id="glow" hidden></div>
@@ -456,31 +556,8 @@ button { font-family: inherit; }
       <p id="forfeitDoneBody">A bot took your seat and this table is closed. Start a new game whenever you're ready.</p>
       <div class="row-end">
         <button class="btn" id="forfeitLook" type="button">See the table</button>
-        <button class="btn" id="forfeitChange" type="button">Change table</button>
+        <button class="btn" id="forfeitLobby" type="button">Lobby</button>
         <button class="btn primary" id="forfeitAgain" type="button">Play again</button>
-      </div>
-    </div>
-  </div>
-</div>
-
-<div class="overlay" id="newPanel" hidden>
-  <div class="deed" role="dialog" aria-modal="true" aria-labelledby="newTitle">
-    <h2 id="newTitle">New game</h2>
-    <div class="body">
-      <h3>Investors at the table</h3>
-      <div class="choice" id="seatChoice"></div>
-      <p>You play against bots. More investors means a smaller supply and tighter majorities.</p>
-      <h3>Turn timer</h3>
-      <div class="choice" id="timerChoice"></div>
-      <p>Quick play uses 30 seconds a step. When time runs out the table plays a simple move for you.</p>
-      <h3>Bot speed</h3>
-      <div class="choice" id="speedChoice"></div>
-      <div class="row-split">
-        <button class="btn" id="tutorialStart" type="button">How to play (tutorial)</button>
-        <span class="row-end">
-          <button class="btn" id="newCancel" type="button">Cancel</button>
-          <button class="btn primary" id="newStart" type="button">Deal the shares</button>
-        </span>
       </div>
     </div>
   </div>
@@ -504,7 +581,7 @@ button { font-family: inherit; }
       </table>
       <div class="row-end">
         <button class="btn" id="endLook" type="button">See the table</button>
-        <button class="btn" id="endChange" type="button">Change table</button>
+        <button class="btn" id="endLobby" type="button">Lobby</button>
         <button class="btn primary" id="endAgain" type="button">Play again</button>
       </div>
     </div>
@@ -553,6 +630,8 @@ button { font-family: inherit; }
   const HOLD_MS = 350;
   const HOLD_SLOP = 10;
   const STORE_KEY = "big-business-table-v2";
+  // Games, wins and best capital in this browser (real games only).
+  const RECORD_KEY = "big-business-record-v1";
   const SAVE_VERSION = 2;
   // Preset emotes and phrases: the only chat there is (client/scripts/net/protocol.gd).
   const EMOTES = [
@@ -598,7 +677,6 @@ button { font-family: inherit; }
   let timer = 0;
   let fresh = new Set();
   let bumped = new Set();
-  let draft = {};
   let announcedTurn = -1;
   let lastTick = -1;
   let lastEmoteAt = 0;
@@ -608,6 +686,11 @@ button { font-family: inherit; }
   let forfeited = false;
   let readyShown = -1;
   let lastMarketKey = "";
+  // "lobby" or "table": which screen is showing. Bots and timers only run at the table.
+  let screen = "lobby";
+  let record = { games: 0, wins: 0, best: 0, forfeits: 0, tutorial: false };
+  // What to do once a forfeit is confirmed (back to the table, deal anew, ...).
+  let afterForfeit = null;
   const hold = { timer: 0, el: null, x: 0, y: 0, active: false, swallow: false };
   const coach = { enabled: false, seen: {}, queue: [], showing: false, view: null };
 
@@ -948,6 +1031,7 @@ button { font-family: inherit; }
     state = BB.createGame(defs, Math.floor(Math.random() * 0x7fffffff), { stepSeconds: settings.timer }, startsAt);
     me = state.seats.findIndex((s) => s.id === "you");
     addLog(`<b>New game</b> with ${settings.seats} investors${settings.timer ? `, ${settings.timer} s a step` : ", no timer"}. ${state.active === me ? "You go" : esc(state.seats[state.active].name) + " goes"} first.`);
+    showTable();
     save();
     render();
     showGetReady();
@@ -965,14 +1049,126 @@ button { font-family: inherit; }
     if (h > 0) state.seats = state.seats.slice(h).concat(state.seats.slice(0, h));
     me = 0;
     addLog("<b>Tutorial:</b> you go first against two bots, with no timer.");
+    record.tutorial = true;
+    saveRecord();
+    showTable();
     save();
     render();
     schedule();
   }
 
+  // ---------------------------------------------------------------------------
+  // Lobby: the entrance, and where every game returns to
+  // ---------------------------------------------------------------------------
+
+  function showTable() {
+    screen = "table";
+    $("lobby").hidden = true;
+    $("app").hidden = false;
+    window.scrollTo(0, 0);
+  }
+
+  function showLobby() {
+    screen = "lobby";
+    clearTimeout(timer);
+    endHold();
+    for (const id of ["endPanel", "forfeitDone", "forfeitPanel", "readyPanel", "rulesPanel", "emotePanel"]) $(id).hidden = true;
+    $("glow").hidden = true;
+    $("app").hidden = true;
+    $("lobby").hidden = false;
+    renderLobby();
+    save();
+    window.scrollTo(0, 0);
+  }
+
+  /** Back to a saved game. Its clock starts fresh: a pending countdown runs again and the step timer restarts. */
+  function resumeGame() {
+    if (!state) return;
+    if (startsAt > 0) startsAt = Date.now() + GET_READY_MS;
+    if (state.deadline > 0 && state.phase !== "ended" && !forfeited) state.deadline = (startsAt || Date.now()) + state.options.stepSeconds * 1000;
+    showTable();
+    lastMarketKey = "";
+    render();
+    if (forfeited) showForfeitDone();
+    else if (state.phase === "ended") showEnd();
+    else {
+      showGetReady();
+      schedule();
+    }
+  }
+
+  function renderLobby() {
+    const live = canForfeit();
+    $("continueCard").hidden = !live;
+    if (live) {
+      const tutorial = mode === "tutorial";
+      $("continueTitle").textContent = tutorial ? "Tutorial in progress" : "Game in progress";
+      const bits = [`Turn ${state.turn}`, `${state.supply.length} shares left in the supply`];
+      if (!tutorial) bits.push(state.options.stepSeconds ? `${state.options.stepSeconds} s a step` : "no timer");
+      $("continueLine").textContent = bits.join(" · ");
+      $("continueSeats").innerHTML = state.seats
+        .map((s, i) => {
+          const who = i === me ? "You" : s.name;
+          const now = i === state.active ? '<span class="now">TO PLAY</span>' : "";
+          return `<li><span class="avatar" style="background:${avatarColor(s.name)}">${esc(s.name.charAt(0))}</span><span class="who">${esc(who)}</span>${now}<span class="num">${s.bronze} coins · ${s.portfolio.length} kept</span></li>`;
+        })
+        .join("");
+    }
+    $("welcomeCard").hidden = live || record.games > 0 || record.tutorial;
+    $("dealBtn").textContent = live ? "Deal a new table" : "Deal the shares";
+    renderChoices();
+    const played = record.games > 0;
+    $("recordStats").hidden = !played;
+    $("recordEmpty").hidden = played;
+    $("recordStats").innerHTML = `<div><dt>Games</dt><dd>${record.games}</dd></div><div><dt>Wins</dt><dd>${record.wins}</dd></div><div><dt>Best capital</dt><dd>${record.best}</dd></div>`;
+  }
+
+  /** All six companies, fanned under the title. */
+  function renderFan() {
+    $("heroFan").innerHTML = BB.COMPANIES.map((c, k) => {
+      const off = k - 2.5;
+      const style = `transform: translateX(calc(var(--fw) * ${(off * 0.5).toFixed(2)})) rotate(${(off * 7).toFixed(1)}deg); animation-delay: ${k * 60}ms`;
+      return cardHTML({ id: -1 - c.id, company: c.id }, { still: true, style });
+    }).join("");
+  }
+
+  function loadRecord() {
+    try {
+      const r = JSON.parse(localStorage.getItem(RECORD_KEY) || "null");
+      if (r && typeof r.games === "number") record = Object.assign(record, r);
+    } catch (e) {
+      /* no stored record: start from zero */
+    }
+  }
+
+  function saveRecord() {
+    try {
+      localStorage.setItem(RECORD_KEY, JSON.stringify(record));
+    } catch (e) {
+      /* storage unavailable: the record lasts for this visit */
+    }
+  }
+
+  /** Real games only: the tutorial's deal is fixed, so it does not count. */
+  function recordFinish() {
+    if (mode !== "game" || !state.result) return;
+    const mine = state.result.scores.find((x) => x.seat === me);
+    if (!mine) return;
+    record.games++;
+    if (mine.rank === 1) record.wins++;
+    record.best = Math.max(record.best, mine.score);
+    saveRecord();
+  }
+
+  /** Deal from the lobby; a game still in play is forfeited first, after asking. */
+  function startFromLobby(reason, start) {
+    if (canForfeit()) askForfeit(reason, start);
+    else start();
+  }
+
   function schedule() {
     clearTimeout(timer);
-    if (!state || forfeited || state.phase === "ended" || state.active === me) return;
+    if (screen !== "table" || !state || forfeited || state.phase === "ended" || state.active === me) return;
     if (mode === "tutorial" && coach.showing) return; // bots wait while a coach card is open
     // A bot that goes first waits for the countdown, then thinks as usual.
     const wait = startsAt > 0 ? Math.max(0, startsAt - Date.now()) : 0;
@@ -1000,6 +1196,7 @@ button { font-family: inherit; }
     describe(result.events, before);
     sounds(result.events);
     selected = -1;
+    if (state.phase === "ended") recordFinish();
     save();
     render();
     if (state.phase === "ended") showEnd();
@@ -1089,7 +1286,7 @@ button { font-family: inherit; }
     const seats = view.seats;
     restriction = coachRestriction(view);
 
-    $("newBtn").textContent = canForfeit() ? "Forfeit" : "New game";
+    $("newBtn").textContent = canForfeit() ? "Forfeit" : "Play again";
     $("newBtn").classList.toggle("quit", canForfeit());
 
     $("meta").textContent = `${mode === "tutorial" ? "Tutorial · " : ""}Turn ${view.turn} · ${view.supplyCount} shares left in the supply · ${seats.length} investors`;
@@ -1135,7 +1332,7 @@ button { font-family: inherit; }
     draw.hidden = keep.hidden = sell.hidden = cancel.hidden = true;
     let prompt = "";
     if (forfeited) {
-      prompt = "You forfeited this game. Press New game to play again.";
+      prompt = "You forfeited this game. Play again, or head back to the lobby.";
     } else if (inCountdown()) {
       prompt = "The first turn starts in a moment.";
     } else if (view.phase === "ended") {
@@ -1274,22 +1471,59 @@ button { font-family: inherit; }
 
   function onTopButton() {
     if (canForfeit()) {
-      const tutorial = mode === "tutorial";
-      $("forfeitTitle").textContent = tutorial ? "Forfeit the tutorial?" : "Forfeit this game?";
-      $("forfeitBody").textContent = tutorial
-        ? "The tutorial stops here. You can start it again any time from New game."
-        : "A bot plays your seat for the rest of the game and you can't come back to it. It counts as a loss.";
-      $("forfeitPanel").hidden = false;
-      $("forfeitNo").focus();
+      askForfeit("table", () => {
+        render();
+        showForfeitDone();
+      });
     } else {
-      openNew();
+      newGame();
     }
   }
 
-  function forfeit() {
+  /**
+   * Confirm before forfeiting. `reason` is "table" or "lobby" (forfeit and
+   * stop), "deal" or "tutorial" (forfeit to start something new).
+   */
+  function askForfeit(reason, then) {
+    const tutorial = mode === "tutorial";
+    const starting = reason === "deal" ? "Dealing a new table" : reason === "tutorial" ? "Starting the tutorial" : "";
+    let title, body, yes;
+    if (starting) {
+      title = tutorial ? "Leave the tutorial?" : "Forfeit your game in progress?";
+      body = tutorial ? `${starting} closes the tutorial you're in.` : `${starting} forfeits the game you're playing. It counts as a loss.`;
+      yes = tutorial ? "Leave it" : "Forfeit";
+    } else {
+      title = tutorial ? "Forfeit the tutorial?" : "Forfeit this game?";
+      body = tutorial
+        ? "The tutorial stops here. You can start it again any time from the lobby."
+        : "A bot plays your seat for the rest of the game and you can't come back to it. It counts as a loss.";
+      yes = "Forfeit";
+    }
+    $("forfeitTitle").textContent = title;
+    $("forfeitBody").textContent = body;
+    $("forfeitYes").textContent = yes;
+    afterForfeit = then;
+    $("forfeitPanel").hidden = false;
+    $("forfeitNo").focus();
+  }
+
+  function confirmForfeit() {
     $("forfeitPanel").hidden = true;
-    if (!canForfeit()) return;
+    const then = afterForfeit;
+    afterForfeit = null;
+    if (!forfeitCurrent()) return;
+    if (then) then();
+  }
+
+  /** Hands your seat to a bot and closes the table; counts as a game played. */
+  function forfeitCurrent() {
+    if (!canForfeit()) return false;
     clearTimeout(timer);
+    if (mode === "game") {
+      record.games++;
+      record.forfeits++;
+      saveRecord();
+    }
     forfeited = true;
     startsAt = 0;
     selected = -1;
@@ -1301,14 +1535,13 @@ button { font-family: inherit; }
     if (mode === "tutorial") coachReset(false, coach.seen);
     addLog(mode === "tutorial" ? "<b>You forfeited the tutorial.</b>" : "<b>You forfeited.</b> A bot took your seat and the table closed.");
     save();
-    render();
-    showForfeitDone();
+    return true;
   }
 
   function showForfeitDone() {
     const tutorial = mode === "tutorial";
     $("forfeitDoneBody").textContent = tutorial
-      ? "The tutorial is closed. Play a real game, or start the tutorial again from New game."
+      ? "The tutorial is closed. Play a real game, or start the tutorial again from the lobby."
       : "A bot took your seat and this table is closed. Start a new game whenever you're ready.";
     $("forfeitAgain").textContent = tutorial ? "Play a real game" : "Play again";
     $("forfeitDone").hidden = false;
@@ -1392,6 +1625,7 @@ button { font-family: inherit; }
 
   /** Turn timer: the red rim and a tick each second under five seconds on your own step. */
   function tickTimer() {
+    if (screen !== "table") return;
     updateGetReady();
     if (!state || forfeited || inCountdown() || state.phase === "ended" || state.deadline <= 0 || state.active !== me) {
       $("timer").hidden = true;
@@ -1488,23 +1722,28 @@ button { font-family: inherit; }
     $("emoteBtn").setAttribute("aria-expanded", "false");
   }
 
-  function openNew() {
-    draft = { seats: settings.seats, speed: settings.speed, timer: settings.timer };
-    renderChoices();
-    $("newPanel").hidden = false;
-    $("newStart").focus();
-  }
-
+  /** The lobby's table choices; they apply to the next deal. */
   function renderChoices() {
     $("seatChoice").innerHTML = [3, 4, 5, 6, 7]
-      .map((n) => `<button type="button" class="btn" data-seats="${n}" aria-pressed="${draft.seats === n}">${n}</button>`)
+      .map((n) => `<button type="button" class="btn" data-seats="${n}" aria-pressed="${settings.seats === n}">${n}</button>`)
       .join("");
     $("timerChoice").innerHTML = TIMERS
-      .map((s) => `<button type="button" class="btn" data-timer="${s}" aria-pressed="${draft.timer === s}">${s ? `${s} s` : "Off"}</button>`)
+      .map((s) => `<button type="button" class="btn" data-timer="${s}" aria-pressed="${settings.timer === s}">${s ? `${s} s` : "Off"}</button>`)
       .join("");
     $("speedChoice").innerHTML = Object.keys(SPEEDS)
-      .map((s) => `<button type="button" class="btn" data-speed="${s}" aria-pressed="${draft.speed === s}">${s}</button>`)
+      .map((s) => `<button type="button" class="btn" data-speed="${s}" aria-pressed="${settings.speed === s}">${s}</button>`)
       .join("");
+  }
+
+  function choose(key, value) {
+    settings[key] = value;
+    renderChoices();
+    save();
+  }
+
+  function openRules() {
+    $("rulesPanel").hidden = false;
+    $("rulesClose").focus();
   }
 
   function buildRules() {
@@ -1532,7 +1771,7 @@ button { font-family: inherit; }
   // ---------------------------------------------------------------------------
 
   function snapshot() {
-    return { version: SAVE_VERSION, state, settings, log, mode, startsAt, forfeited, coach: { enabled: coach.enabled, seen: coach.seen } };
+    return { version: SAVE_VERSION, state, settings, log, mode, startsAt, forfeited, screen, coach: { enabled: coach.enabled, seen: coach.seen } };
   }
 
   function save() {
@@ -1555,10 +1794,9 @@ button { font-family: inherit; }
     forfeited = !!data.forfeited;
     const c = data.coach || {};
     coachReset(mode === "tutorial" && !forfeited && c.enabled !== false, c.seen || {});
-    // A countdown cut short by a reload starts over; a step timer restarts
-    // on return rather than expiring at once.
-    startsAt = !forfeited && data.startsAt > Date.now() ? Date.now() + GET_READY_MS : 0;
-    if (state.deadline > 0 && state.phase !== "ended") state.deadline = (startsAt || Date.now()) + state.options.stepSeconds * 1000;
+    // A countdown cut short by a reload runs again when the game is resumed
+    // (resumeGame restarts the countdown and the step timer).
+    startsAt = !forfeited && data.startsAt > Date.now() ? data.startsAt : 0;
     return true;
   }
 
@@ -1586,17 +1824,24 @@ button { font-family: inherit; }
       const b = e.target.closest("[data-emote]");
       if (b) sendEmote(b.dataset.emote, b.textContent, !!b.dataset.pic);
     });
-    $("rulesBtn").addEventListener("click", () => { $("rulesPanel").hidden = false; $("rulesClose").focus(); });
+    $("rulesBtn").addEventListener("click", openRules);
+    $("lobbyRules").addEventListener("click", openRules);
+    $("lobbyBtn").addEventListener("click", showLobby);
+    $("continueResume").addEventListener("click", resumeGame);
+    $("continueForfeit").addEventListener("click", () => askForfeit("lobby", renderLobby));
+    $("dealBtn").addEventListener("click", () => startFromLobby("deal", newGame));
+    $("lobbyTutorial").addEventListener("click", () => startFromLobby("tutorial", startTutorial));
+    $("welcomeTutorial").addEventListener("click", startTutorial);
     $("rulesBody").addEventListener("click", (e) => {
       if (e.target.id === "rulesClose") $("rulesPanel").hidden = true;
       if (e.target.id === "soundToggle") { settings.sound = !settings.sound; refreshToggles(); save(); }
       if (e.target.id === "vibrationToggle") { settings.vibration = !settings.vibration; refreshToggles(); save(); buzz(30); }
     });
     $("newBtn").addEventListener("click", onTopButton);
-    $("forfeitYes").addEventListener("click", forfeit);
-    $("forfeitNo").addEventListener("click", () => { $("forfeitPanel").hidden = true; });
+    $("forfeitYes").addEventListener("click", confirmForfeit);
+    $("forfeitNo").addEventListener("click", () => { $("forfeitPanel").hidden = true; afterForfeit = null; });
     $("forfeitAgain").addEventListener("click", newGame);
-    $("forfeitChange").addEventListener("click", () => { $("forfeitDone").hidden = true; openNew(); });
+    $("forfeitLobby").addEventListener("click", showLobby);
     $("forfeitLook").addEventListener("click", () => { $("forfeitDone").hidden = true; });
     document.addEventListener("pointerdown", onHoldStart);
     document.addEventListener("pointermove", onHoldMove);
@@ -1605,20 +1850,18 @@ button { font-family: inherit; }
     window.addEventListener("blur", onHoldEnd);
     // A long press on a phone opens the browser's menu unless the page claims it.
     for (const id of ["hand", "market"]) $(id).addEventListener("contextmenu", (e) => { if (e.target.closest(".card")) e.preventDefault(); });
-    $("newCancel").addEventListener("click", () => { $("newPanel").hidden = true; });
-    $("newStart").addEventListener("click", () => { Object.assign(settings, draft); $("newPanel").hidden = true; newGame(); });
-    $("tutorialStart").addEventListener("click", () => { $("newPanel").hidden = true; startTutorial(); });
-    $("seatChoice").addEventListener("click", (e) => { const b = e.target.closest("[data-seats]"); if (b) { draft.seats = Number(b.dataset.seats); renderChoices(); } });
-    $("timerChoice").addEventListener("click", (e) => { const b = e.target.closest("[data-timer]"); if (b) { draft.timer = Number(b.dataset.timer); renderChoices(); } });
-    $("speedChoice").addEventListener("click", (e) => { const b = e.target.closest("[data-speed]"); if (b) { draft.speed = b.dataset.speed; renderChoices(); } });
+    $("seatChoice").addEventListener("click", (e) => { const b = e.target.closest("[data-seats]"); if (b) choose("seats", Number(b.dataset.seats)); });
+    $("timerChoice").addEventListener("click", (e) => { const b = e.target.closest("[data-timer]"); if (b) choose("timer", Number(b.dataset.timer)); });
+    $("speedChoice").addEventListener("click", (e) => { const b = e.target.closest("[data-speed]"); if (b) choose("speed", b.dataset.speed); });
     $("endAgain").addEventListener("click", newGame);
-    $("endChange").addEventListener("click", () => { $("endPanel").hidden = true; openNew(); });
+    $("endLobby").addEventListener("click", showLobby);
     $("endLook").addEventListener("click", () => { $("endPanel").hidden = true; });
     $("coachGot").addEventListener("click", coachGotIt);
     $("coachSkip").addEventListener("click", coachSkip);
     document.addEventListener("keydown", (e) => {
       if (e.key !== "Escape") return;
-      for (const id of ["rulesPanel", "newPanel", "endPanel", "forfeitPanel", "forfeitDone"]) $(id).hidden = true;
+      for (const id of ["rulesPanel", "endPanel", "forfeitPanel", "forfeitDone"]) $(id).hidden = true;
+      afterForfeit = null;
       $("emotePanel").hidden = true;
     });
 
@@ -1628,17 +1871,14 @@ button { font-family: inherit; }
     } catch (e) {
       stored = null;
     }
-    if (restore(hot) || restore(stored)) {
-      render();
-      if (forfeited) showForfeitDone();
-      else if (state.phase === "ended") showEnd();
-      else {
-        showGetReady();
-        schedule();
-      }
-    } else {
-      startTutorial();
-    }
+    loadRecord();
+    renderFan();
+    // Every visit opens in the lobby, with the saved game ready to resume. A
+    // live update keeps a player who was at the table there.
+    const fromHot = restore(hot);
+    if (!fromHot) restore(stored);
+    if (fromHot && hot.screen === "table") resumeGame();
+    else showLobby();
     setInterval(tickTimer, 200);
     if (window.claude && window.claude.hot && window.claude.hot.snapshot) {
       window.claude.hot.snapshot(snapshot);

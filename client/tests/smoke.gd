@@ -209,6 +209,16 @@ func _coach_checks() -> int:
 		failures += 1
 	table.coach._on_got_it()
 
+	# A bot's turn in between, as in a real game: nothing is forced while it
+	# is not the learner's turn, so the next view has to set up the guidance
+	# before any part of the table is built.
+	v["active"] = 1
+	table._on_view(v)
+	for i in 120:
+		await process_frame
+		if not table._animating and not table._pending_events.size():
+			break
+
 	# My second turn (turn 4 of the game): coins in the market and a token of
 	# mine blocking a share. The coach forces taking the richest share.
 	v["phase"] = "take"
@@ -232,6 +242,9 @@ func _coach_checks() -> int:
 			failures += 1
 	if table.coach.forced_action() != {"type": "take_market", "cardId": 20} or not table._draw_button.disabled:
 		push_error("turn 2 take should force the share with the most coins, got %s" % [table.coach.forced_action()])
+		failures += 1
+	if table._supply_pile.selectable or table._surface._glow.get("supply", false):
+		push_error("turn 2 take: the supply must not be tappable or glowing while the Market take is forced")
 		failures += 1
 	var market_cards: Array = table._market_row.get_children()
 	if market_cards.size() != 2 or not market_cards[0].selectable or market_cards[1].selectable:
@@ -308,8 +321,14 @@ func _coach_checks() -> int:
 		failures += 1
 	solo.queue_free()
 
-	# Skip disables everything, including dividend day.
+	# Skip disables everything, including dividend day, and counts as having
+	# done the tutorial so "Play now" finds a real game next time.
+	var net: Node = root.get_node("Net")
+	net.tutorial_done = false
 	table.coach._on_skip()
+	if not net.tutorial_done:
+		push_error("skipping the coach should mark the tutorial done")
+		failures += 1
 	v["phase"] = "ended"
 	v["legal"] = []
 	v["result"] = {"companies": [], "scores": []}
@@ -578,6 +597,27 @@ func _friends_checks() -> int:
 		if panel._invites.get_child_count() != 0:
 			push_error("a used invite should disappear")
 			failures += 1
+	# A live invite reaches the listening panel once and is not queued for
+	# the next lobby visit; a queued one is offered once by the next panel.
+	var net: Node = root.get_node("Net")
+	var live = NakamaAPI.ApiNotification.create(NakamaAPI, {"id": "smoke-inv-1", "code": Protocol.INVITE_CODE, "content": JSON.stringify({"fromName": "Dee", "code": "QRS456", "fromUserId": "u-dee"})})
+	net._on_notification(live)
+	await process_frame
+	if panel._invites.get_child_count() != 1 or not panel._invites.get_child(0).get_child(0).text.contains("Dee invited you to room QRS456"):
+		push_error("a live invite should show in the listening panel")
+		failures += 1
+	if not net.pending_invites.is_empty():
+		push_error("an invite shown live must not stay queued for the next lobby")
+		failures += 1
+	net.pending_invites.append({"fromName": "Eve", "code": "TUV123"})
+	var later = load("res://scripts/ui/friends_panel.gd").new()
+	root.add_child(later)
+	await process_frame
+	if later._invites.get_child_count() != 1 or not net.pending_invites.is_empty():
+		push_error("a queued invite should be shown once by the next panel")
+		failures += 1
+	later.queue_free()
+
 	# Empty list shows a hint instead of nothing.
 	panel.set_friends([])
 	if panel._list.get_child_count() != 1 or not (panel._list.get_child(0) is Label):

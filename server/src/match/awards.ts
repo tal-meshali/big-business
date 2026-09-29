@@ -8,7 +8,9 @@ export function awardProgress(s: MatchState, nk: nkruntime.Nakama, logger: nkrun
   s.awarded = true;
   const seatCount = s.game.seats.length;
   let humans = 0;
-  for (const seat of s.game.seats) if (!seat.id.startsWith('bot:')) humans++;
+  // WHY: a player who forfeited is not playing, so a 2-human room where one
+  // forfeits counts as a solo game (no season points, reduced XP).
+  for (const seat of s.game.seats) if (!seat.id.startsWith('bot:') && !s.forfeited[seat.id]) humans++;
   for (const score of s.game.result.scores) {
     const seat = s.game.seats[score.seat];
     // Forfeited players were recorded when they forfeited (awardForfeit).

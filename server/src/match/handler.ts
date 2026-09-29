@@ -7,7 +7,7 @@
  */
 import { applyAction, autoAction, botAction, createGame, RulesError, type SeatDef } from '../engine';
 import type { Action, GameEvent } from '../engine';
-import { BOT_NAMES, DEFAULT_PARAMS, OP_ACTION, OP_ERROR, OP_EVENTS, OP_LOBBY, OP_READY, type MatchParams } from './protocol';
+import { BOT_NAMES, clampStepSeconds, DEFAULT_PARAMS, OP_ACTION, OP_ERROR, OP_EVENTS, OP_LOBBY, OP_READY, parseAction, type MatchParams } from './protocol';
 import { awardProgress } from './awards';
 import { handleEmotes } from './emotes';
 import { handleForfeits } from './forfeit';
@@ -99,7 +99,7 @@ export const matchInit: nkruntime.MatchInitFunction<MatchState> = (ctx, logger, 
     roomCode: typeof params['roomCode'] === 'string' ? (params['roomCode'] as string) : undefined,
     minSeats: Number(params['minSeats']) || DEFAULT_PARAMS.minSeats,
     maxSeats: Number(params['maxSeats']) || DEFAULT_PARAMS.maxSeats,
-    stepSeconds: params['stepSeconds'] === undefined ? DEFAULT_PARAMS.stepSeconds : Number(params['stepSeconds']),
+    stepSeconds: clampStepSeconds(params['stepSeconds']),
     lobbyWaitSeconds: Number(params['lobbyWaitSeconds']) || DEFAULT_PARAMS.lobbyWaitSeconds,
     tutorial: params['tutorial'] === true || params['tutorial'] === 'true',
     seed: Number(params['seed']) || 0,
@@ -269,8 +269,11 @@ export const matchLoop: nkruntime.MatchLoopFunction<MatchState> = (ctx, logger, 
     if (seat === undefined) continue;
     let action: Action | null = null;
     try {
-      action = JSON.parse(nk.binaryToString(m.data)) as Action;
+      action = parseAction(JSON.parse(nk.binaryToString(m.data)));
     } catch (e) {
+      action = null;
+    }
+    if (!action) {
       send(dispatcher, OP_ERROR, { message: 'bad action payload' }, [m.sender]);
       continue;
     }

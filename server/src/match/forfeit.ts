@@ -29,7 +29,8 @@ export function handleForfeits(
     state.forfeited[userId] = true;
     seatState.isBot = true;
     seatState.connected = false;
-    if (seat === game.active) state.botActAt = now + botThinkMs(state);
+    // WHY: during the get-ready countdown the bot's think time starts when play does.
+    if (seat === game.active) state.botActAt = Math.max(now, state.playStartsAt) + botThinkMs(state);
     awardForfeit(nk, logger, userId);
     logger.info('user %s forfeited seat %d', userId, seat);
     send(dispatcher, OP_FORFEITED, { seat });

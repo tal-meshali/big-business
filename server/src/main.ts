@@ -3,7 +3,7 @@
  * room-code RPCs and the matchmaker hook.
  */
 import { matchInit, matchJoin, matchJoinAttempt, matchLeave, matchLoop, matchSignal, matchTerminate } from './match/handler';
-import { DEFAULT_PARAMS, MATCH_MODULE, TUTORIAL_SEED } from './match/protocol';
+import { clampStepSeconds, DEFAULT_PARAMS, MATCH_MODULE, TUTORIAL_SEED } from './match/protocol';
 import { claimDaily, emptyProgress, PROFILE_COLLECTION, PROFILE_KEY, SEASON_LEADERBOARD, utcDate, type Progress } from './match/progression';
 
 const SYSTEM_USER = '00000000-0000-0000-0000-000000000000';
@@ -33,7 +33,7 @@ const rpcCreateRoom: nkruntime.RpcFunction = (ctx, logger, nk, payload) => {
     roomCode: code,
     minSeats: 3,
     maxSeats: Math.min(7, Math.max(2, req.maxSeats || 7)),
-    stepSeconds: req.stepSeconds === undefined ? DEFAULT_PARAMS.stepSeconds : req.stepSeconds,
+    stepSeconds: clampStepSeconds(req.stepSeconds),
   });
   nk.storageWrite([
     {

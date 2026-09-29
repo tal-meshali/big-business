@@ -1,5 +1,5 @@
 /** Wire protocol between the Godot client and the match handler. */
-import type { PlayerView } from '../engine';
+import type { Action, PlayerView } from '../engine';
 
 /** Client -> server opcodes. */
 export const OP_ACTION = 1;
@@ -85,3 +85,33 @@ export const DEFAULT_PARAMS: MatchParams = {
 export const TUTORIAL_SEED = 20260928;
 
 export const BOT_NAMES = ['Intern Ivy', 'Analyst Avi', 'Broker Bo', 'Auditor Ada', 'CEO Cal', 'Investor Ines'];
+
+/** Shortest and longest private-room step timer in seconds; 0 turns the timer off. */
+export const MIN_STEP_SECONDS = 5;
+export const MAX_STEP_SECONDS = 120;
+
+/** A requested step timer made safe: 0 (off) or clamped to the allowed range. */
+export function clampStepSeconds(requested: unknown): number {
+  const n = Number(requested);
+  if (requested === undefined || requested === null || !isFinite(n)) return DEFAULT_PARAMS.stepSeconds;
+  if (n === 0) return 0;
+  return Math.min(MAX_STEP_SECONDS, Math.max(MIN_STEP_SECONDS, Math.round(n)));
+}
+
+/**
+ * Validate a decoded OP_ACTION payload. Returns null unless it is an object
+ * with one of the four action types and, where needed, an integer cardId.
+ */
+export function parseAction(raw: unknown): Action | null {
+  // WHY: the payload comes straight from a client; anything the engine does
+  // not expect (null, a string, a missing type) must be rejected here rather
+  // than throw a TypeError inside matchLoop, which would end the match.
+  if (typeof raw !== 'object' || raw === null) return null;
+  const r = raw as { type?: unknown; cardId?: unknown };
+  if (r.type === 'take_supply') return { type: 'take_supply' };
+  if (r.type !== 'take_market' && r.type !== 'play_portfolio' && r.type !== 'play_market') return null;
+  const id = r.cardId;
+  if (typeof id !== 'number' || !isFinite(id) || Math.floor(id) !== id) return null;
+  return { type: r.type, cardId: id };
+}
+

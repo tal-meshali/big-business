@@ -640,6 +640,12 @@ func _on_player_forfeited(seat: int) -> void:
 
 func _on_play_again() -> void:
 	await Net.leave_match()
+	# WHY: the next game reuses this scene; a tutorial coach left attached
+	# would keep restricting moves and showing cards in a timed real game.
+	if coach != null:
+		coach.queue_free()
+		coach = null
+		_restriction = {}
 	_status.text = "Finding a new game..."
 	_result_backdrop.visible = false
 	var ok: bool = await Net.quick_play()

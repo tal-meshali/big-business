@@ -106,6 +106,7 @@ func _run() -> void:
 	failures += await _help_checks()
 	failures += await _feedback_checks()
 	failures += await _forced_turn_checks()
+	failures += await _hand_fit_checks()
 
 	if failures == 0:
 		print("SMOKE OK")
@@ -636,5 +637,41 @@ func _forced_turn_checks() -> int:
 	if Coach.my_turn_index({"you": 1, "active": 1, "turn": 5, "phase": "take", "seats": [{}, {}, {}]}) != 2:
 		push_error("seat 1's second turn in a 3-seat game is turn 5")
 		failures += 1
+	table.queue_free()
+	return failures
+
+
+## A 4-card hand (the play step) stays on screen, tilt and scale included.
+func _hand_fit_checks() -> int:
+	var failures := 0
+	root.size = Vector2i(720, 1280)
+	var table = load("res://scenes/table.tscn").instantiate()
+	root.add_child(table)
+	await process_frame
+	var hand := []
+	for i in 4:
+		hand.append({"id": i + 1, "company": i})
+	var v := {
+		"you": 0,
+		"seats": [
+			{"id": "me", "name": "You", "isBot": false, "connected": true, "handCount": 4, "hand": hand, "portfolio": [], "bronze": 10, "gold": 0, "tokens": []},
+			{"id": "bot:0", "name": "Ivy", "isBot": true, "connected": true, "handCount": 3, "portfolio": [], "bronze": 10, "gold": 0, "tokens": []},
+			{"id": "bot:1", "name": "Avi", "isBot": true, "connected": true, "handCount": 3, "portfolio": [], "bronze": 10, "gold": 0, "tokens": []},
+		],
+		"market": [], "supplyCount": 20, "removedCount": 5, "active": 0, "phase": "play", "turn": 7,
+		"tookCompany": 3, "tokens": [null, null, null, null, null, null], "seq": 5, "deadline": 0, "drawCost": null, "legal": [], "result": null,
+	}
+	table._on_view(v)
+	await process_frame
+	await process_frame
+	var width: float = table.get_viewport_rect().size.x
+	for cv in table._hand_cards:
+		var xf: Transform2D = cv.get_global_transform()
+		for corner in [Vector2.ZERO, Vector2(CardView.W, 0), Vector2(0, CardView.H), Vector2(CardView.W, CardView.H)]:
+			var x: float = (xf * corner).x
+			if x < 0.0 or x > width:
+				push_error("hand card %d corner at x=%.0f is off screen (width %.0f)" % [cv.card_id, x, width])
+				failures += 1
+				break
 	table.queue_free()
 	return failures

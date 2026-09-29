@@ -12,6 +12,8 @@ extends Control
 const FLY_TIME := 0.35
 const COIN_TIME := 0.3
 const HAND_SCALE := 1.35
+## Tilt of the outermost hand cards, in degrees.
+const HAND_TILT_DEG := 6.0
 ## Seconds left on your own step when the table starts to glow and tick.
 const URGENT_SECONDS := 5
 
@@ -726,10 +728,17 @@ func _render_hand(seats: Array, phase: String) -> void:
 	if count == 0:
 		return
 	var layer_w := _hand_layer.size.x if _hand_layer.size.x > 0 else 720.0
+	# WHY: cards scale around their bottom-centre pivot and the edge cards
+	# tilt by HAND_TILT_DEG, so lay out the scaled width and keep room for
+	# the tilted top corners; laying out the unscaled box pushed a 4-card
+	# hand past the left edge of every phone.
 	var card_w := CardView.W * HAND_SCALE
-	var spacing := minf(card_w + 12, (layer_w - 48) / count)
+	var margin := 16.0 + CardView.H * HAND_SCALE * sin(deg_to_rad(HAND_TILT_DEG))
+	var spacing := card_w + 12
+	if count > 1:
+		spacing = minf(spacing, (layer_w - 2.0 * margin - card_w) / (count - 1))
 	var total := spacing * (count - 1) + card_w
-	var x0 := (layer_w - total) / 2.0
+	var first_center := (layer_w - total) / 2.0 + card_w / 2.0
 	for i in count:
 		var card: Dictionary = hand[i]
 		var cv := CardView.new()
@@ -737,8 +746,8 @@ func _render_hand(seats: Array, phase: String) -> void:
 		cv.scale = Vector2(HAND_SCALE, HAND_SCALE)
 		cv.pivot_offset = Vector2(CardView.W / 2.0, CardView.H)
 		var t := 0.0 if count == 1 else (float(i) / (count - 1) - 0.5)
-		cv.rotation = deg_to_rad(t * 12.0)
-		cv.set_rest_position(Vector2(x0 + i * spacing, 50 + abs(t) * 20))
+		cv.rotation = deg_to_rad(t * 2.0 * HAND_TILT_DEG)
+		cv.set_rest_position(Vector2(first_center + i * spacing - CardView.W / 2.0, 50 + abs(t) * 20))
 		cv.selectable = _is_my_turn() and phase == "play" and _card_playable(cv.card_id)
 		cv.card_pressed.connect(_on_hand_card_pressed)
 		_hand_layer.add_child(cv)

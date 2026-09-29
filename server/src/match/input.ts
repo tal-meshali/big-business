@@ -123,13 +123,27 @@ export function parseAction(text: string): Action | null {
  * 'internal error', so stack traces and SQL never leave the server.
  */
 export function guardRpc(fn: nkruntime.RpcFunction): nkruntime.RpcFunction {
-  return (ctx, logger, nk, payload) => {
-    try {
-      return fn(ctx, logger, nk, payload);
-    } catch (e) {
-      if (isClientError(e)) throw e;
-      logger.error('rpc failed for %s: %s', ctx.userId || '-', String(e));
-      throw new Error('internal error');
-    }
-  };
+  return (ctx, logger, nk, payload) => guarded(fn, ctx, logger, nk, payload);
+}
+
+/**
+ * Runs one RPC under the guard. WHY: Nakama's JS runtime resolves each
+ * `registerRpc` argument to a named function literal in the module source
+ * ("javascript functions cannot be inlined"), so main.ts cannot register
+ * `guardRpc(fn)` directly; it registers a named arrow that calls this.
+ */
+export function guarded(
+  fn: nkruntime.RpcFunction,
+  ctx: nkruntime.Context,
+  logger: nkruntime.Logger,
+  nk: nkruntime.Nakama,
+  payload: string,
+): string | void {
+  try {
+    return fn(ctx, logger, nk, payload);
+  } catch (e) {
+    if (isClientError(e)) throw e;
+    logger.error('rpc failed for %s: %s', ctx.userId || '-', String(e));
+    throw new Error('internal error');
+  }
 }

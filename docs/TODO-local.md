@@ -58,11 +58,11 @@ Emotes, mute, report and block exist. Tap the smiley in the top bar for the emot
 
 Fixed in the cloud; each needs a check on a phone.
 
-- [ ] Bots keeping shares. Bots now keep on about a third of their plays and build a visible Portfolio (they used to sell turn after turn and hold their best shares in hand; rules-spec 8.2 "Keep pace"). Play two games against bots and say whether they now feel like players. If they should keep even more often, raise `KEEP_PACE` in `server/src/engine/bot.ts` (0.3 now; about 0.4 cost another point a game in simulation).
+- [ ] Bots keeping shares. Bots now lock pairs into their Portfolio and keep about half their plays from their first or second turn (rules-spec 8.2; `PAIR_BONUS` in `server/src/engine/bot.ts`), and tutorial bots keep a pair too once the Market has a share. At 3 and 4 seats they also model opponents' remaining pickups more tightly. Play two games against bots and say whether they now feel like players.
 - [ ] Press and hold a card (hand or Market) for a close-up above everything; letting go closes it and does not select the card. Check the 0.35 s hold (`CardView.HOLD_SECONDS`) feels right under a thumb and that a hold on the Market row still lets it scroll.
 - [ ] Get-ready countdown (4 s, `GET_READY_MS` in `server/src/match/state.ts`) with the turn order before the first turn. Also fixed: the table used to miss the game's first view and sit empty until the first move (or 30 s, when you moved first).
 - [ ] Forfeit: the top-bar button reads "Forfeit" during a live game, asks first, and a bot takes the seat. Try it with a friend at the table to see their "Forfeited" bubble.
-- [ ] The "newest card fades in when you cancel a selected card" report could not be reproduced here: mouse, touch, long press, fake views and a live server all showed no fade. The selection lift was hardened (a new lift replaces a running one, the selected card draws above its neighbours) and a share you take now flies face up into its own slot instead of the middle of the hand. If you still see it, a screen recording would pin it down.
+- [ ] The "newest card fades in when you cancel a selected card" report: the screen recording showed it in the browser table (`web/`), where selecting or cancelling re-rendered the hand and replayed the newest card's arrival animation; fixed there. In the Godot client the selection lift was hardened as well (a new lift replaces a running one, the selected card draws above its neighbours, a share you take flies face up into its own slot). Check both on a phone.
 
 ## D. Rules verification against the physical game
 
@@ -74,7 +74,8 @@ Fixed in the cloud; each needs a check on a phone.
 - [ ] App identifiers: pick a bundle id (for example `com.<you>.bigbusiness`) and set it in both export presets.
 - [ ] Privacy policy URL and support email (required by both stores, and by the report/contact rule for all-ages apps). Put them in `client/scripts/game/app_info.gd`; the help screen shows them.
 - [ ] Age rating questionnaires: no simulated gambling, no UGC yet, no ads. Aim for 4+ / Everyone.
-- [ ] Sign in with Apple and Google Sign-In configuration in Nakama (`local.yml` social keys) so accounts survive reinstalls. Device-id guest auth stays for first launch.
+- [ ] Sign in with Apple and Google so accounts survive reinstalls. *(Cloud: the lobby's Account row links Apple or Google to the guest account, the next launch signs in with the linked provider and falls back to the device id, and the `account_links` RPC reports link state.)* Still needed here: install the native plugins and return their tokens from `client/scripts/net/social_tokens.gd` (the file names the plugins), set `APPLE_BUNDLE_ID` and `GOOGLE_CLIENT_ID` in `.env`, then link and reinstall on a phone to confirm the account comes back. See `docs/deploy.md` "Social sign-in".
+- [ ] Before the first public build, work through the operator half of the Security checklist in `docs/deploy.md` (secrets, console over SSH only, firewall, backups, moderation routine).
 
 ## F. Art and sound (can be commissioned in parallel)
 
@@ -86,8 +87,9 @@ Fixed in the cloud; each needs a check on a phone.
 
 - [x] Tutorial v2: forced choices on the first two turns (only the coached action enabled) and a replayable "rules reference" screen. *(Cloud: keep on turn one; take the Market share with coins, then sell, on turn two; new "Selling to the Market" coach card. Rules reference in the help screen.)*
 - [x] Turn-timer sound and screen glow under 5 seconds. *(Cloud: red pulsing rim and a tick each second on your own step.)*
-- [ ] Friends list and invites (Nakama friends API is already used for block); push notification "your turn" via FCM.
-- [ ] Daily and weekly quests feeding a free cosmetic track (daily bonus and the season board exist).
+- [x] Friends list and invites. *(Cloud: add by exact username, accept, remove; invite a mutual friend to a private room through a Nakama in-app notification, shown once whether it arrives live or while offline. Try it on two phones.)*
+- [ ] Push notification "your turn" via FCM (needs a Firebase project and the Android/iOS plugins on a real machine).
+- [x] Daily and weekly quests feeding a free cosmetic track. *(Cloud: 3 daily and 2 weekly quests, track points, card backs and table felts with a picker in the lobby; nothing on the track is sold. Tune the point values after real play.)*
 - [ ] Curated card skins sold a la carte through RevenueCat (see `docs/research/03-engagement-monetization.md`).
 - [ ] Designer unlock and custom card upload (see `docs/research/05-custom-card-upload.md`).
 - [x] Better bots: the current auto-move policy is a placeholder. *(Cloud: real-game bots use a heuristic bot in `server/src/engine/bot.ts` that decides from its own seat's view; against the old policy it averages 20.1 vs 13.1 at 3 seats and 15.3 vs 13.2 at 7, with the keep pace from section C2. Timeouts and the tutorial keep the simple policy, now in `auto.ts`. Still to judge: how it feels to play against, and whether bots taking Market shares more than drawing makes games drag; see rules-spec section 8.2.)*

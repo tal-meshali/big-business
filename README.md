@@ -57,6 +57,8 @@ Second playtest fixes: bots lock pairs into their Portfolio, so they keep about 
 
 Bot tuning from simulation: at 3 and 4 seats, where bots actually play, they model opponents' remaining pickups more tightly. With one person at a 3-seat table the simple stand-in for that person wins 19% of games instead of 28%, and the bots keep more of their plays than before (rules-spec section 8.2).
 
+Phase 2 social and accounts, ported onto this line: a friends list with room invites (add by exact username, accept, remove; invite a mutual friend to a private room through a Nakama in-app notification), three daily and two weekly quests feeding a free cosmetic track (card backs and table felts, nothing sold), and Sign in with Apple and Google linking for guest accounts (the server side and lobby row are done; the native token plugins need a real machine, `docs/deploy.md` "Social sign-in"). A server security review validates every RPC payload and match message, keeps profile, room, report and rate-limit storage server-owned, and rate-limits lookups, invites, reports, room creation and friend requests (`docs/deploy.md` "Security checklist").
+
 Code conventions (acyclic, layered dependency graph checked with graphify on every push and in CI) are in `docs/conventions.md`.
 
 What still needs a real machine (phone builds, playtesting, store accounts, art) is listed in `docs/TODO-local.md`.

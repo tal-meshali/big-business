@@ -111,6 +111,9 @@ func _run() -> void:
 	failures += await _forfeit_checks()
 	failures += await _peek_checks()
 	failures += await _draw_landing_checks()
+	failures += await _friends_checks()
+	failures += await _quests_checks()
+	failures += await _account_checks()
 
 	if failures == 0:
 		print("SMOKE OK")
@@ -929,4 +932,330 @@ func _draw_landing_checks() -> int:
 		push_error("the new hand should show the drawn share in the slot it landed in")
 		failures += 1
 	table.queue_free()
+	return failures
+
+
+## Friends panel: rows render with the right buttons, the Invite button
+## follows the room code, an invite row shows and its Join fires the signal.
+func _friends_checks() -> int:
+	var failures := 0
+	# WHY: loaded by path, not by class_name: the panel uses the Net autoload,
+	# which does not exist yet when this test script is compiled.
+	var panel = load("res://scripts/ui/friends_panel.gd").new()
+	root.add_child(panel)
+	await process_frame
+	panel.set_friends([
+		{"userId": "u-bo", "name": "Bo", "online": true, "state": 0},
+		{"userId": "u-ada", "name": "Ada", "online": false, "state": 2},
+		{"userId": "u-cal", "name": "Cal", "online": false, "state": 1},
+	])
+	await process_frame
+	if panel._list.get_child_count() != 3:
+		push_error("expected 3 friend rows, got %d" % panel._list.get_child_count())
+		failures += 1
+		panel.queue_free()
+		return failures
+	var bo_row: HBoxContainer = panel._list.get_child(0)
+	if bo_row.get_child(0).get_theme_color("font_color") != panel.ONLINE:
+		push_error("online friend should have a green dot")
+		failures += 1
+	if bo_row.get_child(1).text != "Bo":
+		push_error("friend row should show the name")
+		failures += 1
+	var invite: Button = bo_row.get_child(2)
+	if invite.text != "Invite" or invite.visible:
+		push_error("Invite must be hidden outside a private room")
+		failures += 1
+	if panel._list.get_child(1).get_child(2).text != "Accept":
+		push_error("a received request should offer Accept")
+		failures += 1
+	if panel._list.get_child(2).get_child(2).text != "Pending":
+		push_error("a sent request should read Pending")
+		failures += 1
+	if bo_row.get_child(3).text != "Remove":
+		push_error("each friend row needs a Remove button")
+		failures += 1
+
+	panel.room_code = "ABC234"
+	await process_frame
+	invite = panel._list.get_child(0).get_child(2)
+	if not invite.visible:
+		push_error("Invite should show once the lobby is in a private room")
+		failures += 1
+	if panel._list.get_child(0).get_child(0).get_theme_color("font_color") != panel.ONLINE or panel._list.get_child(1).get_child(0).get_theme_color("font_color") != panel.OFFLINE:
+		push_error("online dots wrong after re-render")
+		failures += 1
+	for b in [invite, panel._list.get_child(0).get_child(3), panel._add_button, panel._name_edit]:
+		if b.custom_minimum_size.y < 48:
+			push_error("%s is under the 48 px touch target" % b.get_class())
+			failures += 1
+
+	var joined: Array = []
+	panel.join_requested.connect(func(code: String) -> void: joined.append(code))
+	panel.visible = false
+	panel.show_invite("Cara", "XYZ789")
+	await process_frame
+	if not panel.visible:
+		push_error("an invite should open the panel")
+		failures += 1
+	if panel._invites.get_child_count() != 1:
+		push_error("expected 1 invite row, got %d" % panel._invites.get_child_count())
+		failures += 1
+	else:
+		var row: HBoxContainer = panel._invites.get_child(0)
+		if not row.get_child(0).text.contains("Cara invited you to room XYZ789"):
+			push_error("invite text wrong: %s" % row.get_child(0).text)
+			failures += 1
+		var join: Button = row.get_child(1)
+		if join.text != "Join" or join.custom_minimum_size.y < 48:
+			push_error("invite row needs a 48 px Join button")
+			failures += 1
+		join.pressed.emit()
+		await process_frame
+		if joined != ["XYZ789"]:
+			push_error("Join should request the invite's code, got %s" % [joined])
+			failures += 1
+		if panel._invites.get_child_count() != 0:
+			push_error("a used invite should disappear")
+			failures += 1
+	# A live invite reaches the listening panel once and is not queued for
+	# the next lobby visit; a queued one is offered once by the next panel.
+	var net: Node = root.get_node("Net")
+	var live = NakamaAPI.ApiNotification.create(NakamaAPI, {"id": "smoke-inv-1", "code": Protocol.INVITE_CODE, "content": JSON.stringify({"fromName": "Dee", "code": "QRS456", "fromUserId": "u-dee"})})
+	net._on_notification(live)
+	await process_frame
+	if panel._invites.get_child_count() != 1 or not panel._invites.get_child(0).get_child(0).text.contains("Dee invited you to room QRS456"):
+		push_error("a live invite should show in the listening panel")
+		failures += 1
+	if not net.pending_invites.is_empty():
+		push_error("an invite shown live must not stay queued for the next lobby")
+		failures += 1
+	net.pending_invites.append({"fromName": "Eve", "code": "TUV123"})
+	var later = load("res://scripts/ui/friends_panel.gd").new()
+	root.add_child(later)
+	await process_frame
+	if later._invites.get_child_count() != 1 or not net.pending_invites.is_empty():
+		push_error("a queued invite should be shown once by the next panel")
+		failures += 1
+	later.queue_free()
+
+	# Empty list shows a hint instead of nothing.
+	panel.set_friends([])
+	if panel._list.get_child_count() != 1 or not (panel._list.get_child(0) is Label):
+		push_error("empty friends list should show a hint")
+		failures += 1
+	panel.queue_free()
+	return failures
+
+
+## Quests panel: rows from a fake profile, claim state, the cosmetic picker
+## and the card back / felt selections that CardView and the tables read.
+func _quests_checks() -> int:
+	var failures := 0
+	Cosmetics.reset()
+	# Loaded by path: naming the class here would compile the panel (and its
+	# Net calls) before the autoloads exist in a --script run.
+	var panel = load("res://scripts/ui/quests_panel.gd").new()
+	root.add_child(panel)
+	await process_frame
+	var profile := {
+		"trackPoints": 40,
+		"unlocked": ["back_classic", "table_green", "back_midnight"],
+		"equipped": {"cardBack": "back_classic", "table": "table_green"},
+		"track": [
+			{"points": 30, "cosmeticId": "back_midnight"}, {"points": 70, "cosmeticId": "table_navy"},
+			{"points": 120, "cosmeticId": "back_sunrise"}, {"points": 200, "cosmeticId": "table_burgundy"},
+			{"points": 300, "cosmeticId": "back_pinstripe"},
+		],
+		"quests": {
+			"daily": [
+				{"id": "d_play_3", "text": "Play 3 games", "target": 3, "points": 10, "progress": 3, "claimable": true, "claimed": false},
+				{"id": "d_win_1", "text": "Win a game", "target": 1, "points": 15, "progress": 0, "claimable": false, "claimed": false},
+				{"id": "d_people", "text": "Play a game with other people", "target": 1, "points": 10, "progress": 1, "claimable": false, "claimed": true},
+			],
+			"weekly": [
+				{"id": "w_win_3", "text": "Win 3 games this week", "target": 3, "points": 40, "progress": 1, "claimable": false, "claimed": false},
+				{"id": "w_coins_25", "text": "Collect 25 coins from Market shares", "target": 25, "points": 30, "progress": 25, "claimable": true, "claimed": false},
+			],
+		},
+	}
+	panel.apply_profile(profile)
+	await process_frame
+	if panel.rows.size() != 5 or panel._daily_box.get_child_count() != 3 or panel._weekly_box.get_child_count() != 2:
+		push_error("quests panel should list 3 daily and 2 weekly rows, got %d" % panel.rows.size())
+		failures += 1
+	var by_id := {}
+	for r in panel.rows:
+		by_id[r["id"]] = r
+	if by_id["d_play_3"]["button"].disabled or by_id["d_play_3"]["button"].text != "Claim":
+		push_error("a completed quest must offer Claim")
+		failures += 1
+	if not by_id["d_win_1"]["button"].disabled:
+		push_error("an unfinished quest must not be claimable")
+		failures += 1
+	if not by_id["d_people"]["button"].disabled or by_id["d_people"]["button"].text != "Claimed":
+		push_error("a claimed quest shows Claimed and stays disabled")
+		failures += 1
+	if by_id["w_coins_25"]["bar"].value != 25 or by_id["w_coins_25"]["bar"].max_value != 25:
+		push_error("progress bar should mirror progress / target")
+		failures += 1
+	if not panel._track_label.text.contains("Navy felt") or not panel._track_label.text.contains("70"):
+		push_error("track summary should name the next unlock, got %s" % panel._track_label.text)
+		failures += 1
+	if panel._track_bar.min_value != 30 or panel._track_bar.max_value != 70 or panel._track_bar.value != 40:
+		push_error("track bar bounds wrong: %s %s %s" % [panel._track_bar.min_value, panel._track_bar.max_value, panel._track_bar.value])
+		failures += 1
+
+	# A claim flips the row and can unlock the next step.
+	panel._apply_claim("d_play_3", 70, ["back_classic", "table_green", "back_midnight", "table_navy"])
+	if not by_id["d_play_3"]["button"].disabled or by_id["d_play_3"]["button"].text != "Claimed":
+		push_error("claimed row should flip to Claimed")
+		failures += 1
+	if panel.track_points != 70 or panel._table_buttons["table_navy"].disabled:
+		push_error("claim should update track points and enable the new unlock")
+		failures += 1
+
+	# Picker: locked items disabled, unlocked ones enabled, current one pressed.
+	if panel._back_buttons["back_midnight"].disabled or not panel._back_buttons["back_sunrise"].disabled or not panel._back_buttons["back_pinstripe"].disabled:
+		push_error("card back picker should enable only unlocked backs")
+		failures += 1
+	if not panel._back_buttons["back_sunrise"].text.contains("120"):
+		push_error("locked items show their unlock threshold, got %s" % panel._back_buttons["back_sunrise"].text)
+		failures += 1
+	if not panel._back_buttons["back_classic"].button_pressed:
+		push_error("the equipped back should show as pressed")
+		failures += 1
+	if not panel._table_buttons["table_burgundy"].disabled:
+		push_error("locked felt must be disabled")
+		failures += 1
+
+	# Picking applies to Cosmetics at once (the server call fails offline and is ignored).
+	var changes: Array = []
+	panel.cosmetic_changed.connect(func(slot: String, id: String) -> void: changes.append([slot, id]))
+	panel._on_pick("cardBack", "back_midnight")
+	if Cosmetics.card_back != "back_midnight" or not panel._back_buttons["back_midnight"].button_pressed or panel._back_buttons["back_classic"].button_pressed:
+		push_error("picking an unlocked back should apply it and move the pressed state")
+		failures += 1
+	if changes != [["cardBack", "back_midnight"]]:
+		push_error("cosmetic_changed should fire once with the pick, got %s" % [changes])
+		failures += 1
+	panel._on_pick("cardBack", "back_pinstripe")
+	if Cosmetics.card_back == "back_pinstripe":
+		push_error("a locked back must not be applied")
+		failures += 1
+	var green := Cosmetics.table_bg_color()
+	panel._on_pick("table", "table_navy")
+	if Cosmetics.table != "table_navy" or Cosmetics.table_bg_color() == green:
+		push_error("picking an unlocked felt should change the table colour")
+		failures += 1
+
+	# The card back drives CardView's back; the table reads the felt.
+	var card := CardView.new()
+	root.add_child(card)
+	card.setup(1, 0, 0, false)
+	await process_frame
+	if card.face_up or Cosmetics.card_back_entry()["id"] != "back_midnight":
+		push_error("face-down card should draw the selected back (%s)" % Cosmetics.card_back)
+		failures += 1
+	card.queue_free()
+	var table = load("res://scenes/table.tscn").instantiate()
+	root.add_child(table)
+	await process_frame
+	var felt: ColorRect = table.get_child(0)
+	if felt.color != Cosmetics.table_bg_color() or felt.color == green:
+		push_error("table background should use the picked felt")
+		failures += 1
+	table.queue_free()
+
+	# get_profile applies the server's equipped set; unknown ids are ignored.
+	Cosmetics.apply_equipped({"cardBack": "back_sunrise", "table": "nonsense"})
+	if Cosmetics.card_back != "back_sunrise" or Cosmetics.table != "table_navy":
+		push_error("apply_equipped should take valid ids only")
+		failures += 1
+
+	# The lobby toggles the overlay and recolours its felt.
+	var main = load("res://scenes/main.tscn").instantiate()
+	root.add_child(main)
+	await process_frame
+	if main._quests_panel.visible:
+		push_error("quests overlay starts hidden")
+		failures += 1
+	main._on_toggle_quests()
+	if not main._quests_panel.visible:
+		push_error("quests button should open the overlay")
+		failures += 1
+	main._quests_panel.apply_profile(profile)
+	if main._quests_panel.rows.size() != 5:
+		push_error("lobby panel should take the profile")
+		failures += 1
+	main._on_cosmetic_changed("table", Cosmetics.table)
+	if main._felt.color != Cosmetics.table_bg_color():
+		push_error("lobby felt should follow the picked table")
+		failures += 1
+	main.queue_free()
+	panel.queue_free()
+	Cosmetics.reset()
+	return failures
+
+
+## Account linking: no token provider on Linux, so the lobby shows the guest
+## label and hides both link buttons; the pure helpers behave.
+func _account_checks() -> int:
+	var failures := 0
+	var avail: Dictionary = SocialTokens.available()
+	if avail.get("apple", true) or avail.get("google", true):
+		push_error("SocialTokens.available() should be all false on %s, got %s" % [OS.get_name(), avail])
+		failures += 1
+	if SocialTokens.is_mobile():
+		push_error("SocialTokens.is_mobile() should be false in the headless test")
+		failures += 1
+	if SocialTokens.request_apple() != "" or SocialTokens.request_google() != "":
+		push_error("SocialTokens.request_* must return \"\" without a plugin")
+		failures += 1
+
+	var net: Node = root.get_node("Net")
+	if net.describe_account_links({}) != "Guest account (device)":
+		push_error("describe_account_links({}) should be the guest label")
+		failures += 1
+	if net.describe_account_links({"apple": false, "google": false, "device": true}) != "Guest account (device)":
+		push_error("device-only links should be the guest label")
+		failures += 1
+	if net.describe_account_links({"apple": true, "google": false}) != "Signed in with Apple":
+		push_error("apple-only links should say Signed in with Apple")
+		failures += 1
+	if net.describe_account_links({"apple": true, "google": true}) != "Signed in with Apple and Google":
+		push_error("both links should list both providers")
+		failures += 1
+	# Offline: linking with an empty token or no session fails cleanly, and
+	# the RPC wrapper returns {} instead of touching a null client.
+	if await net.link_apple("") or await net.link_google("") or await net.unlink_apple() or await net.unlink_google():
+		push_error("link/unlink must fail without a token or session")
+		failures += 1
+	if not (await net.get_account_links()).is_empty():
+		push_error("get_account_links should be {} while offline")
+		failures += 1
+	# Provider persistence round-trip through user://net.cfg.
+	var previous_provider: String = net.provider
+	net.provider = "apple"
+	net.save_settings()
+	var cfg := ConfigFile.new()
+	if cfg.load(net.SETTINGS_PATH) != OK or cfg.get_value("player", "provider", "") != "apple":
+		push_error("provider should be saved under [player] provider")
+		failures += 1
+	net.provider = previous_provider
+	net.save_settings()
+
+	# WHY: loaded by path, not by class_name: the lobby uses the Net autoload,
+	# which the class-name scan would otherwise pull into the graph as a cycle.
+	var lobby = load("res://scripts/ui/main.gd").new()
+	root.add_child(lobby)
+	await process_frame
+	await process_frame
+	if lobby._account_label.text != "Guest account (device)":
+		push_error("account row should show the guest label offline, got %s" % lobby._account_label.text)
+		failures += 1
+	if lobby._link_apple_button.visible or lobby._link_google_button.visible:
+		push_error("link buttons must be hidden without a token provider")
+		failures += 1
+	lobby.queue_free()
 	return failures

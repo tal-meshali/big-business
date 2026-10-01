@@ -22,7 +22,23 @@ socket:
 
 runtime:
   js_entrypoint: index.js
+  # Freeze the JS globals between calls (Nakama's default; stated so nobody turns it off).
+  js_read_only_globals: true
 
 match:
   input_queue_size: 128
   call_queue_size: 128
+
+# Sign in with Apple / Google Sign-In (docs/deploy.md "Social sign-in").
+# Device-id guest auth needs none of this; the lobby's Account row links a
+# provider to the guest account so it survives reinstalls.
+social:
+  apple:
+    # CHANGE_ME: the app's bundle id from the iOS export preset (for example
+    # com.<you>.bigbusiness). Nakama refuses Apple sign-in while it is empty and
+    # verifies Apple identity tokens (JWTs) with Apple's public keys.
+    bundle_id: ""
+# Google needs no Nakama setting in 3.28: id tokens are verified against
+# Google's public certificates. The OAuth *web* client id from the Google
+# Cloud console goes into the Android sign-in plugin config on the client
+# (client/scripts/net/social_tokens.gd), not here.

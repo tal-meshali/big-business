@@ -3,11 +3,13 @@
  * through the public API with the Nakama JS client:
  *   1. private room: 3 humans, ready-up, get-ready countdown, random legal
  *      play until dividend day
- *   2. illegal action is rejected with OP_ERROR
+ *   2. illegal and malformed actions are rejected with OP_ERROR (match survives)
  *   3. leave and rejoin mid-game restores a view
  *   4. forfeit: a bot takes the seat, no rejoin, the match closes when
  *      every player has forfeited
- *   5. quick play: 1 human, lobby wait, bots fill, game completes
+ *   5. friends: mutual add, room invite notification, join by code, refusals
+ *   5b. bad RPC payloads and the report rate limit are rejected cleanly
+ *   6. quick play: 1 human, lobby wait, bots fill, game completes
  * Exit code 0 on success.
  */
 import WebSocket from 'ws';
@@ -20,6 +22,7 @@ const PORT = process.env.NAKAMA_PORT || '7350';
 const KEY = process.env.NAKAMA_KEY || 'defaultkey';
 
 const OP_ACTION = 1, OP_READY = 2, OP_EMOTE = 3, OP_FORFEIT = 4, OP_VIEW = 10, OP_EVENTS = 11, OP_LOBBY = 12, OP_ERROR = 13, OP_EMOTE_SHOWN = 14, OP_FORFEITED = 15;
+const INVITE_CODE = 100; // notification code, see src/match/protocol.ts
 const STARTING_COINS = 10;
 
 const log = (...a) => console.log(new Date().toISOString().slice(11, 19), ...a);
@@ -61,8 +64,22 @@ async function rpc(p, id, payload) {
   return typeof r.payload === 'string' ? JSON.parse(r.payload) : r.payload;
 }
 
-async function join(p, matchId) {
-  await p.socket.joinMatch(matchId);
+/** Calls an RPC that must fail; returns the server's message (best effort) or fails the run. */
+async function rpcRejected(p, id, payload, what) {
+  try {
+    await rpc(p, id, payload);
+  } catch (e) {
+    try {
+      if (e && typeof e.json === 'function') return String((await e.json()).message || 'error');
+    } catch (_) { /* not a JSON body */ }
+    return String((e && e.message) || e);
+  }
+  fail(`${what} should be rejected`);
+}
+
+/** Joins a match; a private room also needs its code in the join metadata. */
+async function join(p, matchId, code) {
+  await p.socket.joinMatch(matchId, undefined, code ? { code } : undefined);
   p.matchId = matchId;
 }
 
@@ -109,11 +126,19 @@ async function testPrivateRoom() {
   const [a, b, c] = await Promise.all([makePlayer('Alice'), makePlayer('Bob'), makePlayer('Cara')]);
   const created = await rpc(a, 'create_room', { stepSeconds: 5, maxSeats: 4 });
   if (!/^[A-Z2-9]{6}$/.test(created.code)) fail(`bad room code ${created.code}`);
-  await join(a, created.matchId);
+  await join(a, created.matchId, created.code);
   const resolved = await rpc(b, 'join_room', { code: created.code.toLowerCase() });
   if (resolved.matchId !== created.matchId) fail('join_room resolved a different match');
-  await join(b, resolved.matchId);
-  await join(c, resolved.matchId);
+  // Private rooms: the match id alone is not enough, and listings never show the code.
+  for (const bad of [undefined, 'ZZZ999']) {
+    let refused = false;
+    try { await c.socket.joinMatch(created.matchId, undefined, bad ? { code: bad } : undefined); } catch (e) { refused = true; }
+    if (!refused) fail(`joining a private room with ${bad ? 'a wrong code' : 'no code'} must be refused`);
+  }
+  const privateList = await c.client.listMatches(c.session, 100, true, undefined, 0, 10, '+label.mode:private');
+  if ((privateList.matches || []).some((m) => String(m.label || '').includes(created.code))) fail('match labels must not carry room codes');
+  await join(b, resolved.matchId, created.code);
+  await join(c, resolved.matchId, created.code);
   await sleep(600);
   if (!a.lobby || a.lobby.seats.length !== 3) fail(`lobby should list 3 seats, got ${JSON.stringify(a.lobby)}`);
   if (a.lobby.roomCode !== created.code) fail('lobby should carry the room code');
@@ -155,6 +180,19 @@ async function testPrivateRoom() {
   if (inactive.errors.length === 0) fail('illegal action should produce OP_ERROR');
   log('illegal action rejected:', inactive.errors[0].message);
 
+  // Malformed actions from the active player: each gets OP_ERROR and none
+  // ends the match (the timeout auto-move below proves the loop still runs).
+  const activeP = [a, b, c].find((p) => p.view.active === p.view.you);
+  const seqBeforeBad = activeP.view.seq;
+  for (const raw of ['null', '5', '[]', '{', '{"type":"cheat"}', '{"type":"take_market","cardId":"1"}', '{"type":"take_supply","cardId":' + '9'.repeat(400) + '}']) {
+    await activeP.socket.sendMatchState(activeP.matchId, OP_ACTION, raw);
+  }
+  await sleep(600);
+  if (activeP.errors.length < 7) fail(`malformed actions should each produce OP_ERROR, got ${activeP.errors.length}`);
+  if (activeP.view.seq !== seqBeforeBad) fail('malformed actions must not change the game');
+  if (activeP.disconnected) fail('malformed actions must not end the match');
+  log('malformed actions rejected:', activeP.errors.map((e) => e.message).join(', '));
+
   // Timeout: nobody acts for > 5s, the server auto-moves the active seat.
   const seqBefore = a.view.seq;
   await sleep(6500);
@@ -173,9 +211,9 @@ async function testPrivateRoom() {
   // Report: files into the moderation queue; self-report rejected.
   const rep = await rpc(a, 'report_player', { userId: b.userId, reason: 'behaviour', matchId: a.matchId, note: 'e2e test report' });
   if (!rep.ok) fail('report_player should succeed');
-  let selfRejected = false;
-  try { await rpc(a, 'report_player', { userId: a.userId, reason: 'other' }); } catch (e) { selfRejected = true; }
-  if (!selfRejected) fail('self report should be rejected');
+  await rpcRejected(a, 'report_player', { userId: a.userId, reason: 'other' }, 'self report');
+  await rpcRejected(a, 'report_player', { userId: 'not-a-user-id', reason: 'other' }, 'report with a junk user id');
+  await rpcRejected(a, 'report_player', { userId: ['x'], reason: { a: 1 }, note: 5 }, 'report with wrong field types');
 
   // Leave and rejoin mid-game.
   const leaver = b;
@@ -205,8 +243,13 @@ async function testPrivateRoom() {
   const wp = await rpc(winnerPlayer, 'get_profile');
   if (wp.progress.wins !== 1 || wp.progress.bestRank !== 1) fail('winner should have a win');
   // Last place earns no season points, so a 3-seat game writes 2 records; the winner leads.
+  // Read the requested owners' records, not the top 10: on a database that
+  // has seen earlier runs the top 10 is full of equal scores from other games.
   const lb = await a.client.listLeaderboardRecords(a.session, 'season', [a.userId, b.userId, c.userId], 10);
-  const mine = (lb.records || []).filter((r) => [a.userId, b.userId, c.userId].includes(r.owner_id));
+  const seen = new Set();
+  const mine = [...(lb.owner_records || []), ...(lb.records || [])]
+    .filter((r) => [a.userId, b.userId, c.userId].includes(r.owner_id))
+    .filter((r) => !seen.has(r.owner_id) && seen.add(r.owner_id));
   if (mine.length !== 2) fail(`season leaderboard should have 2 records for this game, got ${JSON.stringify(lb.records)}`);
   const top = mine.sort((x, y) => Number(y.score) - Number(x.score))[0];
   if (top.owner_id !== winnerPlayer.userId || Number(top.subscore) !== 1) fail('winner should lead the season records with a win');
@@ -235,8 +278,8 @@ async function testForfeit() {
   log('--- forfeit: 2 humans and a bot; one forfeits, then the other');
   const [f, g] = await Promise.all([makePlayer('Quitter'), makePlayer('Stayer')]);
   const created = await rpc(f, 'create_room', { stepSeconds: 30, maxSeats: 3 });
-  await join(f, created.matchId);
-  await join(g, created.matchId);
+  await join(f, created.matchId, created.code);
+  await join(g, created.matchId, created.code);
   await sleep(400);
   await send(f, OP_READY);
   await send(g, OP_READY);
@@ -269,8 +312,7 @@ async function testForfeit() {
   // Once every player has forfeited, the match closes.
   await send(g, OP_FORFEIT);
   await sleep(1000);
-  const list = await g.client.listMatches(g.session, 10, true, undefined, 0, 10, `+label.code:${created.code}`);
-  if ((list.matches || []).length !== 0) fail('the match should close when every player has forfeited');
+  await rpcRejected(g, 'join_room', { code: created.code }, 'joining a room whose match closed after the last forfeit');
   log('forfeit: bot took seat', seat, 'and played on; rejoin refused; match closed after the last forfeit');
   for (const p of [f, g]) p.socket.disconnect(true);
 }
@@ -326,9 +368,122 @@ async function testTutorial() {
   other.socket.disconnect(true);
 }
 
+async function testRejections() {
+  log('--- rejections: bad payloads and the report rate limit');
+  const [p, target] = await Promise.all([makePlayer('Picky'), makePlayer('Target')]);
+  log('join_room junk code:', await rpcRejected(p, 'join_room', { code: 123456 }, 'join_room with a numeric code'));
+  await rpcRejected(p, 'join_room', { code: ['ABC234'] }, 'join_room with an array code');
+  await rpcRejected(p, 'join_room', { code: 'ABC10O' }, 'join_room with characters outside the alphabet');
+  await rpcRejected(p, 'join_room', { code: 'ZZZZZZ' }, 'join_room for a room that does not exist');
+  await rpcRejected(p, 'invite_friend', { userId: 42, code: 'ABC234' }, 'invite with a numeric user id');
+  await rpcRejected(p, 'find_player', { name: { $ne: '' } }, 'find_player with an object name');
+  // Junk numbers never break create_room: they are clamped or defaulted.
+  const created = await rpc(p, 'create_room', { stepSeconds: -1e12, maxSeats: 'seven' });
+  if (!/^[A-Z2-9]{6}$/.test(created.code)) fail('create_room with junk numbers should still create a room');
+  // Reports: 5 per minute per reporter, then 'too many requests'.
+  for (let i = 0; i < 5; i++) {
+    const rep = await rpc(p, 'report_player', { userId: target.userId, reason: 'other', note: `spam ${i}` });
+    if (!rep.ok) fail(`report ${i} should succeed`);
+  }
+  log('6th report in a minute:', await rpcRejected(p, 'report_player', { userId: target.userId, reason: 'other' }, 'a 6th report within a minute'));
+  // Server-owned storage: a client can neither pre-seed nor delete it.
+  let seedRefused = false;
+  try {
+    await p.client.writeStorageObjects(p.session, [{ collection: 'profile', key: 'progress', value: { xp: 1e9, trackPoints: 1e6 }, permission_read: 1, permission_write: 0 }]);
+  } catch (e) { seedRefused = true; }
+  if (!seedRefused) fail('a client write to the profile collection must be refused');
+  const seeded = await rpc(p, 'get_profile');
+  if (seeded.progress.xp !== 0) fail(`a refused profile write must not count: ${JSON.stringify(seeded.progress)}`);
+  let deleteRefused = false;
+  try { await p.client.deleteStorageObjects(p.session, { object_ids: [{ collection: 'ratelimit', key: 'report_player' }] }); } catch (e) { deleteRefused = true; }
+  if (!deleteRefused) fail('a client delete in the ratelimit collection must be refused');
+  // One friend request naming many players is charged per player.
+  let bulkRefused = false;
+  try { await p.client.addFriends(p.session, undefined, Array.from({ length: 25 }, (_, i) => `nobody${i}x${Date.now()}`)); } catch (e) { bulkRefused = true; }
+  if (!bulkRefused) fail('a friend request naming 25 players must be refused');
+  log('client storage writes and bulk friend requests refused');
+  for (const q of [p, target]) q.socket.disconnect(true);
+}
+
+async function testFriendsAndInvites() {
+  log('--- friends: add both ways, invite to a private room, strangers refused');
+  const [host, guest, stranger] = await Promise.all([makePlayer('Host'), makePlayer('Guest'), makePlayer('Stranger')]);
+  const invites = [];
+  // Nakama also pushes its own friend-request notices (code -2); keep only room invites.
+  guest.socket.onnotification = (n) => { if (Number(n.code) === INVITE_CODE) invites.push(n); };
+
+  // find_player: exact username, never the caller, unknown names rejected.
+  const found = await rpc(host, 'find_player', { name: guest.session.username });
+  if (found.userId !== guest.userId || found.username !== guest.session.username) fail(`find_player wrong: ${JSON.stringify(found)}`);
+  let selfFound = false;
+  try { await rpc(host, 'find_player', { name: host.session.username }); selfFound = true; } catch (e) { /* expected */ }
+  if (selfFound) fail('find_player must not return the caller');
+  let unknownFound = false;
+  try { await rpc(host, 'find_player', { name: 'nobody-' + Date.now() }); unknownFound = true; } catch (e) { /* expected */ }
+  if (unknownFound) fail('find_player should reject unknown names');
+
+  // A one-sided friend request is not a friendship: the invite is refused.
+  if (!(await host.client.addFriends(host.session, [guest.userId]))) fail('addFriends (host -> guest) failed');
+  const created = await rpc(host, 'create_room', { stepSeconds: 5, maxSeats: 3 });
+  await join(host, created.matchId, created.code);
+  let pendingRejected = false;
+  try { await rpc(host, 'invite_friend', { userId: guest.userId, code: created.code }); } catch (e) { pendingRejected = true; }
+  if (!pendingRejected) fail('invite must be refused while the friend request is pending');
+
+  // Adding back makes the friendship mutual (state 0 on both sides).
+  if (!(await guest.client.addFriends(guest.session, [host.userId]))) fail('addFriends (guest -> host) failed');
+  const mutual = await host.client.listFriends(host.session, 0, 10);
+  if (!(mutual.friends || []).some((f) => f.user && f.user.id === guest.userId)) fail(`friends should be mutual: ${JSON.stringify(mutual)}`);
+
+  // The invite reaches the guest's socket with the room code and the sender.
+  const sent = await rpc(host, 'invite_friend', { userId: guest.userId, code: created.code.toLowerCase() });
+  if (!sent.ok) fail('invite_friend should succeed for a mutual friend');
+  const t0 = Date.now();
+  while (invites.length === 0 && Date.now() - t0 < 5000) await sleep(100);
+  const inv = invites[0];
+  if (!inv || Number(inv.code) !== INVITE_CODE) fail(`invite notification missing: ${JSON.stringify(invites)}`);
+  if (!inv.content || inv.content.code !== created.code || inv.content.fromUserId !== host.userId || !inv.content.fromName) {
+    fail(`invite content wrong: ${JSON.stringify(inv.content)}`);
+  }
+  if (inv.sender_id !== host.userId) fail('invite sender should be the host');
+  // Persistent: a client that connects later still finds it.
+  const listed = await guest.client.listNotifications(guest.session, 10);
+  if (!(listed.notifications || []).some((n) => n.code === INVITE_CODE && n.content && n.content.code === created.code)) {
+    fail(`invite should be persisted: ${JSON.stringify(listed)}`);
+  }
+  log('invite delivered from', inv.content.fromName, 'for room', inv.content.code);
+
+  // The guest joins by the code from the notification.
+  const resolved = await rpc(guest, 'join_room', { code: inv.content.code });
+  if (resolved.matchId !== created.matchId) fail('invite code should resolve to the host room');
+  await join(guest, resolved.matchId, inv.content.code);
+  await sleep(600);
+  if (!host.lobby || host.lobby.seats.length !== 2) fail(`lobby should list host and guest, got ${JSON.stringify(host.lobby)}`);
+
+  // Refusals: a non-friend, an unknown room, self, and a friend who blocked the caller.
+  let strangerRejected = false;
+  try { await rpc(host, 'invite_friend', { userId: stranger.userId, code: created.code }); } catch (e) { strangerRejected = true; }
+  if (!strangerRejected) fail('invite to a non-friend must be rejected');
+  let badRoomRejected = false;
+  try { await rpc(host, 'invite_friend', { userId: guest.userId, code: 'ZZZZZZ' }); } catch (e) { badRoomRejected = true; }
+  if (!badRoomRejected) fail('invite to an unknown room must be rejected');
+  let selfRejected = false;
+  try { await rpc(host, 'invite_friend', { userId: host.userId, code: created.code }); } catch (e) { selfRejected = true; }
+  if (!selfRejected) fail('self invite must be rejected');
+  if (!(await guest.client.blockFriends(guest.session, [host.userId]))) fail('blockFriends failed');
+  let blockedRejected = false;
+  try { await rpc(host, 'invite_friend', { userId: guest.userId, code: created.code }); } catch (e) { blockedRejected = true; }
+  if (!blockedRejected) fail('invite must be rejected once the target has blocked the caller');
+  if (invites.length !== 1) fail(`only one invite should have been delivered, got ${invites.length}`);
+  log('non-friend, unknown room, self and blocked invites rejected');
+  for (const p of [host, guest, stranger]) p.socket.disconnect(true);
+}
+
 try {
   await testPrivateRoom();
   await testForfeit();
+  await testFriendsAndInvites();
+  await testRejections();
   await testQuickPlay();
   await testTutorial();
   log('E2E OK');

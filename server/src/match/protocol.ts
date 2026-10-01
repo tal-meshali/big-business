@@ -1,5 +1,5 @@
 /** Wire protocol between the Godot client and the match handler. */
-import type { Action, PlayerView } from '../engine';
+import type { PlayerView } from '../engine';
 
 /** Client -> server opcodes. */
 export const OP_ACTION = 1;
@@ -38,6 +38,9 @@ export const EMOTE_IDS = [
   'hello', 'good_move', 'oops', 'thanks', 'gg', 'hurry_up', 'nice', 'no_way',
 ];
 export const EMOTE_COOLDOWN_MS = 2000;
+
+/** Notification code of a room invite sent by the invite_friend RPC. */
+export const INVITE_CODE = 100;
 
 export const MATCH_MODULE = 'big_business';
 
@@ -96,22 +99,5 @@ export function clampStepSeconds(requested: unknown): number {
   if (requested === undefined || requested === null || !isFinite(n)) return DEFAULT_PARAMS.stepSeconds;
   if (n === 0) return 0;
   return Math.min(MAX_STEP_SECONDS, Math.max(MIN_STEP_SECONDS, Math.round(n)));
-}
-
-/**
- * Validate a decoded OP_ACTION payload. Returns null unless it is an object
- * with one of the four action types and, where needed, an integer cardId.
- */
-export function parseAction(raw: unknown): Action | null {
-  // WHY: the payload comes straight from a client; anything the engine does
-  // not expect (null, a string, a missing type) must be rejected here rather
-  // than throw a TypeError inside matchLoop, which would end the match.
-  if (typeof raw !== 'object' || raw === null) return null;
-  const r = raw as { type?: unknown; cardId?: unknown };
-  if (r.type === 'take_supply') return { type: 'take_supply' };
-  if (r.type !== 'take_market' && r.type !== 'play_portfolio' && r.type !== 'play_market') return null;
-  const id = r.cardId;
-  if (typeof id !== 'number' || !isFinite(id) || Math.floor(id) !== id) return null;
-  return { type: r.type, cardId: id };
 }
 

@@ -3,20 +3,20 @@
  *
  * The handler owns a GameState from the pure engine and is the only place the
  * deck is shuffled or scored. Clients send intents (OP_ACTION) and receive a
- * per-seat PlayerView (OP_VIEW) plus animation events (OP_EVENTS).
+ * per-seat PlayerView (OP_VIEW) plus animation events (OP_EVENTS). Applying
+ * actions and decoding client messages live in actions.ts and emotes.ts.
  */
-import { applyAction, autoAction, botAction, createGame, RulesError, type SeatDef } from '../engine';
-import type { Action, GameEvent } from '../engine';
-import { BOT_NAMES, clampStepSeconds, DEFAULT_PARAMS, OP_ACTION, OP_ERROR, OP_EVENTS, OP_LOBBY, OP_READY, parseAction, type MatchParams } from './protocol';
+import { autoAction, botAction, createGame, type SeatDef } from '../engine';
+import { BOT_NAMES, clampStepSeconds, DEFAULT_PARAMS, OP_ACTION, OP_ERROR, OP_LOBBY, OP_READY, type MatchParams } from './protocol';
+import { apply, handleActions } from './actions';
 import { awardProgress } from './awards';
 import { handleEmotes } from './emotes';
 import { handleForfeits } from './forfeit';
-import { botThinkMs, GET_READY_MS, label, lobbyMessage, nowMs, send, type MatchState } from './state';
+import { botThinkMs, GET_READY_MS, label, lobbyJoinError, lobbyMessage, nowMs, send, type MatchState } from './state';
 import { sendViews } from './views';
 
 const TICK_RATE = 4; // ticks per second
 const END_LINGER_MS = 45_000;
-const AUTO_MOVES_TO_BOT = 3;
 
 function startGame(s: MatchState, nk: nkruntime.Nakama, logger: nkruntime.Logger, dispatcher: nkruntime.MatchDispatcher): void {
   const defs: SeatDef[] = s.lobby.map((l) => ({ id: l.userId, name: l.name, isBot: false }));
@@ -41,6 +41,7 @@ function startGame(s: MatchState, nk: nkruntime.Nakama, logger: nkruntime.Logger
     }
   }
   s.seatByUser = {};
+  s.pendingJoins = {};
   for (let i = 0; i < s.game.seats.length; i++) {
     const seat = s.game.seats[i];
     if (seat && !seat.isBot) s.seatByUser[seat.id] = i;
@@ -50,47 +51,6 @@ function startGame(s: MatchState, nk: nkruntime.Nakama, logger: nkruntime.Logger
   dispatcher.matchLabelUpdate(label(s));
   sendViews(s, dispatcher);
   void nk;
-}
-
-function apply(
-  s: MatchState,
-  dispatcher: nkruntime.MatchDispatcher,
-  logger: nkruntime.Logger,
-  seat: number,
-  action: Action,
-  source: 'player' | 'bot' | 'timeout',
-): boolean {
-  if (!s.game) return false;
-  let events: GameEvent[];
-  try {
-    const result = applyAction(s.game, seat, action, nowMs(), source !== 'player');
-    s.game = result.state;
-    events = result.events;
-  } catch (e) {
-    if (e instanceof RulesError) {
-      logger.warn('rejected %s from seat %d: %s', action.type, seat, e.message);
-      return false;
-    }
-    throw e;
-  }
-  s.log.push({ seq: s.game.seq, seat, action, source });
-
-  // A human who keeps timing out becomes a bot for the rest of the game.
-  const seatState = s.game.seats[seat];
-  if (seatState && !seatState.isBot && seatState.autoMoves >= AUTO_MOVES_TO_BOT) {
-    seatState.isBot = true;
-    logger.info('seat %d converted to bot after repeated timeouts', seat);
-  }
-
-  send(dispatcher, OP_EVENTS, { seq: s.game.seq, events });
-  sendViews(s, dispatcher);
-  if (s.game.phase === 'ended') {
-    s.endedAt = nowMs();
-    dispatcher.matchLabelUpdate(label(s));
-  } else {
-    s.botActAt = nowMs() + botThinkMs(s);
-  }
-  return true;
 }
 
 export const matchInit: nkruntime.MatchInitFunction<MatchState> = (ctx, logger, nk, params) => {
@@ -114,6 +74,7 @@ export const matchInit: nkruntime.MatchInitFunction<MatchState> = (ctx, logger, 
   const state: MatchState = {
     params: p,
     presences: {},
+    pendingJoins: {},
     lobby: [],
     seatByUser: {},
     game: null,
@@ -133,23 +94,32 @@ export const matchInit: nkruntime.MatchInitFunction<MatchState> = (ctx, logger, 
   return { state, tickRate: TICK_RATE, label: label(state) };
 };
 
-export const matchJoinAttempt: nkruntime.MatchJoinAttemptFunction<MatchState> = (ctx, logger, nk, dispatcher, tick, state, presence) => {
+export const matchJoinAttempt: nkruntime.MatchJoinAttemptFunction<MatchState> = (ctx, logger, nk, dispatcher, tick, state, presence, metadata) => {
   void ctx; void logger; void nk; void dispatcher; void tick;
   if (state.game) {
     // Rejoin only.
     if (state.seatByUser[presence.userId] !== undefined) return { state, accept: true };
     return { state, accept: false, rejectMessage: 'game already started' };
   }
-  if (state.lobby.length >= state.params.maxSeats) {
-    return { state, accept: false, rejectMessage: 'room full' };
-  }
+  const now = nowMs();
+  const error = lobbyJoinError(state, presence.userId, metadata ? metadata['code'] : undefined, now);
+  if (error) return { state, accept: false, rejectMessage: error };
+  // WHY: matchJoin runs after this returns, so two attempts in the same
+  // window would both see the old count; accepted-but-not-joined users
+  // hold a seat until their matchJoin arrives (lobbyJoinError).
+  let inLobby = false;
+  for (const l of state.lobby) if (l.userId === presence.userId) inLobby = true;
+  if (!inLobby) state.pendingJoins[presence.userId] = now;
   return { state, accept: true };
 };
 
 export const matchJoin: nkruntime.MatchJoinFunction<MatchState> = (ctx, logger, nk, dispatcher, tick, state, presences) => {
   void ctx; void nk; void tick;
   for (const p of presences) {
+    // A second session of the same user (another device, or a reconnect the
+    // server has not noticed yet) takes over: views go to the newest socket.
     state.presences[p.userId] = p;
+    delete state.pendingJoins[p.userId];
     if (state.game) {
       const seat = state.seatByUser[p.userId];
       if (seat !== undefined) {
@@ -183,7 +153,15 @@ export const matchJoin: nkruntime.MatchJoinFunction<MatchState> = (ctx, logger, 
 export const matchLeave: nkruntime.MatchLeaveFunction<MatchState> = (ctx, logger, nk, dispatcher, tick, state, presences) => {
   void ctx; void nk; void tick;
   for (const p of presences) {
+    // WHY: only the session that is current for this user counts as leaving;
+    // a stale session's leave must not drop a user who already reconnected.
+    const current = state.presences[p.userId];
+    if (current && current.sessionId !== p.sessionId) {
+      logger.info('ignoring leave of stale session for %s', p.userId);
+      continue;
+    }
     delete state.presences[p.userId];
+    delete state.pendingJoins[p.userId];
     if (state.game) {
       const seat = state.seatByUser[p.userId];
       if (seat !== undefined) {
@@ -243,8 +221,17 @@ export const matchLoop: nkruntime.MatchLoopFunction<MatchState> = (ctx, logger, 
     return { state };
   }
 
-  handleEmotes(state, messages, nk, dispatcher, now);
-  handleForfeits(state, messages, nk, logger, dispatcher, now);
+  // ---- Playing: client messages (never allowed to throw) ----------------
+  try {
+    handleEmotes(state, messages, nk, dispatcher, now);
+  } catch (e) {
+    logger.error('emote handling failed: %s', String(e));
+  }
+  try {
+    handleForfeits(state, messages, nk, logger, dispatcher, now);
+  } catch (e) {
+    logger.error('forfeit handling failed: %s', String(e));
+  }
   if (Object.keys(state.seatByUser).length === 0) {
     logger.info('every player forfeited; closing the match');
     return null;
@@ -263,23 +250,7 @@ export const matchLoop: nkruntime.MatchLoopFunction<MatchState> = (ctx, logger, 
   }
 
   // ---- Playing: client actions ------------------------------------------
-  for (const m of messages) {
-    if (m.opCode !== OP_ACTION) continue;
-    const seat = state.seatByUser[m.sender.userId];
-    if (seat === undefined) continue;
-    let action: Action | null = null;
-    try {
-      action = parseAction(JSON.parse(nk.binaryToString(m.data)));
-    } catch (e) {
-      action = null;
-    }
-    if (!action) {
-      send(dispatcher, OP_ERROR, { message: 'bad action payload' }, [m.sender]);
-      continue;
-    }
-    const ok = apply(state, dispatcher, logger, seat, action, 'player');
-    if (!ok) send(dispatcher, OP_ERROR, { message: 'illegal action', action }, [m.sender]);
-  }
+  handleActions(state, messages, nk, dispatcher, logger);
 
   // ---- Playing: bots and timeouts ---------------------------------------
   const active = state.game.seats[state.game.active];

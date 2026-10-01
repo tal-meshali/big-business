@@ -1018,6 +1018,27 @@ func _friends_checks() -> int:
 		if panel._invites.get_child_count() != 0:
 			push_error("a used invite should disappear")
 			failures += 1
+	# A live invite reaches the listening panel once and is not queued for
+	# the next lobby visit; a queued one is offered once by the next panel.
+	var net: Node = root.get_node("Net")
+	var live = NakamaAPI.ApiNotification.create(NakamaAPI, {"id": "smoke-inv-1", "code": Protocol.INVITE_CODE, "content": JSON.stringify({"fromName": "Dee", "code": "QRS456", "fromUserId": "u-dee"})})
+	net._on_notification(live)
+	await process_frame
+	if panel._invites.get_child_count() != 1 or not panel._invites.get_child(0).get_child(0).text.contains("Dee invited you to room QRS456"):
+		push_error("a live invite should show in the listening panel")
+		failures += 1
+	if not net.pending_invites.is_empty():
+		push_error("an invite shown live must not stay queued for the next lobby")
+		failures += 1
+	net.pending_invites.append({"fromName": "Eve", "code": "TUV123"})
+	var later = load("res://scripts/ui/friends_panel.gd").new()
+	root.add_child(later)
+	await process_frame
+	if later._invites.get_child_count() != 1 or not net.pending_invites.is_empty():
+		push_error("a queued invite should be shown once by the next panel")
+		failures += 1
+	later.queue_free()
+
 	# Empty list shows a hint instead of nothing.
 	panel.set_friends([])
 	if panel._list.get_child_count() != 1 or not (panel._list.get_child(0) is Label):

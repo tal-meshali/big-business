@@ -11,13 +11,17 @@ signal events_received(seq: int, events: Array)
 signal server_error(message: String)
 signal match_left
 signal emote_shown(seat: int, emote: String)
+signal player_forfeited(seat: int)
 signal reconnecting(attempt: int)
 signal reconnected
 
 const SETTINGS_PATH := "user://net.cfg"
+const DEFAULT_PORT := 7350
+## Nakama friend state 3 is "blocked by me".
+const FRIEND_STATE_BLOCKED := 3
 
 var host: String = "127.0.0.1"
-var port: int = 7350
+var port: int = DEFAULT_PORT
 var scheme: String = "http"
 var server_key: String = "defaultkey"
 
@@ -25,14 +29,23 @@ var client: NakamaClient
 var session: NakamaSession
 var socket: NakamaSocket
 var match_id: String = ""
+## The latest view of the current match ({} outside a game).
+## WHY: the lobby changes scene on the first view, so the table would
+## otherwise miss it and sit empty until the first move, or until the
+## timer ran out when you move first.
+var last_view: Dictionary = {}
 var user_id: String = ""
 var display_name: String = ""
 ## True while the current match is the tutorial (coach overlay on).
 var tutorial_mode: bool = false
-## Players muted locally (user id -> true). Not persisted across launches.
+## Players muted locally (user id -> true), saved in SETTINGS_PATH.
 var muted: Dictionary = {}
+## Players this account has blocked (user id -> true), loaded from the
+## server's friends list on connect so blocks survive reinstalls too.
+var blocked: Dictionary = {}
 var _reconnect_attempts: int = 0
 var _closing: bool = false
+var _reconnecting: bool = false
 
 
 func _ready() -> void:
@@ -46,6 +59,8 @@ func _load_settings() -> void:
 		port = cfg.get_value("server", "port", port)
 		scheme = cfg.get_value("server", "scheme", scheme)
 		display_name = cfg.get_value("player", "name", "")
+		for id in cfg.get_value("social", "muted", PackedStringArray()):
+			muted[String(id)] = true
 
 
 func save_settings() -> void:
@@ -54,7 +69,48 @@ func save_settings() -> void:
 	cfg.set_value("server", "port", port)
 	cfg.set_value("server", "scheme", scheme)
 	cfg.set_value("player", "name", display_name)
+	cfg.set_value("social", "muted", PackedStringArray(muted.keys()))
 	cfg.save(SETTINGS_PATH)
+
+
+## Parses what the player typed in the lobby's server field:
+## "127.0.0.1" or "host:7350" (plain http, port 7350 unless given), or a
+## URL such as "https://play.example.com" (port 443 unless given), which is
+## how the TLS deployment in docs/deploy.md is reached.
+static func parse_address(text: String) -> Dictionary:
+	var t := text.strip_edges()
+	var out := {"scheme": "http", "host": "127.0.0.1", "port": DEFAULT_PORT}
+	var sep := t.find("://")
+	if sep >= 0:
+		out["scheme"] = "https" if t.substr(0, sep).to_lower() == "https" else "http"
+		out["port"] = 443 if out["scheme"] == "https" else 80
+		t = t.substr(sep + 3)
+	var slash := t.find("/")
+	if slash >= 0:
+		t = t.substr(0, slash)
+	var colon := t.rfind(":")
+	if colon > 0 and t.substr(colon + 1).is_valid_int():
+		out["port"] = int(t.substr(colon + 1))
+		t = t.substr(0, colon)
+	if not t.is_empty():
+		out["host"] = t
+	return out
+
+
+func set_server_address(text: String) -> void:
+	var a := parse_address(text)
+	scheme = a["scheme"]
+	host = a["host"]
+	port = a["port"]
+
+
+## The server as the lobby field shows it: a bare host for the local
+## default, a URL otherwise.
+func server_address() -> String:
+	if scheme == "http" and port == DEFAULT_PORT:
+		return host
+	var default_port := 443 if scheme == "https" else 80
+	return "%s://%s%s" % [scheme, host, "" if port == default_port else ":%d" % port]
 
 
 func is_connected_to_server() -> bool:
@@ -87,10 +143,20 @@ func connect_to_server() -> bool:
 		return false
 	socket.received_match_state.connect(_on_match_state)
 	socket.received_match_presence.connect(_on_match_presence)
-	socket.closed.connect(_on_socket_closed)
+	socket.closed.connect(_on_socket_closed.bind(socket))
 	_reconnect_attempts = 0
+	await _load_blocked()
 	connected.emit()
 	return true
+
+
+func _load_blocked() -> void:
+	var res = await client.list_friends_async(session, FRIEND_STATE_BLOCKED, 1000)
+	if res == null or res.is_exception():
+		return
+	blocked.clear()
+	for f in res.friends:
+		blocked[f.user.id] = true
 
 
 func _persistent_device_id() -> String:
@@ -160,6 +226,7 @@ func _join_match(id: String) -> bool:
 		server_error.emit("join failed: %s" % joined.get_exception().message)
 		return false
 	match_id = id
+	last_view = {}
 	return true
 
 
@@ -167,8 +234,16 @@ func leave_match() -> void:
 	if socket != null and not match_id.is_empty():
 		await socket.leave_match_async(match_id)
 	match_id = ""
+	last_view = {}
 	tutorial_mode = false
 	match_left.emit()
+
+
+## Give up the current game, then leave it. A bot plays the seat to the end.
+func forfeit() -> void:
+	if socket != null and not match_id.is_empty():
+		await socket.send_match_state_async(match_id, Protocol.OP_FORFEIT, "{}")
+	await leave_match()
 
 
 func send_ready() -> void:
@@ -225,9 +300,10 @@ func report_player(target_user_id: String, reason: String, note: String = "") ->
 	return not rpc.is_exception()
 
 
-## Blocks a player server-side (they can no longer friend or message you) and mutes them locally.
+## Blocks a player server-side (they can no longer friend or message you)
+## and hides their emotes from now on.
 func block_player(target_user_id: String) -> bool:
-	muted[target_user_id] = true
+	blocked[target_user_id] = true
 	var res: NakamaAsyncResult = await client.block_friends_async(session, [target_user_id])
 	return not res.is_exception()
 
@@ -237,10 +313,16 @@ func mute_player(target_user_id: String, on: bool = true) -> void:
 		muted[target_user_id] = true
 	else:
 		muted.erase(target_user_id)
+	save_settings()
 
 
+func is_blocked(target_user_id: String) -> bool:
+	return blocked.has(target_user_id)
+
+
+## True when this player's emotes should be hidden (muted or blocked).
 func is_muted(target_user_id: String) -> bool:
-	return muted.has(target_user_id)
+	return muted.has(target_user_id) or blocked.has(target_user_id)
 
 
 func _on_match_state(state: NakamaRTAPI.MatchData) -> void:
@@ -249,6 +331,7 @@ func _on_match_state(state: NakamaRTAPI.MatchData) -> void:
 		return
 	match state.op_code:
 		Protocol.OP_VIEW:
+			last_view = data
 			view_updated.emit(data)
 		Protocol.OP_EVENTS:
 			events_received.emit(int(data.get("seq", 0)), data.get("events", []))
@@ -258,21 +341,43 @@ func _on_match_state(state: NakamaRTAPI.MatchData) -> void:
 			server_error.emit(String(data.get("message", "error")))
 		Protocol.OP_EMOTE_SHOWN:
 			emote_shown.emit(int(data.get("seat", -1)), String(data.get("emote", "")))
+		Protocol.OP_FORFEITED:
+			player_forfeited.emit(int(data.get("seat", -1)))
 
 
 func _on_match_presence(_event: NakamaRTAPI.MatchPresenceEvent) -> void:
 	pass
 
 
-func _on_socket_closed() -> void:
-	if _closing:
+func _on_socket_closed(closed_socket: NakamaSocket) -> void:
+	# A socket replaced by an earlier reconnect may still report its close.
+	if _closing or closed_socket != socket:
 		return
 	_try_reconnect()
+
+
+## WHY: a phone that sleeps with the app in the background may come back
+## with a socket the server already dropped, and the close is not always
+## reported until the next send. Check on resume and rejoin straight away.
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_APPLICATION_RESUMED or what == NOTIFICATION_APPLICATION_FOCUS_IN:
+		check_connection()
+
+
+## Reconnects (and rejoins the match) if we had a session but the socket is gone.
+func check_connection() -> void:
+	if _closing or _reconnecting or session == null or socket == null:
+		return
+	if not socket.is_connected_to_host():
+		_try_reconnect()
 
 
 ## Reconnect with backoff and rejoin the match we were in; the server keeps
 ## the seat and sends a fresh view on rejoin.
 func _try_reconnect() -> void:
+	if _reconnecting:
+		return
+	_reconnecting = true
 	var previous_match := match_id
 	var previous_tutorial := tutorial_mode
 	for attempt in range(1, 6):
@@ -280,6 +385,7 @@ func _try_reconnect() -> void:
 		reconnecting.emit(attempt)
 		await get_tree().create_timer(minf(1.0 * attempt, 5.0)).timeout
 		if await connect_to_server():
+			_reconnecting = false
 			if not previous_match.is_empty():
 				tutorial_mode = previous_tutorial
 				if await _join_match(previous_match):
@@ -288,5 +394,6 @@ func _try_reconnect() -> void:
 			match_id = ""
 			reconnected.emit()
 			return
+	_reconnecting = false
 	match_id = ""
 	connection_failed.emit("disconnected")

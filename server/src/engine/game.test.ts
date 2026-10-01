@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { autoAction } from './auto';
 import {
   COMPANIES,
   HAND_SIZE,
@@ -9,13 +10,11 @@ import {
 } from './companies';
 import {
   applyAction,
-  autoAction,
   computeDividends,
   createGame,
   drawCost,
   isLegal,
   legalActions,
-  playerView,
   RulesError,
   strictLeader,
   totalCards,
@@ -23,6 +22,7 @@ import {
   type SeatDef,
 } from './game';
 import type { Action, Card, GameState } from './types';
+import { playerView } from './view';
 
 function seats(n: number): SeatDef[] {
   const out: SeatDef[] = [];
@@ -433,6 +433,20 @@ describe('full games with auto-moves', () => {
     expect(a).toEqual({ type: 'play_market', cardId: 12 }); // company 3 is the lone sellable share
     r = applyAction(r.state, 0, a);
     expect(r.state.market.length).toBe(1);
+  });
+
+  it('autoAction keeps a pair once the Market has a share, and sells a lone share into an empty Market', () => {
+    const s = fixture();
+    s.seats[0]!.hand = [card(10, 1), card(11, 1), card(12, 3)];
+    // Empty Market: the lone share is sold, so the next seat has a share to pay onto.
+    let r = applyAction(s, 0, { type: 'take_supply' }); // takes company 5
+    expect(autoAction(r.state)).toEqual({ type: 'play_market', cardId: 12 });
+    // One share in the Market: the company-1 pair goes to the Portfolio instead.
+    s.market = [{ card: card(20, 2), coins: 0 }];
+    r = applyAction(s, 0, { type: 'take_supply' });
+    const a = autoAction(r.state);
+    expect(a.type).toBe('play_portfolio');
+    expect([10, 11]).toContain((a as { cardId: number }).cardId);
   });
 
   it('autoAction always returns a legal action', () => {

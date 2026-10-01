@@ -60,6 +60,11 @@ export function applyGameResult(p: Progress, rank: number, seatCount: number, hu
   };
 }
 
+/** A forfeit counts as a game played, with no XP, win or season points. */
+export function applyForfeit(p: Progress): Progress {
+  return { ...p, gamesPlayed: p.gamesPlayed + 1 };
+}
+
 export function utcDate(ms: number): string {
   return new Date(ms).toISOString().slice(0, 10);
 }

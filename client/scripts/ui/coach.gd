@@ -3,6 +3,10 @@ extends Control
 ## Tutorial coach: watches views and events during a game against bots and
 ## explains each rule the first time it matters. Each step fires once, in
 ## priority order, as a modal card the learner dismisses with "Got it".
+##
+## On the learner's first FORCED_TURNS turns only the coached move is
+## enabled (see `restriction`): keep a share on turn one; on turn two take
+## the Market share carrying coins if there is one, then sell a share.
 
 signal step_shown(step_id: String)
 signal finished
@@ -22,6 +26,11 @@ const STEPS := [
 		"id": "first_play",
 		"title": "Now play a share",
 		"body": "Tap a card in your hand. You can keep it in your portfolio (face up, it counts toward majorities) or sell it to the Market (anyone can take it later).\n\nOne rule: you can't sell the company you just took.",
+	},
+	{
+		"id": "first_sell",
+		"title": "Selling to the Market",
+		"body": "This time, sell a share. It goes into the Market with no coins on it, and anyone can take it later.\n\nSell companies you are not collecting: every share you hold of a company someone else leads costs you a coin on dividend day.",
 	},
 	{
 		"id": "bot_paid",
@@ -54,6 +63,8 @@ const STEPS := [
 		"body": "For each company, the sole majority holder collects 1 coin per share from every other holder. Coins received flip to gold and are worth 3.\n\nTies pay nothing. You now know every rule: press Play again for a real game.",
 	},
 ]
+
+const FORCED_TURNS := 2
 
 var enabled := true
 var seen: Dictionary = {}
@@ -168,6 +179,50 @@ func _fire(id: String, args: Array = []) -> void:
 	_show_next()
 
 
+## Which of my turns this view is (1 for my first), or 0 when it is not my
+## turn. Seats act in order from turn 1, so it follows from the turn number.
+static func my_turn_index(view: Dictionary) -> int:
+	if view.get("you") == null or view.get("phase") == "ended":
+		return 0
+	var me := int(view["you"])
+	var n: int = view.get("seats", []).size()
+	if n == 0 or int(view.get("active", -1)) != me:
+		return 0
+	return floori(float(int(view.get("turn", 1)) - 1 - me) / n) + 1
+
+
+## The coached move on the learner's first turns, or {} for free play.
+## Keys: "take" = "supply" | "market_coins", "play" = "portfolio" | "market",
+## "hint" = one line for the prompt. Only restricts to moves that are legal.
+func restriction(view: Dictionary) -> Dictionary:
+	if not enabled:
+		return {}
+	var index := my_turn_index(view)
+	if index < 1 or index > FORCED_TURNS:
+		return {}
+	var legal: Array = view.get("legal", [])
+	if view.get("phase") == "take":
+		if index == 2:
+			for slot in view.get("market", []):
+				if int(slot.get("coins", 0)) > 0 and _has_legal(legal, "take_market", int(slot["card"]["id"])):
+					return {"take": "market_coins", "hint": "Tutorial: take the Market share with coins on it."}
+		if _has_legal(legal, "take_supply", -1):
+			return {"take": "supply", "hint": "Tutorial: draw from the supply."}
+		return {}
+	if index == 1:
+		return {"play": "portfolio", "hint": "Tutorial: keep a share this time. Tap a card, then Keep."}
+	if _has_legal(legal, "play_market", -1):
+		return {"play": "market", "hint": "Tutorial: sell a share to the Market this time."}
+	return {}
+
+
+static func _has_legal(legal: Array, type: String, card_id: int) -> bool:
+	for a in legal:
+		if a.get("type") == type and (card_id < 0 or int(a.get("cardId", -1)) == card_id):
+			return true
+	return false
+
+
 ## Called by the table with every view (after events have been animated).
 func on_view(view: Dictionary) -> void:
 	if not enabled:
@@ -203,6 +258,8 @@ func on_view(view: Dictionary) -> void:
 				break
 	elif phase == "play":
 		_fire("first_play")
+		if restriction(view).get("play", "") == "market":
+			_fire("first_sell")
 
 
 ## Called by the table with each event batch, before animations play.

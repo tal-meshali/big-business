@@ -5,27 +5,18 @@
  * deck is shuffled or scored. Clients send intents (OP_ACTION) and receive a
  * per-seat PlayerView (OP_VIEW) plus animation events (OP_EVENTS).
  */
-import { applyAction, autoAction, createGame, playerView, RulesError, type SeatDef } from '../engine';
-import type { Action, GameEvent, GameState } from '../engine';
-import { BOT_NAMES, DEFAULT_PARAMS, OP_ACTION, OP_ERROR, OP_EVENTS, OP_LOBBY, OP_READY, OP_VIEW, type MatchParams } from './protocol';
+import { applyAction, autoAction, botAction, createGame, RulesError, type SeatDef } from '../engine';
+import type { Action, GameEvent } from '../engine';
+import { BOT_NAMES, clampStepSeconds, DEFAULT_PARAMS, OP_ACTION, OP_ERROR, OP_EVENTS, OP_LOBBY, OP_READY, parseAction, type MatchParams } from './protocol';
 import { awardProgress } from './awards';
 import { handleEmotes } from './emotes';
-import { botThinkMs, label, lobbyMessage, nowMs, send, type MatchState } from './state';
+import { handleForfeits } from './forfeit';
+import { botThinkMs, GET_READY_MS, label, lobbyMessage, nowMs, send, type MatchState } from './state';
+import { sendViews } from './views';
 
 const TICK_RATE = 4; // ticks per second
 const END_LINGER_MS = 45_000;
 const AUTO_MOVES_TO_BOT = 3;
-
-function sendViews(s: MatchState, dispatcher: nkruntime.MatchDispatcher): void {
-  if (!s.game) return;
-  for (const userId in s.presences) {
-    const presence = s.presences[userId];
-    if (!presence) continue;
-    const seat = s.seatByUser[userId];
-    const view = playerView(s.game, seat === undefined ? null : seat);
-    send(dispatcher, OP_VIEW, view, [presence]);
-  }
-}
 
 function startGame(s: MatchState, nk: nkruntime.Nakama, logger: nkruntime.Logger, dispatcher: nkruntime.MatchDispatcher): void {
   const defs: SeatDef[] = s.lobby.map((l) => ({ id: l.userId, name: l.name, isBot: false }));
@@ -35,7 +26,12 @@ function startGame(s: MatchState, nk: nkruntime.Nakama, logger: nkruntime.Logger
     botIndex++;
   }
   const seed = s.params.seed > 0 ? s.params.seed : Math.floor(Math.random() * 0x7fffffff);
-  s.game = createGame(defs, seed, { stepSeconds: s.params.stepSeconds }, nowMs());
+  // WHY: the tutorial's coach opens with its own welcome card, so only real
+  // games show the get-ready countdown before the first turn.
+  const readyMs = s.params.tutorial ? 0 : GET_READY_MS;
+  const firstTurnAt = nowMs() + readyMs;
+  s.game = createGame(defs, seed, { stepSeconds: s.params.stepSeconds }, firstTurnAt);
+  s.playStartsAt = readyMs > 0 ? firstTurnAt : 0;
   if (s.params.tutorial) {
     // The learner always goes first so the coach can explain the opening draw.
     const humanIdx = s.game.seats.findIndex((seat) => !seat.isBot);
@@ -49,7 +45,7 @@ function startGame(s: MatchState, nk: nkruntime.Nakama, logger: nkruntime.Logger
     const seat = s.game.seats[i];
     if (seat && !seat.isBot) s.seatByUser[seat.id] = i;
   }
-  s.botActAt = nowMs() + botThinkMs(s);
+  s.botActAt = firstTurnAt + botThinkMs(s);
   logger.info('match started seats=%d seed=%d tutorial=%s', s.game.seats.length, seed, String(s.params.tutorial));
   dispatcher.matchLabelUpdate(label(s));
   sendViews(s, dispatcher);
@@ -103,7 +99,7 @@ export const matchInit: nkruntime.MatchInitFunction<MatchState> = (ctx, logger, 
     roomCode: typeof params['roomCode'] === 'string' ? (params['roomCode'] as string) : undefined,
     minSeats: Number(params['minSeats']) || DEFAULT_PARAMS.minSeats,
     maxSeats: Number(params['maxSeats']) || DEFAULT_PARAMS.maxSeats,
-    stepSeconds: params['stepSeconds'] === undefined ? DEFAULT_PARAMS.stepSeconds : Number(params['stepSeconds']),
+    stepSeconds: clampStepSeconds(params['stepSeconds']),
     lobbyWaitSeconds: Number(params['lobbyWaitSeconds']) || DEFAULT_PARAMS.lobbyWaitSeconds,
     tutorial: params['tutorial'] === true || params['tutorial'] === 'true',
     seed: Number(params['seed']) || 0,
@@ -121,6 +117,8 @@ export const matchInit: nkruntime.MatchInitFunction<MatchState> = (ctx, logger, 
     lobby: [],
     seatByUser: {},
     game: null,
+    playStartsAt: 0,
+    forfeited: {},
     lastActivity: nowMs(),
     startsAt: 0,
     endedAt: 0,
@@ -246,6 +244,23 @@ export const matchLoop: nkruntime.MatchLoopFunction<MatchState> = (ctx, logger, 
   }
 
   handleEmotes(state, messages, nk, dispatcher, now);
+  handleForfeits(state, messages, nk, logger, dispatcher, now);
+  if (Object.keys(state.seatByUser).length === 0) {
+    logger.info('every player forfeited; closing the match');
+    return null;
+  }
+
+  // ---- Get ready: nobody acts until the countdown ends -------------------
+  if (state.playStartsAt > 0) {
+    if (now < state.playStartsAt) {
+      for (const m of messages) {
+        if (m.opCode === OP_ACTION) send(dispatcher, OP_ERROR, { message: 'the game has not started yet' }, [m.sender]);
+      }
+      return { state };
+    }
+    state.playStartsAt = 0;
+    sendViews(state, dispatcher);
+  }
 
   // ---- Playing: client actions ------------------------------------------
   for (const m of messages) {
@@ -254,8 +269,11 @@ export const matchLoop: nkruntime.MatchLoopFunction<MatchState> = (ctx, logger, 
     if (seat === undefined) continue;
     let action: Action | null = null;
     try {
-      action = JSON.parse(nk.binaryToString(m.data)) as Action;
+      action = parseAction(JSON.parse(nk.binaryToString(m.data)));
     } catch (e) {
+      action = null;
+    }
+    if (!action) {
       send(dispatcher, OP_ERROR, { message: 'bad action payload' }, [m.sender]);
       continue;
     }
@@ -267,8 +285,13 @@ export const matchLoop: nkruntime.MatchLoopFunction<MatchState> = (ctx, logger, 
   const active = state.game.seats[state.game.active];
   if (active) {
     if (active.isBot && now >= state.botActAt) {
-      const tieBreak = state.params.tutorial ? 0 : Math.random();
-      apply(state, dispatcher, logger, state.game.active, autoAction(state.game, tieBreak), 'bot');
+      // WHY: the tutorial's coach steps are scripted against a fixed seed and
+      // the simple deterministic policy, so tutorial bots keep autoAction with
+      // tieBreak 0. Real games use the heuristic bot; its rng is Math.random
+      // because replays come from the action log, and deriving it from the
+      // private game seed would correlate public bot moves with the seed.
+      const action = state.params.tutorial ? autoAction(state.game, 0) : botAction(state.game, () => Math.random());
+      apply(state, dispatcher, logger, state.game.active, action, 'bot');
     } else if (!active.isBot && state.game.deadline > 0 && now >= state.game.deadline) {
       apply(state, dispatcher, logger, state.game.active, autoAction(state.game), 'timeout');
     }

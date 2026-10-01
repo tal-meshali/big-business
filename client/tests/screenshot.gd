@@ -2,7 +2,8 @@ extends SceneTree
 ## Renders the lobby and a mid-game table with a fake view and saves PNGs.
 ## Needs a display (use xvfb-run on Linux):
 ##   xvfb-run -a godot --rendering-driver opengl3 --path client --script res://tests/screenshot.gd -- out_dir
-## Output: <out_dir>/lobby.png, <out_dir>/table.png, <out_dir>/dividend.png
+## Output: <out_dir>/lobby.png, help.png, table.png, play_step.png, dividend.png,
+## tutorial.png, emotes.png, get_ready.png, forfeit.png, peek.png
 
 
 func _init() -> void:
@@ -22,6 +23,9 @@ func _run() -> void:
 	root.add_child(main)
 	await _settle()
 	await _save(out_dir + "/lobby.png")
+	main._on_help()
+	await _settle()
+	await _save(out_dir + "/help.png")
 	main.queue_free()
 
 	var table = load("res://scenes/table.tscn").instantiate()
@@ -67,6 +71,8 @@ func _run() -> void:
 	table.queue_free()
 
 	# Tutorial coach card over the opening position.
+	var net: Node = root.get_node("Net")
+	net.tutorial_mode = true
 	var tutorial = load("res://scenes/table.tscn").instantiate()
 	root.add_child(tutorial)
 	tutorial.enable_coach()
@@ -87,6 +93,7 @@ func _run() -> void:
 	await _settle()
 	await _save(out_dir + "/tutorial.png")
 	tutorial.queue_free()
+	net.tutorial_mode = false
 
 	# Emote bar open and bubbles on two opponents.
 	var social = load("res://scenes/table.tscn").instantiate()
@@ -103,6 +110,54 @@ func _run() -> void:
 	social._toggle_emote_bar()
 	await _settle()
 	await _save(out_dir + "/emotes.png")
+	social.queue_free()
+
+	# Get-ready countdown over the opening deal.
+	var start = load("res://scenes/table.tscn").instantiate()
+	root.add_child(start)
+	await process_frame
+	var first := _fake_view()
+	first["market"] = []
+	first["drawCost"] = null
+	first["legal"] = []
+	for seat in first["seats"]:
+		seat["portfolio"] = []
+		seat["tokens"] = []
+		seat["bronze"] = 10
+		seat["connected"] = true
+	first["active"] = 1
+	first["turn"] = 1
+	first["supplyCount"] = 25
+	first["startsInMs"] = 2500
+	start._on_view(first)
+	await _settle()
+	await _save(out_dir + "/get_ready.png")
+
+	# Forfeit confirmation.
+	first["startsInMs"] = 0
+	start._on_view(first)
+	await create_timer(0.8).timeout
+	start._on_leave_pressed()
+	await _settle()
+	await _save(out_dir + "/forfeit.png")
+	start.queue_free()
+
+	# Holding a hand card shows it up close.
+	var peek = load("res://scenes/table.tscn").instantiate()
+	root.add_child(peek)
+	await process_frame
+	var play := _fake_view()
+	play["phase"] = "play"
+	play["tookCompany"] = 1
+	play["seats"][0]["hand"] = [{"id": 1, "company": 0}, {"id": 2, "company": 3}, {"id": 3, "company": 5}, {"id": 20, "company": 1}]
+	play["market"] = play["market"].slice(1)
+	play["legal"] = [{"type": "play_portfolio", "cardId": 1}, {"type": "play_portfolio", "cardId": 2}, {"type": "play_portfolio", "cardId": 3}, {"type": "play_portfolio", "cardId": 20}]
+	peek._on_view(play)
+	await _settle()
+	peek._on_card_held(peek._hand_cards[2])
+	for i in 20:
+		await process_frame
+	await _save(out_dir + "/peek.png")
 	print("SCREENSHOTS OK")
 	quit(0)
 

@@ -23,6 +23,8 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
+      - name: Browser table bundles the current engine
+        run: node ../web/build.mjs && git diff --exit-code ../web/big-business.html
 
   client:
     name: Godot client smoke test

@@ -66,8 +66,8 @@ func _build() -> void:
 	box.add_child(deed["panel"])
 
 	_host_edit = LineEdit.new()
-	_host_edit.placeholder_text = "server host (127.0.0.1)"
-	_host_edit.text = Net.host
+	_host_edit.placeholder_text = "server (127.0.0.1 or https://your.domain)"
+	_host_edit.text = Net.server_address()
 	_host_edit.custom_minimum_size = Vector2(0, 52)
 	box.add_child(_host_edit)
 
@@ -134,6 +134,7 @@ func _build() -> void:
 	_add_button(box, "Connect", _on_connect_pressed, true)
 	_add_button(box, "Play now", _on_quick_play)
 	_add_button(box, "How to play (tutorial)", _on_tutorial)
+	_add_button(box, "Rules and help", _on_help, true)
 	_add_button(box, "Create private room", _on_create_room)
 
 	var join_row := HBoxContainer.new()
@@ -196,10 +197,11 @@ func _on_ready_pressed() -> void:
 
 
 func _on_connect_pressed() -> void:
-	Net.host = _host_edit.text.strip_edges()
+	Net.set_server_address(_host_edit.text)
+	_host_edit.text = Net.server_address()
 	Net.display_name = _name_edit.text.strip_edges()
 	Net.save_settings()
-	_status.text = "Connecting to %s..." % Net.host
+	_status.text = "Connecting to %s..." % Net.server_address()
 	await Net.connect_to_server()
 
 
@@ -257,7 +259,7 @@ func _on_show_board() -> void:
 	for r in rows:
 		if r.get("mine", false) and int(r.get("rank", 0)) > 10:
 			lines.append("…")
-		var me := "  ← you" if r.get("userId", "") == Net.user_id else ""
+		var me := "  (you)" if r.get("userId", "") == Net.user_id else ""
 		lines.append("#%d  %s  %d pts, %d wins%s" % [int(r.get("rank", 0)), r.get("name", "?"), int(r.get("score", 0)), int(r.get("wins", 0)), me])
 	_board_label.text = "\n".join(lines)
 
@@ -271,6 +273,10 @@ func _on_failed(reason: String) -> void:
 func _on_quick_play() -> void:
 	_status.text = "Finding a game..."
 	_in_lobby = await Net.quick_play()
+
+
+func _on_help() -> void:
+	HelpScreen.open_over(self)
 
 
 func _on_tutorial() -> void:
@@ -303,7 +309,7 @@ func _on_lobby(lobby: Dictionary) -> void:
 	var is_private: bool = lobby.get("isPrivate", false)
 	lines.append("%s room  •  %d / %d players" % ["Private" if is_private else "Public", seats.size(), int(lobby.get("maxSeats", 0))])
 	for s in seats:
-		lines.append("  %s %s" % ["✓" if s.get("ready", false) else "…", s.get("name", "?")])
+		lines.append("  %s%s" % [s.get("name", "?"), "  (ready)" if s.get("ready", false) else ""])
 	var starts := float(lobby.get("startsAt", 0))
 	if starts > 0:
 		var secs := maxi(0, int((starts - Time.get_unix_time_from_system() * 1000.0) / 1000.0))

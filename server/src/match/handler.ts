@@ -12,7 +12,7 @@ import { apply, handleActions } from './actions';
 import { awardProgress } from './awards';
 import { handleEmotes } from './emotes';
 import { handleForfeits } from './forfeit';
-import { botThinkMs, GET_READY_MS, label, lobbyMessage, nowMs, send, type MatchState } from './state';
+import { botThinkMs, GET_READY_MS, label, lobbyJoinError, lobbyMessage, nowMs, send, type MatchState } from './state';
 import { sendViews } from './views';
 
 const TICK_RATE = 4; // ticks per second
@@ -94,30 +94,22 @@ export const matchInit: nkruntime.MatchInitFunction<MatchState> = (ctx, logger, 
   return { state, tickRate: TICK_RATE, label: label(state) };
 };
 
-export const matchJoinAttempt: nkruntime.MatchJoinAttemptFunction<MatchState> = (ctx, logger, nk, dispatcher, tick, state, presence) => {
+export const matchJoinAttempt: nkruntime.MatchJoinAttemptFunction<MatchState> = (ctx, logger, nk, dispatcher, tick, state, presence, metadata) => {
   void ctx; void logger; void nk; void dispatcher; void tick;
   if (state.game) {
     // Rejoin only.
     if (state.seatByUser[presence.userId] !== undefined) return { state, accept: true };
     return { state, accept: false, rejectMessage: 'game already started' };
   }
+  const now = nowMs();
+  const error = lobbyJoinError(state, presence.userId, metadata ? metadata['code'] : undefined, now);
+  if (error) return { state, accept: false, rejectMessage: error };
+  // WHY: matchJoin runs after this returns, so two attempts in the same
+  // window would both see the old count; accepted-but-not-joined users
+  // hold a seat until their matchJoin arrives (lobbyJoinError).
   let inLobby = false;
   for (const l of state.lobby) if (l.userId === presence.userId) inLobby = true;
-  if (!inLobby) {
-    // WHY: matchJoin runs after this returns, so two attempts in the same
-    // window would both see the old count; accepted-but-not-joined users
-    // are counted until their matchJoin arrives.
-    let pending = 0;
-    for (const id in state.pendingJoins) {
-      let listed = false;
-      for (const l of state.lobby) if (l.userId === id) listed = true;
-      if (!listed) pending++;
-    }
-    if (state.lobby.length + pending >= state.params.maxSeats) {
-      return { state, accept: false, rejectMessage: 'room full' };
-    }
-    state.pendingJoins[presence.userId] = true;
-  }
+  if (!inLobby) state.pendingJoins[presence.userId] = now;
   return { state, accept: true };
 };
 

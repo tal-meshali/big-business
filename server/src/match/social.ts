@@ -8,11 +8,7 @@
 import { isUserId, normalizeCode, parseBody, readString, reject, requireUser, USERNAME_MAX } from './input';
 import { INVITE_CODE } from './protocol';
 import { checkRate } from './ratelimit';
-
-// WHY: duplicated from main.ts rather than imported: the match layer never
-// imports main (docs/conventions.md), and the room lookup must match join_room.
-const ROOM_COLLECTION = 'rooms';
-const SYSTEM_USER = '00000000-0000-0000-0000-000000000000';
+import { roomMatchId } from './rooms';
 
 /** Nakama friend states. */
 export const FRIEND_STATE_MUTUAL = 0;
@@ -56,12 +52,20 @@ export function inviteError(check: InviteCheck): string | null {
   return null;
 }
 
+/** Friend list pages read per check: 100 per page, so up to 2,000 friends. */
+const FRIEND_PAGES = 20;
+
 /** Friend states one user has toward others (filtered by `state`), keyed by user id. */
 function friendStates(nk: nkruntime.Nakama, userId: string, state: number): { [userId: string]: number } {
   const out: { [userId: string]: number } = {};
-  const list = nk.friendsList(userId, 100, state);
-  for (const f of list.friends || []) {
-    if (f.user && f.state !== undefined) out[f.user.userId] = f.state;
+  let cursor: string | undefined = undefined;
+  for (let page = 0; page < FRIEND_PAGES; page++) {
+    const list: nkruntime.FriendList = nk.friendsList(userId, 100, state, cursor);
+    for (const f of list.friends || []) {
+      if (f.user && f.state !== undefined) out[f.user.userId] = f.state;
+    }
+    cursor = list.cursor;
+    if (!cursor) break;
   }
   return out;
 }
@@ -93,14 +97,13 @@ export const rpcInviteFriend: nkruntime.RpcFunction = (ctx, logger, nk, payload)
   if (!hasTarget) reject('invalid user');
   if (!code) reject('invalid code');
   checkRate(nk, callerId, 'invite_friend', Date.now());
-  const rows = nk.storageRead([{ collection: ROOM_COLLECTION, key: code, userId: SYSTEM_USER }]);
   const check: InviteCheck = {
     callerId,
     targetId,
     code,
     callerFriends: friendStates(nk, callerId, FRIEND_STATE_MUTUAL),
     targetFriends: friendStates(nk, targetId, FRIEND_STATE_BLOCKED),
-    roomExists: rows.length > 0,
+    roomExists: roomMatchId(nk, code) !== null,
   };
   const error = inviteError(check);
   if (error) reject(error);

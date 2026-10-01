@@ -10,7 +10,7 @@ import { matchInit, matchJoin, matchJoinAttempt, matchLeave, matchLoop, matchSig
 import { guarded } from './match/input';
 import { SEASON_LEADERBOARD } from './match/progression';
 import { MATCH_MODULE } from './match/protocol';
-import { beforeAddFriends, rpcReportPlayer } from './match/reports';
+import { beforeAddFriends, beforeDeleteStorageObjects, beforeWriteStorageObjects, rpcReportPlayer } from './match/reports';
 import { rpcCreateRoom, rpcJoinRoom, rpcQuickPlay } from './match/rooms';
 import { rpcClaimDaily, rpcGetProfile } from './match/rpc_profile';
 import { rpcClaimQuest, rpcEquipCosmetic } from './match/rpc_quests';
@@ -61,6 +61,8 @@ function InitModule(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkrunt
   initializer.registerRpc('invite_friend', guardedInviteFriend);
   initializer.registerRpc('account_links', guardedAccountLinks);
   initializer.registerBeforeAddFriends(beforeAddFriends);
+  initializer.registerBeforeWriteStorageObjects(beforeWriteStorageObjects);
+  initializer.registerBeforeDeleteStorageObjects(beforeDeleteStorageObjects);
   logger.info('Big Business runtime loaded');
 }
 

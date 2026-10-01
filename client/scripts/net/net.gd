@@ -17,6 +17,9 @@ signal reconnected
 ## A friend invited us to a private room, live over the socket or found as a
 ## persistent notification on connect. Also queued in `pending_invites`.
 signal invite_received(from_name: String, code: String)
+## Linking a provider found it already belongs to another account (a
+## reinstall), so we signed in to that account instead.
+signal account_switched(provider_name: String)
 
 const SETTINGS_PATH := "user://net.cfg"
 const DEFAULT_PORT := 7350
@@ -32,6 +35,9 @@ var client: NakamaClient
 var session: NakamaSession
 var socket: NakamaSocket
 var match_id: String = ""
+## Code of the private room we are in ("" otherwise); the server wants it
+## with every join, including a rejoin after a reconnect.
+var room_code: String = ""
 ## The latest view of the current match ({} outside a game).
 ## WHY: the lobby changes scene on the first view, so the table would
 ## otherwise miss it and sit empty until the first move, or until the
@@ -227,9 +233,10 @@ func create_room(step_seconds: int = 30, max_seats: int = 7) -> String:
 		server_error.emit("create room failed: %s" % rpc.get_exception().message)
 		return ""
 	var data: Dictionary = JSON.parse_string(rpc.payload)
-	if not await _join_match(String(data.get("matchId", ""))):
+	var code := String(data.get("code", ""))
+	if not await _join_match(String(data.get("matchId", "")), code):
 		return ""
-	return String(data.get("code", ""))
+	return code
 
 
 ## Join a private room by its 6-character code.
@@ -239,18 +246,22 @@ func join_room(code: String) -> bool:
 		server_error.emit("room not found")
 		return false
 	var data: Dictionary = JSON.parse_string(rpc.payload)
-	return await _join_match(String(data.get("matchId", "")))
+	return await _join_match(String(data.get("matchId", "")), String(data.get("code", "")))
 
 
-func _join_match(id: String) -> bool:
+## Joins a match. Private rooms need their code: the server refuses a join
+## by match id alone, since match ids can be listed by any client.
+func _join_match(id: String, code: String = "") -> bool:
 	if id.is_empty():
 		server_error.emit("no match id")
 		return false
-	var joined: NakamaRTAPI.Match = await socket.join_match_async(id)
+	var metadata = {"code": code} if not code.is_empty() else null
+	var joined: NakamaRTAPI.Match = await socket.join_match_async(id, metadata)
 	if joined.is_exception():
 		server_error.emit("join failed: %s" % joined.get_exception().message)
 		return false
 	match_id = id
+	room_code = code
 	last_view = {}
 	return true
 
@@ -259,6 +270,7 @@ func leave_match() -> void:
 	if socket != null and not match_id.is_empty():
 		await socket.leave_match_async(match_id)
 	match_id = ""
+	room_code = ""
 	last_view = {}
 	tutorial_mode = false
 	match_left.emit()
@@ -407,16 +419,17 @@ func _try_reconnect() -> void:
 		return
 	_reconnecting = true
 	var previous_match := match_id
+	var previous_code := room_code
 	var previous_tutorial := tutorial_mode
 	for attempt in range(1, 6):
 		_reconnect_attempts = attempt
 		reconnecting.emit(attempt)
 		await get_tree().create_timer(minf(1.0 * attempt, 5.0)).timeout
-		if await connect_to_server():
+		if await _reconnect_session():
 			_reconnecting = false
 			if not previous_match.is_empty():
 				tutorial_mode = previous_tutorial
-				if await _join_match(previous_match):
+				if await _join_match(previous_match, previous_code):
 					reconnected.emit()
 					return
 			match_id = ""
@@ -427,6 +440,17 @@ func _try_reconnect() -> void:
 	connection_failed.emit("disconnected")
 
 
+## Reopens the socket for the account we were signed in as.
+## WHY: connect_to_server signs in with the device id, which after an Apple
+## or Google sign-in is a different account; rejoining as that account would
+## be refused and the seat would time out. The current session is reused
+## while valid, otherwise the remembered sign-in runs again.
+func _reconnect_session() -> bool:
+	if session != null and not session.is_exception() and not session.would_expire_in(60):
+		return await _open_socket()
+	return await connect_preferred()
+
+
 # --- Friends and invites ------------------------------------------------------
 
 ## Invites not yet shown by a friends panel ({fromName, code}), so one that
@@ -435,6 +459,8 @@ var pending_invites: Array = []
 ## Notification ids already surfaced this session, so a persistent invite is
 ## shown once even across reconnects.
 var _seen_invites: Dictionary = {}
+## Pages of 100 notifications read at connect when looking for invites.
+const NOTIFICATION_PAGES := 5
 
 
 ## Friends in every state except blocked: [{userId, name, online, state}] with
@@ -497,8 +523,17 @@ func take_pending_invites() -> Array:
 
 
 func _on_connected_social() -> void:
-	socket.received_notification.connect(_on_notification)
+	socket.received_notification.connect(_on_live_notification)
 	_fetch_pending_invites()
+
+
+## An invite pushed over the socket is also stored as a persistent
+## notification; once surfaced it is deleted so the next launch does not
+## offer it again with a stale room code.
+func _on_live_notification(n: NakamaAPI.ApiNotification) -> void:
+	_on_notification(n)
+	if n.code == Protocol.INVITE_CODE and client != null and session != null:
+		await client.delete_notifications_async(session, PackedStringArray([n.id]))
 
 
 func _on_notification(n: NakamaAPI.ApiNotification) -> void:
@@ -524,15 +559,22 @@ func _on_notification(n: NakamaAPI.ApiNotification) -> void:
 ## them once, then delete them server-side.
 ## WHY: rooms live minutes, so an invite shown once is either used now or
 ## stale; deleting keeps old codes from reappearing at every launch.
+## WHY paging: Nakama's own friend notifications are persistent too and are
+## never deleted here, so a first page alone could be all friend notices.
 func _fetch_pending_invites() -> void:
-	var res = await client.list_notifications_async(session, 20)
-	if res.is_exception():
-		return
 	var ids := PackedStringArray()
-	for n in res.notifications:
-		if n.code == Protocol.INVITE_CODE:
-			ids.append(n.id)
-			_on_notification(n)
+	var cursor = null
+	for page in NOTIFICATION_PAGES:
+		var res = await client.list_notifications_async(session, 100, cursor)
+		if res.is_exception():
+			break
+		for n in res.notifications:
+			if n.code == Protocol.INVITE_CODE:
+				ids.append(n.id)
+				_on_notification(n)
+		if res.notifications.is_empty() or res.cacheable_cursor.is_empty() or res.cacheable_cursor == cursor:
+			break
+		cursor = res.cacheable_cursor
 	if not ids.is_empty():
 		await client.delete_notifications_async(session, ids)
 
@@ -596,6 +638,10 @@ func link_apple(identity_token: String) -> bool:
 		return false
 	var res: NakamaAsyncResult = await client.link_apple_async(session, identity_token)
 	if res.is_exception():
+		# Already linked to another account (typically ours before a
+		# reinstall): sign in to that one instead of failing.
+		if await _switch_to_social("apple", identity_token):
+			return true
 		server_error.emit("link failed: %s" % res.get_exception().message)
 		return false
 	provider = "apple"
@@ -609,6 +655,10 @@ func link_google(id_token: String) -> bool:
 		return false
 	var res: NakamaAsyncResult = await client.link_google_async(session, id_token)
 	if res.is_exception():
+		# Already linked to another account (typically ours before a
+		# reinstall): sign in to that one instead of failing.
+		if await _switch_to_social("google", id_token):
+			return true
 		server_error.emit("link failed: %s" % res.get_exception().message)
 		return false
 	provider = "google"
@@ -655,9 +705,7 @@ func sign_in_with_apple(identity_token: String) -> bool:
 	if identity_token.is_empty():
 		connection_failed.emit("auth failed: no Apple token")
 		return false
-	_make_client()
-	session = await client.authenticate_apple_async(identity_token, _create_username(), true)
-	return await _finish_social_sign_in("apple")
+	return await _finish_social_sign_in("apple", await _social_session("apple", identity_token, true))
 
 
 ## Authenticates with a Google id token instead of the device id.
@@ -665,34 +713,68 @@ func sign_in_with_google(id_token: String) -> bool:
 	if id_token.is_empty():
 		connection_failed.emit("auth failed: no Google token")
 		return false
+	return await _finish_social_sign_in("google", await _social_session("google", id_token, true))
+
+
+## A Nakama session for a provider token; `create` false only finds an
+## existing account.
+func _social_session(name: String, token: String, create: bool) -> NakamaSession:
 	_make_client()
-	session = await client.authenticate_google_async(id_token, _create_username(), true)
-	return await _finish_social_sign_in("google")
+	if name == "apple":
+		return await client.authenticate_apple_async(token, _create_username(), create)
+	return await client.authenticate_google_async(token, _create_username(), create)
 
 
-func _finish_social_sign_in(name: String) -> bool:
-	if session.is_exception():
-		var msg := "auth failed: %s" % session.get_exception().message
+func _finish_social_sign_in(name: String, new_session: NakamaSession) -> bool:
+	if new_session.is_exception():
+		var msg := "auth failed: %s" % new_session.get_exception().message
 		push_warning(msg)
 		connection_failed.emit(msg)
 		return false
+	session = new_session
 	if provider != name:
 		provider = name
 		save_settings()
 	return await _open_socket()
 
 
+## Signs in to the existing account a provider token belongs to, replacing
+## the current (guest) session. False when the token has no account.
+func _switch_to_social(name: String, token: String) -> bool:
+	var found := await _social_session(name, token, false)
+	if found.is_exception() or (session != null and found.user_id == session.user_id):
+		return false
+	_closing = true
+	if socket != null:
+		socket.close()
+	_closing = false
+	session = found
+	provider = name
+	save_settings()
+	if not await _open_socket():
+		return false
+	account_switched.emit(name)
+	return true
+
+
 ## Connects with the remembered provider when a token provider is available
-## on this device, otherwise (or when no token comes back) with the device
-## id. The lobby calls this instead of connect_to_server at launch.
+## on this device, otherwise with the device id. The lobby calls this
+## instead of connect_to_server at launch.
+## WHY create=false and the fallback: a provider sign-in that fails (server
+## misconfigured, provider unlinked on another phone) must not leave the
+## player offline or make a new empty account; the device id still reaches
+## the account that holds the progress.
 func connect_preferred() -> bool:
 	var avail: Dictionary = SocialTokens.available()
+	var token := ""
 	if provider == "apple" and avail.get("apple", false):
-		var token: String = SocialTokens.request_apple()
-		if not token.is_empty():
-			return await sign_in_with_apple(token)
+		token = SocialTokens.request_apple()
 	elif provider == "google" and avail.get("google", false):
-		var token: String = SocialTokens.request_google()
-		if not token.is_empty():
-			return await sign_in_with_google(token)
+		token = SocialTokens.request_google()
+	if not token.is_empty():
+		var found := await _social_session(provider, token, false)
+		if not found.is_exception():
+			session = found
+			return await _open_socket()
+		push_warning("%s sign-in failed, using the device id: %s" % [provider, found.get_exception().message])
 	return await connect_to_server()

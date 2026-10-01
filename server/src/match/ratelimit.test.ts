@@ -23,6 +23,17 @@ describe('advanceBucket', () => {
     expect(advanceBucket({ start: 9000, count: 99 }, 3, 1000, 5000)).toEqual({ start: 5000, count: 1 });
     expect(advanceBucket({}, 3, 1000, 5000)).toEqual({ start: 5000, count: 1 });
   });
+
+  it('never lets a negative count buy extra calls', () => {
+    expect(advanceBucket({ start: 5000, count: -1e9 }, 3, 1000, 5100)).toEqual({ start: 5000, count: 1 });
+  });
+
+  it('charges a multi-target call its full cost', () => {
+    expect(advanceBucket(null, 20, 1000, 5000, 15)).toEqual({ start: 5000, count: 15 });
+    expect(advanceBucket({ start: 5000, count: 15 }, 20, 1000, 5100, 6)).toBeNull();
+    expect(advanceBucket({ start: 5000, count: 15 }, 20, 1000, 5100, 5)).toEqual({ start: 5000, count: 20 });
+    expect(advanceBucket(null, 20, 1000, 5000, 21)).toBeNull();
+  });
 });
 
 describe('checkRate', () => {

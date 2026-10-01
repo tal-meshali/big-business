@@ -28,8 +28,9 @@ What the code and compose files already do, and what only the operator can do. T
 Done by the repository (verify, do not repeat):
 
 - Every RPC validates its payload (`server/src/match/input.ts`) and returns short errors; internal failures are logged and reported as `internal error`.
-- Storage: `profile` rows are server-owned (clients read their own, write nothing; a row a client created itself is ignored), `rooms` and `reports` and `ratelimit` are unreadable by clients, the season leaderboard is authoritative.
-- Per-user rate limits (`server/src/match/ratelimit.ts`): find_player 20/min, invite_friend 10/min, report_player 5/min, create_room 6/min, and friend requests 20/min through a before-hook. Reports are one row per (day, reporter, reported) with a count, so the collection cannot be grown by a single account.
+- Storage: `profile` rows are server-owned (clients read their own, write nothing), `rooms` and `reports` and `ratelimit` are unreadable by clients, and before-hooks refuse every client write or delete in those four collections. The season leaderboard is authoritative.
+- Private rooms: joining needs the room code, and match labels never carry it, so listing matches does not reveal a way in.
+- Per-user rate limits (`server/src/match/ratelimit.ts`): find_player 20/min, invite_friend 10/min, report_player 5/min, create_room 6/min, quick_play 12/min, and friend requests 20 players/min through a before-hook. Reports are one row per (day, reporter, reported) with a count and the first 10 reports' details, so the collection cannot be grown by a single account.
 - Invite notifications carry the sender's server-side username (32 characters at most), never a client-supplied string.
 - The match handler drops oversized or malformed messages before parsing them and never lets a client message throw.
 - Production sessions last 2 hours with a 7 day refresh token (the defaults are 60 seconds and 1 hour, which the client does not refresh yet).

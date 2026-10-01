@@ -23,8 +23,12 @@ export function awardProgress(s: MatchState, nk: nkruntime.Nakama, logger: nkrun
       // pre-seeded profile is never carried into the server-owned one.
       const current = loadProfile(nk, seat.id).progress;
       let next = applyGameResult(current, score.rank, seatCount, humans);
+      // WHY no quest credit for the tutorial (a scripted game anyone can
+      // replay) or for a seat that ended as a bot after repeated timeouts:
+      // the cosmetic track must not be farmable by idling or replaying.
+      const earnsQuests = !s.params.tutorial && !seat.isBot;
       try {
-        next = { ...next, quests: applyGameToQuests(next.quests, gameStats(s.game, s.log, score.seat), now) };
+        if (earnsQuests) next = { ...next, quests: applyGameToQuests(next.quests, gameStats(s.game, s.log, score.seat, humans), now) };
       } catch (e) {
         logger.warn('quest progress failed for %s: %s', seat.id, String(e));
       }

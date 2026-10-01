@@ -25,6 +25,8 @@ var _link_apple_button: Button
 var _link_google_button: Button
 var _connected := false
 var _in_lobby := false
+## Set when a link attempt signed in to the provider's existing account.
+var _account_switched := false
 
 
 func _ready() -> void:
@@ -34,8 +36,13 @@ func _ready() -> void:
 	Net.lobby_updated.connect(_on_lobby)
 	Net.view_updated.connect(_on_first_view, CONNECT_ONE_SHOT)
 	Net.server_error.connect(func(m: String) -> void: _status.text = m)
+	Net.account_switched.connect(_on_account_switched)
 	if not Net.is_connected_to_server():
 		_on_connect_pressed.call_deferred()
+	else:
+		# Back from a game on a live socket: no connected signal will come,
+		# so load the profile and quests (advanced by that game) now.
+		_on_connected.call_deferred()
 	_refresh_account_row.call_deferred()
 
 
@@ -359,9 +366,18 @@ func _on_link_apple() -> void:
 	if token.is_empty():
 		_status.text = "Apple sign-in was cancelled."
 		return
-	if await Net.link_apple(token):
+	_account_switched = false
+	if await Net.link_apple(token) and not _account_switched:
 		_status.text = "Apple linked. Your account now survives a reinstall."
 	_refresh_account_row()
+
+
+## Linking found the provider already tied to another account (ours before
+## a reinstall), so Net signed in to it; show that account's progress.
+func _on_account_switched(provider_name: String) -> void:
+	_account_switched = true
+	_status.text = "Signed in to your existing %s account." % provider_name.capitalize()
+	_refresh_profile()
 
 
 func _on_link_google() -> void:
@@ -369,7 +385,8 @@ func _on_link_google() -> void:
 	if token.is_empty():
 		_status.text = "Google sign-in was cancelled."
 		return
-	if await Net.link_google(token):
+	_account_switched = false
+	if await Net.link_google(token) and not _account_switched:
 		_status.text = "Google linked. Your account now survives a reinstall."
 	_refresh_account_row()
 
@@ -436,6 +453,13 @@ func _on_first_view(_view: Dictionary) -> void:
 
 ## Join the room a friend invited us to (Join button in the friends panel).
 func _on_invite_join(code: String) -> void:
+	# Leave the lobby we are waiting in first: a socket in two matches would
+	# take the other lobby's game when it starts.
+	if not Net.match_id.is_empty():
+		await Net.leave_match()
+		_in_lobby = false
+		_room_code = ""
+		_friends_panel.room_code = ""
 	_code_edit.text = code
 	await _on_join_room()
 	if _in_lobby:

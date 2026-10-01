@@ -5,7 +5,7 @@ import { checkRate } from './ratelimit';
 
 export const SYSTEM_USER = '00000000-0000-0000-0000-000000000000';
 
-const ROOM_COLLECTION = 'rooms';
+export const ROOM_COLLECTION = 'rooms';
 const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no 0/O/1/I; keep in sync with ROOM_CODE_RE
 const CODE_ATTEMPTS = 5;
 
@@ -25,6 +25,11 @@ function liveMatchId(nk: nkruntime.Nakama, row: nkruntime.StorageObject | undefi
   } catch (e) {
     return null;
   }
+}
+
+/** The live match behind a room code, or null when there is none. */
+export function roomMatchId(nk: nkruntime.Nakama, code: string): string | null {
+  return liveMatchId(nk, nk.storageRead([{ collection: ROOM_COLLECTION, key: code, userId: SYSTEM_USER }])[0]);
 }
 
 /** RPC create_room: creates a private match and returns { code, matchId }. */
@@ -82,7 +87,11 @@ export const rpcJoinRoom: nkruntime.RpcFunction = (ctx, logger, nk, payload) => 
  * With {"tutorial": true} it creates a solo tutorial match instead.
  */
 export const rpcQuickPlay: nkruntime.RpcFunction = (ctx, logger, nk, payload) => {
-  requireUser(ctx);
+  const userId = requireUser(ctx);
+  // WHY: every tutorial call, and a call with no open lobby, creates a match
+  // that ticks until it empties; without a budget one account could start
+  // thousands.
+  checkRate(nk, userId, 'quick_play', Date.now());
   if (readBool(parseBody(payload), 'tutorial')) {
     const tutorialId = nk.matchCreate(MATCH_MODULE, { tutorial: true, seed: TUTORIAL_SEED });
     logger.info('tutorial created %s', tutorialId);

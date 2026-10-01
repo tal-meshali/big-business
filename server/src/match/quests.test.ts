@@ -172,6 +172,10 @@ describe('game stats', () => {
     // Tokens stay put on a tie, so they can outnumber strict majorities.
     expect(totalTokens).toBe(g.tokens.filter((t) => t !== null).length);
     expect(wins).toBeGreaterThanOrEqual(1);
+    // When the other human forfeited, the caller passes 1: not a game with people.
+    const solo = gameStats(g, log, 0, 1);
+    expect(solo.humans).toBe(1);
+    expect(solo.withPeople).toBe(0);
   });
 });
 

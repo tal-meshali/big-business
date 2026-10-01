@@ -142,10 +142,13 @@ export interface LogEntry {
 }
 
 /** Stats for one seat from the finished game and the accepted-action log. */
-export function gameStats(game: GameState, log: ReadonlyArray<LogEntry>, seat: number): GameStats {
+export function gameStats(game: GameState, log: ReadonlyArray<LogEntry>, seat: number, humansPlaying?: number): GameStats {
   const me = game.seats[seat];
+  // The caller passes the humans still playing (forfeits excluded); by
+  // default every non-bot seat counts.
   let humans = 0;
   for (const s of game.seats) if (!s.id.startsWith('bot:')) humans++;
+  if (humansPlaying !== undefined) humans = humansPlaying;
   let marketTakes = 0;
   let marketCoins = 0;
   for (const entry of log) {

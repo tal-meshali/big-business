@@ -20,6 +20,33 @@ func _run() -> void:
 		return
 	print("connected as ", net.display_name, " user ", net.user_id)
 
+	# Private room through the real client: creating joins with the room code
+	# (the server refuses a private join without it); leave and come back by code.
+	var lobby_seen := {"code": ""}
+	var on_lobby := func(l: Dictionary) -> void: lobby_seen["code"] = String(l.get("roomCode", ""))
+	net.lobby_updated.connect(on_lobby)
+	var code: String = await net.create_room()
+	if code.is_empty() or net.room_code != code:
+		print("E2E CLIENT FAILED: create room (code '%s', room_code '%s')" % [code, net.room_code])
+		quit(1)
+		return
+	var waited := 0
+	while lobby_seen["code"] != code and waited < 30:
+		await create_timer(0.1).timeout
+		waited += 1
+	if lobby_seen["code"] != code:
+		print("E2E CLIENT FAILED: no lobby for room ", code)
+		quit(1)
+		return
+	await net.leave_match()
+	if not await net.join_room(code.to_lower()) or net.room_code != code:
+		print("E2E CLIENT FAILED: rejoin room by code")
+		quit(1)
+		return
+	await net.leave_match()
+	net.lobby_updated.disconnect(on_lobby)
+	print("private room ", code, ": created, left and rejoined by code")
+
 	var joined: bool = await net.quick_play()
 	if not joined:
 		print("E2E CLIENT FAILED: quick play")

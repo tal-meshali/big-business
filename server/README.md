@@ -52,21 +52,23 @@ Payloads are JSON strings.
 
 | RPC | Payload | Returns |
 |---|---|---|
-| `quick_play` | `{}` or `{"tutorial": true}` | `{matchId}` (open public lobby or a new one; tutorial match when asked) |
-| `create_room` | `{stepSeconds?, maxSeats?}` | `{code, matchId}`; `stepSeconds` clamped to 5..120 (default 30), `maxSeats` to 2..7 (default 7); 6 per minute per user |
-| `join_room` | `{code}` | `{code, matchId}`; error `invalid code` or `room not found` (a code whose match has ended is removed) |
+| `quick_play` | `{}` or `{"tutorial": true}` | `{matchId}` (open public lobby or a new one; tutorial match when asked); 12 per minute per user |
+| `create_room` | `{stepSeconds?, maxSeats?}` | `{code, matchId}`; `stepSeconds` 0 (no timer) or clamped to 5..120 (default 30), `maxSeats` to 2..7 (default 7); 6 per minute per user |
+| `join_room` | `{code}` | `{code, matchId}`; error `invalid code` or `room not found` (a code whose match has ended is removed). Join the match with `{code}` as join metadata: a private room refuses a join without its code |
 | `get_profile` | `{}` | `{progress: {xp, level, gamesPlayed, wins, streak, lastDailyClaim, bestRank, trackPoints, quests, equipped}, dailyAvailable, quests: {daily: [...], weekly: [...]}, trackPoints, unlocked, equipped: {cardBack, table}, track: [{points, cosmeticId}]}`; each quest row is `{id, text, target, points, progress, claimable, claimed}` |
 | `claim_daily` | `{}` | `{claimed, xpAwarded, progress}`; once per UTC day, streak grows on consecutive days |
 | `claim_quest` | `{id}` | `{ok, trackPoints, unlocked}`; adds a completed quest's points to the free cosmetic track, once (a concurrent claim or daily claim of the same row fails with `try again`) |
 | `equip_cosmetic` | `{slot, id}` | `{ok, equipped}`; `slot` is `cardBack` or `table`, `id` must be unlocked |
-| `report_player` | `{userId, reason, matchId?, note?}` | `{ok}`; `userId` must be an existing user other than the caller, `note` is cut to 200 characters; written to the `reports` storage collection (system user, console-only) as one row per UTC day, reporter and reported player with a `count`; 5 per minute per user |
+| `report_player` | `{userId, reason, matchId?, note?}` | `{ok}`; `userId` must be an existing user other than the caller, `note` is cut to 200 characters; written to the `reports` storage collection (system user, console-only) as one row per UTC day, reporter and reported player with a `count` and the first 10 reports' `{reason, matchId, note, at}` in `entries`; 5 per minute per user |
 | `find_player` | `{name}` | `{userId, username}`; exact username match, never the caller; error `not found` otherwise; 20 per minute per user |
 | `invite_friend` | `{userId, code}` | `{ok}`; caller and target must be mutual friends (Nakama friend state 0), the target must not have blocked the caller, and the code must be a live room. Sends a persistent in-app notification, code 100 (`INVITE_CODE`), subject `Room invite`, content `{code, fromName, fromUserId}` where `fromName` is the caller's server-side username cut to 32 characters; 10 per minute per user |
 | `account_links` | `{}` | `{apple, google, device, username}`; which sign-in methods the caller's account has (from `accountGetId`), so the lobby can show link state without parsing the raw account. Linking and unlinking Apple / Google use Nakama's own link API from the client; see `docs/deploy.md` "Social sign-in" |
 
-Rate-limited calls beyond their budget fail with `too many requests`. Friend requests (Nakama's own `AddFriends` API) are limited the same way, 20 per minute, by a before-hook.
+Rate-limited calls beyond their budget fail with `too many requests`. Friend requests (Nakama's own `AddFriends` API) are limited the same way by a before-hook, 20 players per minute (a request naming several players costs one per player).
 
-Storage permissions: `profile/progress` is readable by its owner only and never client-writable (a row the client created itself before the server did is ignored and replaced); `rooms`, `reports` and `ratelimit` are server-only; the `season` leaderboard is authoritative.
+Storage permissions: `profile/progress` is readable by its owner only and never client-writable; `rooms`, `reports` and `ratelimit` are server-only; the `season` leaderboard is authoritative. Before-hooks on Nakama's WriteStorageObjects and DeleteStorageObjects refuse any client request touching `profile`, `ratelimit`, `rooms` or `reports`, so a client cannot pre-seed a row the server would trust (and a profile row the client created anyway is ignored).
+
+Match labels carry the mode, open flag and seat counts, never the room code: any client can list matches.
 
 Progression (`src/match/progression.ts`, pure and unit-tested) is applied by the match handler once when a game ends: XP for participation, placement and wins (halved for games against bots only), and season points on the `season` leaderboard (monthly reset, only for games with at least two humans). Adding, accepting, removing and blocking friends use Nakama's friends API from the client; the social RPCs (`src/match/social.ts`, invite rules unit-tested) only look players up and deliver room invites as Nakama in-app notifications (no push).
 
@@ -76,7 +78,7 @@ Quests (`src/match/quests.ts`): three daily quests picked deterministically from
 
 0. `quick_play` with `{"tutorial": true}` creates a solo tutorial match: one human seat, two bots with a longer think delay and deterministic tie-breaks, no step timer, a fixed seed, and the learner always seated first. Its label mode is `tutorial`, so public quick play never joins it.
 1. `quick_play` RPC returns an open public match id (or creates one). Public lobbies start when full (5 seats) or 20 seconds after the first player joins, filling empty seats with bots to reach 3.
-2. `create_room` RPC returns a 6-character code and a private match id; `join_room` resolves a code. Private rooms start when everyone has sent `OP_READY` and there are at least 2 humans (a bot fills the third seat).
+2. `create_room` RPC returns a 6-character code and a private match id; `join_room` resolves a code. Joining a private lobby needs the code as join metadata (`{code}`); players already in the lobby and seated players rejoining a started game do not. Private rooms start when everyone has sent `OP_READY` and there are at least 2 humans (a bot fills the third seat).
 3. During play the server applies bot moves after a short delay and auto-moves a human seat when its deadline passes. Real-game bots use the heuristic bot (`src/engine/bot.ts`); timeouts and tutorial bots use the simple `autoAction` (rules-spec section 8). Three consecutive timeouts convert a seat to a bot, which then plays with the heuristic bot; rejoining reclaims it.
 4. Reconnection: a user whose seat exists may rejoin the match and receives a fresh view. A second socket of the same user takes the seat over (views go to the newest session; the older session's leave is ignored), so a phone that changed networks reconnects before the server has noticed the drop. The action log is kept in match state for a future replay feature.
 5. The match ends 45 seconds after the game ends or when everyone leaves.

@@ -59,3 +59,10 @@ Decisions made by the project owner on 2026-09-27, after the research in `docs/r
 - **Decision:** the client always lays out left to right (`internationalization/rendering/root_node_layout_direction=1`), and UI text is about 20% larger than the first pass (labels 19 px, buttons and inputs 22 px on the 720 px canvas; seat cards widened to 220 px).
 - **Why:** on the owner's first local run (macOS in Hebrew) Godot mirrored the whole table: the supply pile jumped to the right and the hand fan rendered off screen. The app has no translations, so the locale should not flip the layout. Text was also too small on a phone.
 - **Implies:** if Hebrew or Arabic translations ever ship, right-to-left support is a deliberate project: the table's absolute positions (`_hand_slot`, seat slots) assume left to right. New UI uses the larger sizes as the floor.
+
+## D10. The "3D table" design (2026-10-02)
+
+- **Decision:** the client follows the "Big Business — 3D Table" design: a felt table tilted 32 degrees in perspective with printed zones, opponents on plates around the far side, the hand standing at the near edge, a cream bottom bar, Archivo Black and Nunito Sans (bundled, OFL), and a start page with a fanned set of shares over a small felt. Layouts are written in design points of the 390 x 844 artboard and scaled by `UiTheme.layout_scale`, so the same layout fills a 16:9 and a 19.5:9 phone. The tutorial coach dims the table except the area its step is about.
+- **Why:** the owner asked for the design to be implemented. Scaling from the artboard also fixes the remaining "too small on a phone" complaint from D9: the design's 44-point buttons become 67 to 81 px on the 720 px canvas, and nothing on the table is under the 48 px touch target.
+- **Implies:** the tilt is drawn in 2D (`TableBoard.project`), not with a 3D scene, so cards stay ordinary Controls and every smoke and e2e hook still works. D9 still holds: the layout is pinned left to right, and Hebrew-locale screenshots match the default ones. Company art is drawn in code (sun, pine, anchor, gear, cloud, bolt) until the commissioned art in TODO-local F replaces the art window.
+

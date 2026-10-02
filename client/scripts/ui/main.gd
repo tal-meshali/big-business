@@ -1,5 +1,9 @@
 extends Control
-## Lobby screen: connect, quick play, create or join a private room.
+## Start screen, after the "3D table" design: a little table with the six
+## companies' shares fanned over it, the title card, your portfolio (name,
+## level, XP, daily bonus, season standings), Play now, the tutorial and
+## private rooms. Below the fold: friends, quests and card backs, the shop,
+## rules, your account and the server address.
 
 var _host_edit: LineEdit
 var _name_edit: LineEdit
@@ -10,11 +14,17 @@ var _buttons: Array[Button] = []
 var _ready_button: Button
 var _copy_button: Button
 var _room_code := ""
+var _room_label: Label
+var _join_row: HBoxContainer
+var _room_row: HBoxContainer
 var _profile_label: Label
 var _xp_bar: ProgressBar
+var _xp_label: Label
+var _avatar_label: Label
 var _daily_button: Button
 var _board_button: Button
 var _board_label: Label
+var _season_sheet: ColorRect
 var _friends_panel: FriendsPanel
 var _quests_button: Button
 var _quests_panel: QuestsPanel
@@ -22,8 +32,9 @@ var _shop_button: Button
 var _shop_panel: ShopPanel
 ## Games on the profile; -1 until the profile has loaded.
 var _games_played := -1
-var _felt: ColorRect
-var _felt_edge: ReferenceRect
+## The little table on top; its `color` is the picked felt.
+var _felt: StartFan
+var _room: TextureRect
 var _account_label: Label
 var _link_apple_button: Button
 var _link_google_button: Button
@@ -31,6 +42,8 @@ var _connected := false
 var _in_lobby := false
 ## Set when a link attempt signed in to the provider's existing account.
 var _account_switched := false
+## Design points to px.
+var _s := 1.85
 
 
 func _ready() -> void:
@@ -51,201 +64,114 @@ func _ready() -> void:
 	_refresh_account_row.call_deferred()
 
 
+func _px(dp: float) -> int:
+	return int(round(dp * _s))
+
+
 func _build() -> void:
 	set_anchors_preset(Control.PRESET_FULL_RECT)
 	theme = UiTheme.get_theme()
-	var bg := ColorRect.new()
-	bg.color = Cosmetics.table_bg_color()
-	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
-	add_child(bg)
-	_felt = bg
-	var frame := ReferenceRect.new()
-	frame.editor_only = false
-	frame.border_color = Cosmetics.table_edge_color()
-	_felt_edge = frame
-	frame.border_width = 6.0
-	frame.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	frame.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	add_child(frame)
+	_s = UiTheme.layout_scale(get_viewport_rect().size)
+	_room = UiTheme.room_background(Cosmetics.table_bg_color(), Vector2(0.5, 0.22))
+	add_child(_room)
 
+	var scroll := ScrollContainer.new()
+	scroll.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	# Phones scroll by dragging; the bar would only cover the cards.
+	scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_SHOW_NEVER
+	add_child(scroll)
+	var margins := MarginContainer.new()
+	margins.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	margins.add_theme_constant_override("margin_left", _px(18))
+	margins.add_theme_constant_override("margin_right", _px(18))
+	margins.add_theme_constant_override("margin_top", _px(40))
+	margins.add_theme_constant_override("margin_bottom", _px(28))
+	scroll.add_child(margins)
 	var box := VBoxContainer.new()
-	box.set_anchors_preset(Control.PRESET_FULL_RECT)
-	box.offset_left = 32
-	box.offset_right = -32
-	box.offset_top = 80
-	box.offset_bottom = -40
-	box.add_theme_constant_override("separation", 14)
-	add_child(box)
+	box.add_theme_constant_override("separation", _px(12))
+	margins.add_child(box)
 
-	# Title on a red deed band, like the name plate of a property board.
-	var deed := UiTheme.deed_panel(Companies.ALERT, "BIG BUSINESS", Color.WHITE)
-	deed["title"].add_theme_font_size_override("font_size", 40)
-	var tagline := Label.new()
-	tagline.text = "Collect shares. Corner the market. Cash in on dividend day."
-	tagline.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	tagline.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	tagline.add_theme_font_size_override("font_size", 18)
-	deed["body"].add_child(tagline)
-	box.add_child(deed["panel"])
+	_felt = StartFan.new()
+	_felt.s = _s
+	_felt.color = Cosmetics.table_bg_color()
+	_felt.edge_color = Cosmetics.table_edge_color()
+	box.add_child(_felt)
+	box.add_child(_title_card())
 
-	_host_edit = LineEdit.new()
-	_host_edit.placeholder_text = "server (127.0.0.1 or https://your.domain)"
-	_host_edit.text = Net.server_address()
-	_host_edit.custom_minimum_size = Vector2(0, 52)
-	box.add_child(_host_edit)
-
-	_name_edit = LineEdit.new()
-	_name_edit.placeholder_text = "your name"
-	_name_edit.text = Net.display_name
-	_name_edit.max_length = 16
-	_name_edit.custom_minimum_size = Vector2(0, 52)
-	box.add_child(_name_edit)
-
-	_status = Label.new()
-	_status.text = "Not connected"
+	_status = UiTheme.label("Not connected", _px(13), UiTheme.CREAM)
+	_status.add_theme_font_override("font", UiTheme.body_font())
+	_status.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	box.add_child(_status)
 
-	# Profile card: level, XP bar, streak and the daily bonus.
-	var profile := UiTheme.deed_panel(Companies.CHEST, "Your portfolio", Color.WHITE)
-	profile["title"].add_theme_font_size_override("font_size", 24)
-	var pbox := VBoxContainer.new()
-	pbox.add_theme_constant_override("separation", 8)
-	profile["body"].add_child(pbox)
-	_profile_label = Label.new()
-	_profile_label.text = "Level 1"
-	_profile_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_profile_label.add_theme_font_size_override("font_size", 18)
-	pbox.add_child(_profile_label)
-	_xp_bar = ProgressBar.new()
-	_xp_bar.custom_minimum_size = Vector2(0, 14)
-	_xp_bar.show_percentage = false
-	var fill := StyleBoxFlat.new()
-	fill.bg_color = Companies.GOLD
-	fill.set_corner_radius_all(6)
-	var track := StyleBoxFlat.new()
-	track.bg_color = Color("#E8E8E8")
-	track.border_color = Companies.INK
-	track.set_border_width_all(1)
-	track.set_corner_radius_all(6)
-	_xp_bar.add_theme_stylebox_override("fill", fill)
-	_xp_bar.add_theme_stylebox_override("background", track)
-	pbox.add_child(_xp_bar)
-	var prow := HBoxContainer.new()
-	prow.add_theme_constant_override("separation", 10)
-	pbox.add_child(prow)
-	_daily_button = Button.new()
-	_daily_button.text = "Claim daily bonus"
-	_daily_button.custom_minimum_size = Vector2(0, 48)
-	_daily_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_daily_button.disabled = true
-	_daily_button.pressed.connect(_on_claim_daily)
-	prow.add_child(_daily_button)
-	_board_button = Button.new()
-	_board_button.text = "Season standings"
-	_board_button.custom_minimum_size = Vector2(0, 48)
-	_board_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_board_button.disabled = true
-	_board_button.pressed.connect(_on_show_board)
-	prow.add_child(_board_button)
-	var friends_button := Button.new()
-	friends_button.text = "Friends"
-	friends_button.custom_minimum_size = Vector2(0, 48)
-	friends_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	friends_button.pressed.connect(func() -> void: _friends_panel.visible = not _friends_panel.visible)
-	prow.add_child(friends_button)
-	_board_label = Label.new()
-	_board_label.visible = false
-	_board_label.add_theme_font_size_override("font_size", 18)
-	pbox.add_child(_board_label)
-	var cosmetics_row := HBoxContainer.new()
-	cosmetics_row.add_theme_constant_override("separation", 10)
-	pbox.add_child(cosmetics_row)
-	_quests_button = Button.new()
-	_quests_button.text = "Quests & card backs"
-	_quests_button.custom_minimum_size = Vector2(0, 48)
-	_quests_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_quests_button.pressed.connect(_on_toggle_quests)
-	cosmetics_row.add_child(_quests_button)
-	_shop_button = Button.new()
-	_shop_button.text = "Shop"
-	_shop_button.custom_minimum_size = Vector2(120, 48)
-	_shop_button.visible = RemoteConfig.shop_enabled
-	_shop_button.pressed.connect(_on_open_shop)
-	cosmetics_row.add_child(_shop_button)
-	box.add_child(profile["panel"])
+	box.add_child(_portfolio_card())
 
-	_friends_panel = FriendsPanel.new()
-	_friends_panel.visible = false
-	_friends_panel.join_requested.connect(_on_invite_join)
-	box.add_child(_friends_panel)
+	var play := UiTheme.button("Play now", _px(20), _px(58), "big")
+	play.icon = UiTheme.play_icon(_px(20))
+	play.add_theme_constant_override("h_separation", _px(8))
+	play.add_theme_constant_override("icon_max_width", _px(20))
+	play.pressed.connect(_on_quick_play)
+	play.disabled = true
+	_buttons.append(play)
+	box.add_child(play)
+	var row := _row(box)
+	_add_button(row, "How to play", _on_tutorial)
+	_add_button(row, "Create private room", _on_create_room)
 
-	_add_button(box, "Connect", _on_connect_pressed, true)
-	_add_button(box, "Play now", _on_quick_play)
-	_add_button(box, "How to play (tutorial)", _on_tutorial)
-	_add_button(box, "Rules and help", _on_help, true)
-	_add_button(box, "Create private room", _on_create_room)
-
-	var join_row := HBoxContainer.new()
-	box.add_child(join_row)
+	# Join by code, or once you made a room, its code to share.
+	_join_row = _row(box)
 	_code_edit = LineEdit.new()
-	_code_edit.placeholder_text = "ROOM CODE"
+	_code_edit.placeholder_text = "Room code"
 	_code_edit.max_length = 6
 	_code_edit.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_code_edit.custom_minimum_size = Vector2(0, 56)
-	join_row.add_child(_code_edit)
-	var join := Button.new()
-	join.text = "Join"
-	join.custom_minimum_size = Vector2(120, 56)
+	_code_edit.custom_minimum_size = Vector2(0, _px(44))
+	_code_edit.add_theme_font_override("font", UiTheme.display_font())
+	_code_edit.add_theme_font_size_override("font_size", _px(16))
+	_code_edit.add_theme_constant_override("minimum_character_width", 4)
+	_code_edit.text_changed.connect(func(t: String) -> void:
+		var caret := _code_edit.caret_column
+		_code_edit.text = t.to_upper()
+		_code_edit.caret_column = caret)
+	_join_row.add_child(_code_edit)
+	var join := UiTheme.button("Join", _px(14), _px(44))
+	join.custom_minimum_size.x = _px(88)
 	join.pressed.connect(_on_join_room)
 	join.disabled = true
-	join_row.add_child(join)
+	_join_row.add_child(join)
 	_buttons.append(join)
-
-	_lobby_label = Label.new()
-	_lobby_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_lobby_label.add_theme_font_size_override("font_size", 22)
-	box.add_child(_lobby_label)
-
-	_copy_button = Button.new()
-	_copy_button.text = "Copy room code"
-	_copy_button.custom_minimum_size = Vector2(0, 56)
-	_copy_button.visible = false
+	_room_row = _row(box)
+	_room_row.visible = false
+	_room_label = UiTheme.label("", _px(13), UiTheme.CREAM)
+	_room_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_room_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_room_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_room_label.custom_minimum_size = Vector2(0, _px(44))
+	var dashed := StyleBoxFlat.new()
+	dashed.draw_center = false
+	dashed.border_color = UiTheme.CREAM
+	dashed.set_border_width_all(2)
+	dashed.set_corner_radius_all(_px(10))
+	_room_label.add_theme_stylebox_override("normal", dashed)
+	_room_row.add_child(_room_label)
+	_copy_button = UiTheme.button("Copy", _px(14), _px(44))
+	_copy_button.custom_minimum_size.x = _px(88)
 	_copy_button.pressed.connect(func() -> void:
 		DisplayServer.clipboard_set(_room_code)
 		_copy_button.text = "Copied!")
-	box.add_child(_copy_button)
+	_room_row.add_child(_copy_button)
 
-	_ready_button = Button.new()
-	_ready_button.text = "I'm ready"
-	_ready_button.custom_minimum_size = Vector2(0, 56)
+	_lobby_label = UiTheme.label("", _px(14), UiTheme.CREAM)
+	_lobby_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_lobby_label.visible = false
+	box.add_child(_lobby_label)
+	_ready_button = UiTheme.button("I'm ready", _px(16), _px(48), "primary")
 	_ready_button.visible = false
 	_ready_button.pressed.connect(_on_ready_pressed)
 	box.add_child(_ready_button)
 
-	# Account row: guest or linked providers, with link buttons where a
-	# token provider exists (iOS / Android with the plugin installed).
-	var account_row := HBoxContainer.new()
-	account_row.add_theme_constant_override("separation", 8)
-	box.add_child(account_row)
-	_account_label = Label.new()
-	_account_label.text = Net.describe_account_links({})
-	_account_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_account_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	_account_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	account_row.add_child(_account_label)
-	_link_apple_button = Button.new()
-	_link_apple_button.text = "Link Apple"
-	_link_apple_button.custom_minimum_size = Vector2(0, 56)
-	_link_apple_button.visible = false
-	_link_apple_button.pressed.connect(_on_link_apple)
-	account_row.add_child(_link_apple_button)
-	_link_google_button = Button.new()
-	_link_google_button.text = "Link Google"
-	_link_google_button.custom_minimum_size = Vector2(0, 56)
-	_link_google_button.visible = false
-	_link_google_button.pressed.connect(_on_link_google)
-	account_row.add_child(_link_google_button)
+	_build_more(box)
+	_build_season_sheet()
 
 	# Quests overlay above the lobby, toggled by its button.
 	_quests_panel = QuestsPanel.new()
@@ -273,15 +199,261 @@ func _build() -> void:
 	add_child(_shop_panel)
 
 
+## "BIG BUSINESS" on a red band, with the tagline under it.
+func _title_card() -> Control:
+	var card := PanelContainer.new()
+	card.add_theme_stylebox_override("panel", UiTheme.card_box(Companies.PANEL, 12 * _s, 4 * _s))
+	var column := VBoxContainer.new()
+	column.add_theme_constant_override("separation", 0)
+	card.add_child(column)
+	var band := _band(Companies.ALERT, _px(58))
+	column.add_child(band)
+	var spaced := FontVariation.new()
+	spaced.base_font = UiTheme.display_font()
+	spaced.spacing_glyph = _px(2)
+	var title := UiTheme.label("BIG BUSINESS", _px(34), Color.WHITE)
+	title.add_theme_font_override("font", spaced)
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	band.add_child(title)
+	var tag := UiTheme.label("Collect shares. Corner the market. Cash in on dividend day.", _px(13.5))
+	tag.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	tag.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	var pad := MarginContainer.new()
+	for side in ["left", "right"]:
+		pad.add_theme_constant_override("margin_" + side, _px(14))
+	for side in ["top", "bottom"]:
+		pad.add_theme_constant_override("margin_" + side, _px(9))
+	pad.add_child(tag)
+	column.add_child(pad)
+	return card
+
+
+## Your portfolio: avatar, name, level, XP towards the next level and the
+## streak, the daily bonus and the season standings.
+func _portfolio_card() -> Control:
+	var card := PanelContainer.new()
+	card.add_theme_stylebox_override("panel", UiTheme.card_box(Companies.PANEL, 12 * _s, 4 * _s))
+	var column := VBoxContainer.new()
+	column.add_theme_constant_override("separation", 0)
+	card.add_child(column)
+	var band := _band(Companies.color_of(2), _px(34))
+	column.add_child(band)
+	var title := UiTheme.label("Your portfolio", _px(15), Color.WHITE, true)
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	band.add_child(title)
+	var pad := MarginContainer.new()
+	pad.add_theme_constant_override("margin_left", _px(12))
+	pad.add_theme_constant_override("margin_right", _px(12))
+	pad.add_theme_constant_override("margin_top", _px(10))
+	pad.add_theme_constant_override("margin_bottom", _px(12))
+	column.add_child(pad)
+	var body := VBoxContainer.new()
+	body.add_theme_constant_override("separation", _px(9))
+	pad.add_child(body)
+
+	var who := HBoxContainer.new()
+	who.add_theme_constant_override("separation", _px(10))
+	body.add_child(who)
+	_avatar_label = UiTheme.label("?", _px(18), Companies.INK, true)
+	_avatar_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_avatar_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_avatar_label.custom_minimum_size = Vector2(_px(42), _px(42))
+	_avatar_label.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	var disc := StyleBoxFlat.new()
+	disc.bg_color = SeatView.AVATARS[0]
+	disc.border_color = Companies.INK
+	disc.set_border_width_all(2)
+	disc.set_corner_radius_all(_px(21))
+	_avatar_label.add_theme_stylebox_override("normal", disc)
+	who.add_child(_avatar_label)
+	var field := VBoxContainer.new()
+	field.add_theme_constant_override("separation", _px(2))
+	field.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	who.add_child(field)
+	field.add_child(UiTheme.label("YOUR NAME", _px(10), UiTheme.MUTED))
+	_name_edit = LineEdit.new()
+	_name_edit.placeholder_text = "Pick a name"
+	_name_edit.text = Net.display_name
+	_name_edit.max_length = 16
+	_name_edit.custom_minimum_size = Vector2(0, maxf(48, _px(34)))
+	_name_edit.add_theme_font_size_override("font_size", _px(16))
+	var underline := StyleBoxFlat.new()
+	underline.bg_color = Color(0, 0, 0, 0)
+	underline.border_color = Companies.INK
+	underline.border_width_bottom = 2
+	underline.content_margin_left = 2
+	var underline_focus := underline.duplicate()
+	underline_focus.border_color = Companies.color_of(2)
+	_name_edit.add_theme_stylebox_override("normal", underline)
+	_name_edit.add_theme_stylebox_override("focus", underline_focus)
+	_name_edit.text_changed.connect(_on_name_changed)
+	_name_edit.focus_exited.connect(func() -> void: Net.save_settings())
+	field.add_child(_name_edit)
+	_on_name_changed(_name_edit.text)
+	_profile_label = UiTheme.label("Level 1", _px(13), Companies.INK, true)
+	_profile_label.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	var chip := UiTheme.card_box(UiTheme.PRIMARY, 8 * _s, 2 * _s)
+	chip.content_margin_left = 8 * _s
+	chip.content_margin_right = 8 * _s
+	chip.content_margin_top = 5 * _s
+	chip.content_margin_bottom = 5 * _s
+	_profile_label.add_theme_stylebox_override("normal", chip)
+	who.add_child(_profile_label)
+
+	var xp_row := HBoxContainer.new()
+	xp_row.add_theme_constant_override("separation", _px(8))
+	body.add_child(xp_row)
+	_xp_bar = ProgressBar.new()
+	_xp_bar.custom_minimum_size = Vector2(0, _px(12))
+	_xp_bar.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_xp_bar.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	_xp_bar.show_percentage = false
+	xp_row.add_child(_xp_bar)
+	_xp_label = UiTheme.label("0 / 50 XP · Streak 0", _px(12))
+	xp_row.add_child(_xp_label)
+
+	var buttons := _row(body)
+	_daily_button = UiTheme.button("Claim daily bonus", _px(14), _px(44))
+	_daily_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_daily_button.disabled = true
+	_daily_button.pressed.connect(_on_claim_daily)
+	buttons.add_child(_daily_button)
+	_board_button = UiTheme.button("Season standings", _px(14), _px(44))
+	_board_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_board_button.disabled = true
+	_board_button.pressed.connect(_on_show_board)
+	buttons.add_child(_board_button)
+	return card
+
+
+## Below the fold: friends, quests and card backs, the shop, rules, your
+## account and the server address.
+func _build_more(box: VBoxContainer) -> void:
+	var more := UiTheme.label("MORE", _px(11), Color(UiTheme.CREAM, 0.75), true)
+	box.add_child(more)
+	var row := _row(box)
+	var friends_button := UiTheme.button("Friends", _px(14), _px(44))
+	friends_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	friends_button.pressed.connect(func() -> void: _friends_panel.visible = not _friends_panel.visible)
+	row.add_child(friends_button)
+	_quests_button = UiTheme.button("Quests & card backs", _px(14), _px(44))
+	_quests_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_quests_button.pressed.connect(_on_toggle_quests)
+	row.add_child(_quests_button)
+	var row2 := _row(box)
+	_shop_button = UiTheme.button("Shop", _px(14), _px(44))
+	_shop_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_shop_button.visible = RemoteConfig.shop_enabled
+	_shop_button.pressed.connect(_on_open_shop)
+	row2.add_child(_shop_button)
+	var rules := UiTheme.button("Rules and help", _px(14), _px(44))
+	rules.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	rules.pressed.connect(_on_help)
+	row2.add_child(rules)
+
+	_friends_panel = FriendsPanel.new()
+	_friends_panel.visible = false
+	_friends_panel.join_requested.connect(_on_invite_join)
+	box.add_child(_friends_panel)
+
+	# Account row: guest or linked providers, with link buttons where a
+	# token provider exists (iOS / Android with the plugin installed).
+	var account_row := _row(box)
+	_account_label = UiTheme.label(Net.describe_account_links({}), _px(12), UiTheme.CREAM)
+	_account_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_account_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_account_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	account_row.add_child(_account_label)
+	_link_apple_button = UiTheme.button("Link Apple", _px(13), _px(44))
+	_link_apple_button.visible = false
+	_link_apple_button.pressed.connect(_on_link_apple)
+	account_row.add_child(_link_apple_button)
+	_link_google_button = UiTheme.button("Link Google", _px(13), _px(44))
+	_link_google_button.visible = false
+	_link_google_button.pressed.connect(_on_link_google)
+	account_row.add_child(_link_google_button)
+
+	var server_row := _row(box)
+	_host_edit = LineEdit.new()
+	_host_edit.placeholder_text = "server (127.0.0.1 or https://your.domain)"
+	_host_edit.text = Net.server_address()
+	_host_edit.custom_minimum_size = Vector2(0, maxf(48, _px(40)))
+	_host_edit.add_theme_font_size_override("font_size", _px(13))
+	_host_edit.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	server_row.add_child(_host_edit)
+	var connect_button := UiTheme.button("Connect", _px(13), _px(40), "ghost")
+	connect_button.pressed.connect(_on_connect_pressed)
+	server_row.add_child(connect_button)
+
+
+## Season standings in a sheet that rises from the bottom.
+func _build_season_sheet() -> void:
+	_season_sheet = ColorRect.new()
+	_season_sheet.color = Color(0.04, 0.09, 0.06, 0.6)
+	_season_sheet.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_season_sheet.visible = false
+	_season_sheet.gui_input.connect(func(e: InputEvent) -> void:
+		if e is InputEventMouseButton and e.pressed:
+			_season_sheet.visible = false)
+	add_child(_season_sheet)
+	var deed := UiTheme.deed_panel(Color("#7B4FC6"), "Season standings", Color.WHITE)
+	deed["title"].add_theme_font_size_override("font_size", _px(18))
+	deed["title"].horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	var sheet: PanelContainer = deed["panel"]
+	sheet.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_WIDE)
+	sheet.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	sheet.offset_left = _px(16)
+	sheet.offset_right = -_px(16)
+	sheet.offset_bottom = -_px(16)
+	_season_sheet.add_child(sheet)
+	var body := VBoxContainer.new()
+	body.add_theme_constant_override("separation", _px(14))
+	deed["body"].add_child(body)
+	_board_label = UiTheme.label("", _px(15))
+	_board_label.add_theme_font_override("font", UiTheme.body_font())
+	_board_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	body.add_child(_board_label)
+	var close := UiTheme.button("Close", _px(14), _px(44), "primary")
+	close.pressed.connect(func() -> void: _season_sheet.visible = false)
+	body.add_child(close)
+
+
+func _band(color: Color, height: int) -> PanelContainer:
+	var band := PanelContainer.new()
+	var style := StyleBoxFlat.new()
+	style.bg_color = color
+	style.border_color = Companies.INK
+	style.border_width_bottom = 2
+	style.corner_radius_top_left = int(10 * _s)
+	style.corner_radius_top_right = int(10 * _s)
+	band.add_theme_stylebox_override("panel", style)
+	band.custom_minimum_size = Vector2(0, height)
+	return band
+
+
+func _row(parent: Control) -> HBoxContainer:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", _px(8))
+	parent.add_child(row)
+	return row
+
+
 func _add_button(parent: Control, text: String, handler: Callable, enabled := false) -> void:
-	var b := Button.new()
-	b.text = text
-	b.custom_minimum_size = Vector2(0, 56)
+	var b := UiTheme.button(text, _px(14), _px(44))
+	b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	b.pressed.connect(handler)
 	b.disabled = not enabled
 	parent.add_child(b)
 	if not enabled:
 		_buttons.append(b)
+
+
+func _on_name_changed(text: String) -> void:
+	var who := text.strip_edges()
+	Net.display_name = who
+	_avatar_label.text = who.substr(0, 1).to_upper() if not who.is_empty() else "?"
 
 
 func _set_online_buttons(enabled: bool) -> void:
@@ -327,13 +499,14 @@ func _apply_progress(p: Dictionary, daily_available: bool) -> void:
 	var xp := int(p.get("xp", 0))
 	var floor_xp := 50 * (level - 1) * (level - 1)
 	var next_xp := 50 * level * level
-	_profile_label.text = "Level %d  •  %d / %d XP  •  %d games, %d wins  •  streak %d" % [
-		level, xp, next_xp, int(p.get("gamesPlayed", 0)), int(p.get("wins", 0)), int(p.get("streak", 0))]
+	_profile_label.text = "Level %d" % level
+	_profile_label.tooltip_text = "%d games, %d wins" % [int(p.get("gamesPlayed", 0)), int(p.get("wins", 0))]
+	_xp_label.text = "%d / %d XP · Streak %d" % [xp, next_xp, int(p.get("streak", 0))]
 	_xp_bar.min_value = floor_xp
 	_xp_bar.max_value = next_xp
 	_xp_bar.value = xp
 	_daily_button.disabled = not daily_available
-	_daily_button.text = "Claim daily bonus" if daily_available else "Daily bonus claimed"
+	_daily_button.text = "Claim daily bonus" if daily_available else "Bonus claimed"
 
 
 func _on_claim_daily() -> void:
@@ -344,7 +517,28 @@ func _on_claim_daily() -> void:
 		return
 	if res.get("claimed", false):
 		_status.text = "+%d XP  (day %d streak)" % [int(res.get("xpAwarded", 0)), int(res.get("progress", {}).get("streak", 1))]
+		_float_xp(int(res.get("xpAwarded", 0)))
 	_apply_progress(res.get("progress", {}), false)
+
+
+## "+15 XP" rises off the daily bonus button and fades.
+func _float_xp(amount: int) -> void:
+	var tag := UiTheme.label("+%d XP" % amount, _px(15), Companies.INK, true)
+	var chip := UiTheme.card_box(UiTheme.PRIMARY, 8 * _s, 0)
+	chip.content_margin_left = 6 * _s
+	chip.content_margin_right = 6 * _s
+	chip.content_margin_top = 3 * _s
+	chip.content_margin_bottom = 3 * _s
+	tag.add_theme_stylebox_override("normal", chip)
+	tag.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(tag)
+	var r := _daily_button.get_global_rect()
+	var start := Vector2(r.get_center().x - tag.get_combined_minimum_size().x / 2.0, r.position.y - _px(6))
+	tag.global_position = start
+	var tw := create_tween().set_parallel()
+	tw.tween_property(tag, "global_position:y", start.y - _px(38), 1.4).set_ease(Tween.EASE_OUT)
+	tw.tween_property(tag, "modulate:a", 0.0, 1.4).set_ease(Tween.EASE_IN)
+	tw.chain().tween_callback(tag.queue_free)
 
 
 func _on_toggle_quests() -> void:
@@ -363,23 +557,22 @@ func _apply_remote_config() -> void:
 		_shop_panel.visible = false
 
 
-## The lobby felt follows the picked table felt at once.
+## The lobby felt (and the room around it) follows the picked felt at once.
 func _on_cosmetic_changed(_slot: String, _id: String) -> void:
 	_felt.color = Cosmetics.table_bg_color()
-	_felt_edge.border_color = Cosmetics.table_edge_color()
+	_felt.edge_color = Cosmetics.table_edge_color()
+	UiTheme.paint_room(_room, Cosmetics.table_bg_color(), Vector2(0.5, 0.22))
 
 
 func _on_show_board() -> void:
-	_board_label.visible = not _board_label.visible
-	if not _board_label.visible:
-		return
+	_season_sheet.visible = true
 	_board_label.text = "Loading..."
 	var rows: Array = await Net.season_leaderboard(10)
 	if rows.is_empty():
-		_board_label.text = "No season games yet. Points come from games with other people."
+		_board_label.text = "No season games yet. Points come from games with other people, and the board resets every month."
 		return
 	var lines := PackedStringArray()
-	lines.append("Season standings (resets monthly)")
+	lines.append("Resets every month.")
 	for r in rows:
 		if r.get("mine", false) and int(r.get("rank", 0)) > 10:
 			lines.append("…")
@@ -467,7 +660,10 @@ func _on_create_room() -> void:
 	_room_code = code
 	_friends_panel.room_code = code
 	_status.text = "Room code: %s" % code
-	_copy_button.visible = true
+	_room_label.text = "Your room  %s" % code
+	_copy_button.text = "Copy"
+	_join_row.visible = false
+	_room_row.visible = true
 	_ready_button.visible = true
 
 
@@ -492,6 +688,7 @@ func _on_lobby(lobby: Dictionary) -> void:
 	elif is_private:
 		lines.append("Starts when everyone is ready (2+ players)")
 	_lobby_label.text = "\n".join(lines)
+	_lobby_label.visible = true
 
 
 func _on_first_view(_view: Dictionary) -> void:

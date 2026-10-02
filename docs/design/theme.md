@@ -54,16 +54,21 @@ Contrast rule: yellow and orange are the closest pair, so their icons (sun vs ge
 
 ## Card back
 
-Off-white with an ink border, a row of six company-colour stripes top and bottom, and "BIG BUSINESS" set in ink. Custom decks may replace the back with any 5:7 image (premium).
+Off-white with an ink border, a row of six company-colour stripes top and bottom with an ink rule under each, and "BIG BUSINESS" set in ink. Custom decks may replace the back with any 5:7 image (premium).
 
 ## Table
 
-- Background: board green `#C7DFC9` with a darker green rim. A dark "night table" skin is a later cosmetic, not the default.
-- Your seat at the bottom. Opponents around a vertical oval, each on a white panel with an ink border; the active seat gets a warm highlight and a timer arc.
-- Each seat: avatar, name, capital count, company-colour pips showing shares in the portfolio (drawn like small deed bands), and regulator tokens.
-- The Market is a horizontal strip across the middle; coins stack on each share card.
-- The share supply sits at the left of the Market with a count.
-- Panels that interrupt play (tutorial coach, dividend day) are white deed-style cards with a coloured title band: orange for the coach, gold for dividend day. The lobby title sits on a red band.
+The "3D table" design (2026-10, canvas "Big Business — 3D Table": start page, tutorial, table). Sizes below are design points on a 390 x 844 phone; the client multiplies them by `UiTheme.layout_scale` (about 1.85 on a 720 px wide canvas).
+
+- Room: a dark radial glow derived from the picked felt (`UiTheme.room_colors`), so every felt skin gets a matching room.
+- Felt: a 380 x 620 rounded table tilted 32 degrees away from you and seen in perspective (`TableBoard`), with a 14 dp rim in the edge colour and two darker layers under it for thickness. Printed on it in spaced capitals: Supply with its count at the far end, the Market in the middle, your Portfolio near you. Zones are dashed outlines that fill and pulse when you can use them.
+- Cards on the felt shrink with distance: Market shares at half size in up to two rows, the supply pile face down with its stacked edges, your kept shares in one small stack per company.
+- Your hand stands at the near edge of the felt, fanned 7 degrees per card. Anything you can tap now (the supply, Market shares, hand cards) has an orange ring; a Market share your own token blocks is hatched.
+- Opponents sit on white plates around the far side (left, top, right, clockwise from your left), with their face-down hands fanned on the felt in front of them. A plate shows avatar, name with a "bot" or "away" tag, capital, and a pip per company held with a gold "R" seal for each token. The seat whose turn it is lifts and glows yellow, with the timer arc around its avatar.
+- Top bar: red BIG BUSINESS chip, whose turn it is, the timer, Leave or Forfeit. Bottom bar (cream, rounded top): you (capital and pips), emotes, rules, the prompt (what to do, or what the others just did), and the move buttons.
+- Panels that interrupt play (tutorial coach, dividend day, season standings) are white cards with a hard ink drop and a coloured title band: orange for the coach, gold for dividend day, purple for the season. The coach dims the table except the area its step is about.
+- Type: Archivo Black for titles, counts and scores; Nunito Sans (ExtraBold for labels and buttons, Bold for paragraphs). Buttons are white, yellow (`#F2C230`) for the main action or cream, with an ink border and a thicker bottom edge as a drop shadow.
+- Start page: a little felt with the six shares fanned above it (they sway, and flip when tapped), the title card on a red band, your portfolio (name, level, XP, streak, daily bonus, season standings), Play now, How to play, private rooms; friends, quests, the shop, rules, account and server below the fold.
 
 ## Regulator token
 

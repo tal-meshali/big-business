@@ -2,40 +2,63 @@ extends Control
 ## The game table (portrait). Renders a PlayerView from the server, animates
 ## the events that precede each view, and sends intents.
 ##
-## Layout (720x1280 design size, scales with canvas_items stretch):
-##   top bar        status + timer + leave
-##   seat oval      opponents on a vertical oval, you at the bottom seat slot
-##   market strip   supply pile | market cards (scrollable)
-##   action area    contextual prompt (draw / keep / sell)
-##   hand fan       your 3-4 cards
+## Layout, after the "3D table" design (sizes in design points, see
+## UiTheme.layout_scale):
+##   top bar      brand, whose turn it is, timer, Leave / Forfeit
+##   plates       opponents around the far side of the felt
+##   felt         tilted table (TableBoard): Supply, the Market, your Portfolio
+##   hand         your 3-4 cards standing at the near edge of the felt
+##   bottom bar   you (capital, holdings), emotes, rules, prompt and buttons
 ##
 ## Overlays: the get-ready countdown before the first turn, a forfeit
 ## confirmation, dividend day, reconnecting, and the close-up of a held card.
 
 const FLY_TIME := 0.35
 const COIN_TIME := 0.3
-const HAND_SCALE := 1.35
-## Tilt of the outermost hand cards, in degrees.
-const HAND_TILT_DEG := 6.0
+## Tilt of the hand cards per step from the middle, in degrees.
+const HAND_TILT_DEG := 7.0
 ## Seconds left on your own step when the table starts to glow and tick.
 const URGENT_SECONDS := 5
-## Size of a held card's close-up, relative to a Market card.
+## Size of a held card's close-up, relative to an unscaled card.
 const PEEK_SCALE := 2.2
+## Card scales on the felt, as in the design (1 = a 100 dp wide card).
+const MARKET_CARD := 0.5
+const SUPPLY_CARD := 0.48
+const PORTFOLIO_CARD := 0.36
+const HAND_CARD := 0.9
+## Opponent plates for 1..6 opponents, clockwise from your left:
+## [anchor ("L" left edge, "R" right edge, "C" centre), x dp, y dp, width dp].
+const PLATE_SLOTS := [
+	[["C", 0, 92, 170]],
+	[["L", 8, 110, 170], ["R", 8, 110, 170]],
+	[["L", 8, 166, 118], ["C", 0, 92, 170], ["R", 8, 166, 118]],
+	[["L", 8, 176, 118], ["C", -65, 92, 118], ["C", 65, 92, 118], ["R", 8, 176, 118]],
+	[["L", 8, 252, 118], ["L", 8, 166, 118], ["C", 0, 92, 118], ["R", 8, 166, 118], ["R", 8, 252, 118]],
+	[["L", 8, 252, 118], ["L", 8, 166, 118], ["C", -65, 92, 118], ["C", 65, 92, 118], ["R", 8, 166, 118], ["R", 8, 252, 118]],
+]
+const PLATE_H := 66.0
 
 var view: Dictionary = {}
 var _my_seat: int = -1
 var _step_seconds: float = 30.0
+## Design points to px for this screen.
+var _s: float = 1.85
+var _hand_scale: float = 1.5
 
 # Widgets
+var _room: TextureRect
+var _board: TableBoard
 var _status: Label
 var _timer_label: Label
 var _seats_layer: Control
 var _seat_views: Array[SeatView] = []
-var _market_row: HBoxContainer
+var _me_view: SeatView
+var _market_row: Control
+var _portfolio_layer: Control
 var _supply_pile: CardView
-var _supply_count: Label
 var _hand_layer: Control
 var _hand_cards: Array[CardView] = []
+var _bar: PanelContainer
 var _draw_button: Button
 var _prompt: Label
 var _keep_button: Button
@@ -44,6 +67,7 @@ var _cancel_button: Button
 var _fx_layer: Control
 var _result_panel: PanelContainer
 var _result_backdrop: ColorRect
+var _result_rows: VBoxContainer
 var _result_label: Label
 
 var _selected_card: int = -1
@@ -75,6 +99,8 @@ var _ready_ends_msec: int = 0
 var _ready_tween: Tween
 var _peek_layer: Control
 var _peek: CardView = null
+## What the other players did last, shown in the prompt while you wait.
+var _action_note := ""
 
 
 func _ready() -> void:
@@ -89,6 +115,7 @@ func _ready() -> void:
 	Net.reconnecting.connect(_on_reconnecting)
 	Net.reconnected.connect(_on_reconnected)
 	Net.player_forfeited.connect(_on_player_forfeited)
+	get_viewport().size_changed.connect(_on_resized)
 	# The lobby opened this scene on the game's first view; render it now.
 	if not Net.last_view.is_empty():
 		_on_view(Net.last_view)
@@ -98,138 +125,50 @@ func _ready() -> void:
 # Layout
 # ---------------------------------------------------------------------------
 
+func _px(dp: float) -> int:
+	return int(round(dp * _s))
+
+
 func _build_layout() -> void:
 	set_anchors_preset(Control.PRESET_FULL_RECT)
 	theme = UiTheme.get_theme()
-	var bg := ColorRect.new()
-	bg.color = Cosmetics.table_bg_color()
-	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
-	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	add_child(bg)
-	# Board edge: a darker green frame like the rim of a property board.
-	var frame := ReferenceRect.new()
-	frame.editor_only = false
-	frame.border_color = Cosmetics.table_edge_color()
-	frame.border_width = 6.0
-	frame.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	frame.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	add_child(frame)
+	_s = UiTheme.layout_scale(get_viewport_rect().size)
+	_hand_scale = HAND_CARD * _s * 100.0 / CardView.W
+	_room = UiTheme.room_background(Cosmetics.table_bg_color(), Vector2(0.5, 0.42))
+	add_child(_room)
 
-	# Top bar.
-	var top := HBoxContainer.new()
-	top.set_anchors_and_offsets_preset(Control.PRESET_TOP_WIDE)
-	top.offset_left = 16
-	top.offset_right = -16
-	top.offset_top = 16
-	top.custom_minimum_size = Vector2(0, 48)
-	add_child(top)
-	_status = Label.new()
-	_status.text = "Connecting..."
-	_status.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_status.add_theme_font_size_override("font_size", 26)
-	_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	top.add_child(_status)
-	_timer_label = Label.new()
-	_timer_label.add_theme_font_size_override("font_size", 26)
-	_timer_label.add_theme_color_override("font_color", Companies.ALERT)
-	top.add_child(_timer_label)
-	var help := Button.new()
-	help.text = "?"
-	help.tooltip_text = "Rules"
-	help.custom_minimum_size = Vector2(52, 52)
-	help.pressed.connect(func() -> void: HelpScreen.open_over(self))
-	top.add_child(help)
-	_emote_button = Button.new()
-	_emote_button.text = "😊"
-	_emote_button.tooltip_text = "Emotes"
-	_emote_button.custom_minimum_size = Vector2(56, 52)
-	_emote_button.add_theme_font_size_override("font_size", 26)
-	_emote_button.pressed.connect(_toggle_emote_bar)
-	top.add_child(_emote_button)
-	_leave_button = Button.new()
-	_leave_button.text = "Leave"
-	_leave_button.custom_minimum_size = Vector2(0, 52)
-	_leave_button.pressed.connect(_on_leave_pressed)
-	top.add_child(_leave_button)
-
-	# Seat oval.
-	_seats_layer = Control.new()
-	_seats_layer.set_anchors_and_offsets_preset(Control.PRESET_TOP_WIDE)
-	_seats_layer.offset_top = 72
-	_seats_layer.offset_bottom = 72 + 430
-	_seats_layer.mouse_filter = Control.MOUSE_FILTER_PASS
-	add_child(_seats_layer)
-
-	# Market strip.
-	var market_box := VBoxContainer.new()
-	market_box.set_anchors_and_offsets_preset(Control.PRESET_TOP_WIDE)
-	market_box.offset_left = 16
-	market_box.offset_right = -16
-	market_box.offset_top = 520
-	add_child(market_box)
-	var market_title := Label.new()
-	market_title.text = "The Market"
-	market_title.add_theme_font_size_override("font_size", 19)
-	market_title.add_theme_color_override("font_color", Companies.INK_SOFT)
-	market_box.add_child(market_title)
-	var strip := HBoxContainer.new()
-	strip.add_theme_constant_override("separation", 12)
-	market_box.add_child(strip)
-
-	var supply_box := VBoxContainer.new()
-	supply_box.alignment = BoxContainer.ALIGNMENT_CENTER
-	strip.add_child(supply_box)
+	# The felt and everything lying on it.
+	_board = TableBoard.new()
+	_board.s = _s
+	_board.felt_color = Cosmetics.table_bg_color()
+	_board.edge_color = Cosmetics.table_edge_color()
+	_board.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	add_child(_board)
+	_portfolio_layer = Control.new()
+	_portfolio_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_board.add_child(_portfolio_layer)
 	_supply_pile = CardView.new()
 	_supply_pile.setup(-1, 0, 0, false)
 	_supply_pile.selectable = false
-	supply_box.add_child(_supply_pile)
-	_supply_count = Label.new()
-	_supply_count.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_supply_count.add_theme_font_size_override("font_size", 17)
-	supply_box.add_child(_supply_count)
+	_supply_pile.pivot_offset = Vector2(CardView.W, CardView.H) / 2.0
+	_supply_pile.card_pressed.connect(func(_id: int) -> void: _on_draw_pressed())
+	_board.add_child(_supply_pile)
+	_market_row = Control.new()
+	_market_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_board.add_child(_market_row)
 
-	var sep := ColorRect.new()
-	sep.color = Companies.TABLE_EDGE
-	sep.custom_minimum_size = Vector2(2, CardView.H)
-	strip.add_child(sep)
+	# Opponent plates.
+	_seats_layer = Control.new()
+	_seats_layer.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_seats_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(_seats_layer)
 
-	var market_scroll := ScrollContainer.new()
-	market_scroll.custom_minimum_size = Vector2(0, CardView.H + 12)
-	market_scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	market_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
-	market_scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	strip.add_child(market_scroll)
-	_market_row = HBoxContainer.new()
-	_market_row.add_theme_constant_override("separation", 8)
-	market_scroll.add_child(_market_row)
+	_build_top_bar()
+	_build_bottom_bar()
 
-	# Action area.
-	var actions := VBoxContainer.new()
-	actions.set_anchors_and_offsets_preset(Control.PRESET_TOP_WIDE)
-	actions.offset_left = 16
-	actions.offset_right = -16
-	actions.offset_top = 740
-	actions.add_theme_constant_override("separation", 8)
-	add_child(actions)
-	_prompt = Label.new()
-	_prompt.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_prompt.add_theme_font_size_override("font_size", 20)
-	_prompt.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	actions.add_child(_prompt)
-	var buttons := HBoxContainer.new()
-	buttons.alignment = BoxContainer.ALIGNMENT_CENTER
-	buttons.add_theme_constant_override("separation", 12)
-	actions.add_child(buttons)
-	_draw_button = _make_button(buttons, "Draw from supply", _on_draw_pressed)
-	_keep_button = _make_button(buttons, "Keep", _on_keep_pressed)
-	_sell_button = _make_button(buttons, "Sell to Market", _on_sell_pressed)
-	_cancel_button = _make_button(buttons, "Cancel", _on_cancel_pressed)
-
-	# Hand fan.
+	# Hand fan, standing at the near edge of the felt above the bar.
 	_hand_layer = Control.new()
 	_hand_layer.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_WIDE)
-	_hand_layer.offset_top = -CardView.H * HAND_SCALE - 90
-	_hand_layer.offset_bottom = -24
 	_hand_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_hand_layer)
 
@@ -253,33 +192,7 @@ func _build_layout() -> void:
 	_fx_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_fx_layer)
 	_build_social_layer()
-
-	# Result panel (dividend day): dimmed backdrop + centered deed-style panel.
-	_result_backdrop = ColorRect.new()
-	_result_backdrop.color = Color(0, 0, 0, 0.45)
-	_result_backdrop.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	_result_backdrop.visible = false
-	add_child(_result_backdrop)
-	var center := CenterContainer.new()
-	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	center.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_result_backdrop.add_child(center)
-	var deed := UiTheme.deed_panel(Companies.GOLD, "Dividend day", Companies.INK)
-	_result_panel = deed["panel"]
-	_result_panel.custom_minimum_size = Vector2(600, 0)
-	center.add_child(_result_panel)
-	var result_box := VBoxContainer.new()
-	result_box.add_theme_constant_override("separation", 12)
-	deed["body"].add_child(result_box)
-	_result_label = Label.new()
-	_result_label.add_theme_font_size_override("font_size", 22)
-	result_box.add_child(_result_label)
-	var result_buttons := HBoxContainer.new()
-	result_buttons.alignment = BoxContainer.ALIGNMENT_CENTER
-	result_buttons.add_theme_constant_override("separation", 12)
-	result_box.add_child(result_buttons)
-	_make_button(result_buttons, "Play again", _on_play_again).visible = true
-	_make_button(result_buttons, "Leave", _on_leave).visible = true
+	_build_result_panel()
 	_build_get_ready()
 	_build_forfeit_confirm()
 
@@ -288,6 +201,168 @@ func _build_layout() -> void:
 	_peek_layer.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_peek_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_peek_layer)
+	_layout()
+
+
+## Brand, whose turn it is, the step timer and Leave (Forfeit in a live game).
+func _build_top_bar() -> void:
+	var top := HBoxContainer.new()
+	top.set_anchors_and_offsets_preset(Control.PRESET_TOP_WIDE)
+	top.offset_left = _px(12)
+	top.offset_right = -_px(12)
+	top.offset_top = _px(8)
+	top.custom_minimum_size = Vector2(0, _px(48))
+	top.add_theme_constant_override("separation", _px(10))
+	add_child(top)
+	var brand := UiTheme.label("BIG BUSINESS", _px(12), Color.WHITE, true)
+	brand.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	brand.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	var brand_box := UiTheme.card_box(Companies.ALERT, 6 * _s, 2 * _s)
+	brand_box.content_margin_left = 8 * _s
+	brand_box.content_margin_right = 8 * _s
+	brand_box.content_margin_top = 5 * _s
+	brand_box.content_margin_bottom = 5 * _s
+	brand.add_theme_stylebox_override("normal", brand_box)
+	top.add_child(brand)
+	_status = UiTheme.label("Connecting...", _px(16), UiTheme.CREAM)
+	_status.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_status.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_status.max_lines_visible = 2
+	top.add_child(_status)
+	_timer_label = UiTheme.label("", _px(16), Color("#FFB4A8"), true)
+	_timer_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	top.add_child(_timer_label)
+	_leave_button = UiTheme.button("Leave", _px(14), _px(44), "ghost")
+	_leave_button.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	_leave_button.pressed.connect(_on_leave_pressed)
+	top.add_child(_leave_button)
+
+
+## The cream bar at the bottom: you, then the prompt, then the move buttons.
+func _build_bottom_bar() -> void:
+	_bar = PanelContainer.new()
+	_bar.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_WIDE)
+	_bar.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	var style := StyleBoxFlat.new()
+	style.bg_color = UiTheme.CREAM
+	style.border_color = Companies.INK
+	style.border_width_top = 2
+	style.corner_radius_top_left = _px(20)
+	style.corner_radius_top_right = _px(20)
+	style.content_margin_left = _px(14)
+	style.content_margin_right = _px(14)
+	style.content_margin_top = _px(8)
+	style.content_margin_bottom = _px(14)
+	style.shadow_color = Color(0, 0, 0, 0.3)
+	style.shadow_size = _px(14)
+	_bar.add_theme_stylebox_override("panel", style)
+	add_child(_bar)
+	_bar.resized.connect(_layout)
+	var column := VBoxContainer.new()
+	column.add_theme_constant_override("separation", _px(6))
+	_bar.add_child(column)
+
+	var me_row := HBoxContainer.new()
+	me_row.add_theme_constant_override("separation", _px(6))
+	column.add_child(me_row)
+	_me_view = SeatView.new()
+	_me_view.s = _s
+	_me_view.strip = true
+	_me_view.avatar_color = SeatView.AVATARS[0]
+	_me_view.custom_minimum_size = Vector2(0, _px(36))
+	_me_view.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_me_view.visible = false
+	me_row.add_child(_me_view)
+	_seat_views.append(_me_view)
+	_emote_button = UiTheme.button("😊", _px(16), _px(36), "ghost")
+	_emote_button.tooltip_text = "Emotes"
+	_emote_button.custom_minimum_size.x = maxf(48, _px(40))
+	_emote_button.pressed.connect(_toggle_emote_bar)
+	me_row.add_child(_emote_button)
+	var help := UiTheme.button("?", _px(16), _px(36), "ghost")
+	help.tooltip_text = "Rules"
+	help.custom_minimum_size.x = maxf(48, _px(40))
+	help.add_theme_font_override("font", UiTheme.display_font())
+	help.pressed.connect(func() -> void: HelpScreen.open_over(self))
+	me_row.add_child(help)
+
+	_prompt = UiTheme.label("", _px(14))
+	_prompt.add_theme_font_override("font", UiTheme.body_font())
+	_prompt.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_prompt.custom_minimum_size = Vector2(0, _px(38))
+	column.add_child(_prompt)
+	var buttons := HBoxContainer.new()
+	buttons.add_theme_constant_override("separation", _px(8))
+	buttons.custom_minimum_size = Vector2(0, _px(44))
+	column.add_child(buttons)
+	_draw_button = _make_button(buttons, "Draw from supply", _on_draw_pressed, "primary")
+	_keep_button = _make_button(buttons, "Keep", _on_keep_pressed, "primary")
+	_sell_button = _make_button(buttons, "Sell to Market", _on_sell_pressed)
+	_cancel_button = _make_button(buttons, "Cancel", _on_cancel_pressed, "ghost")
+	_cancel_button.size_flags_horizontal = Control.SIZE_FILL
+
+
+## Dividend day: a gold-banded panel with the standings and each payout.
+func _build_result_panel() -> void:
+	_result_backdrop = ColorRect.new()
+	_result_backdrop.color = Color(0.04, 0.09, 0.06, 0.6)
+	_result_backdrop.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_result_backdrop.visible = false
+	add_child(_result_backdrop)
+	var center := CenterContainer.new()
+	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	center.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_result_backdrop.add_child(center)
+	var deed := UiTheme.deed_panel(Companies.GOLD, "Dividend day", Companies.INK)
+	deed["title"].add_theme_font_size_override("font_size", _px(20))
+	deed["title"].horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	_result_panel = deed["panel"]
+	_result_panel.custom_minimum_size = Vector2(minf(get_viewport_rect().size.x, 720.0) - _px(40), 0)
+	center.add_child(_result_panel)
+	var result_box := VBoxContainer.new()
+	result_box.add_theme_constant_override("separation", _px(10))
+	deed["body"].add_child(result_box)
+	_result_rows = VBoxContainer.new()
+	_result_rows.add_theme_constant_override("separation", 0)
+	result_box.add_child(_result_rows)
+	_result_label = UiTheme.label("", _px(11), UiTheme.MUTED)
+	_result_label.add_theme_font_override("font", UiTheme.body_font())
+	_result_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	result_box.add_child(_result_label)
+	var result_buttons := HBoxContainer.new()
+	result_buttons.add_theme_constant_override("separation", _px(8))
+	result_box.add_child(result_buttons)
+	_make_button(result_buttons, "Play again", _on_play_again, "primary").visible = true
+	var leave := _make_button(result_buttons, "Leave", _on_leave, "ghost")
+	leave.visible = true
+	leave.size_flags_horizontal = Control.SIZE_FILL
+
+
+func _on_resized() -> void:
+	_layout()
+	if not view.is_empty():
+		_render()
+
+
+## Places the felt, the plates and the hand for the current screen size.
+## The felt's centre sits midway between the top bar and the bottom bar,
+## as on the design artboard.
+func _layout() -> void:
+	if _board == null or _bar == null:
+		return
+	var screen := get_viewport_rect().size
+	if screen.x < 200:
+		screen = Vector2(720, 1280)
+	var top := 60.0 * _s
+	var bar_top := screen.y - maxf(_bar.size.y, _bar.get_combined_minimum_size().y)
+	_board.origin = Vector2(screen.x / 2.0, (top + bar_top) / 2.0 + 18.0 * _s)
+	_board.queue_redraw()
+	var hand_h := CardView.H * _hand_scale + 40.0 * _s
+	_hand_layer.offset_bottom = bar_top - screen.y
+	_hand_layer.offset_top = _hand_layer.offset_bottom - hand_h
+	_emote_bar.offset_bottom = bar_top - screen.y - _px(6)
+	_place_supply()
 
 
 ## The countdown before the first turn: seat order, who starts, 3-2-1.
@@ -296,7 +371,7 @@ func _build_get_ready() -> void:
 	_ready_overlay = ColorRect.new()
 	_ready_overlay.color = Color(0, 0, 0, 0.45)
 	_ready_overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	_ready_overlay.offset_top = 72
+	_ready_overlay.offset_top = _px(60)
 	_ready_overlay.visible = false
 	add_child(_ready_overlay)
 	var center := CenterContainer.new()
@@ -360,16 +435,16 @@ func _build_forfeit_confirm() -> void:
 	buttons.add_theme_constant_override("separation", 12)
 	box.add_child(buttons)
 	_make_button(buttons, "Forfeit", _on_forfeit_confirmed).visible = true
-	_make_button(buttons, "Keep playing", func() -> void: _forfeit_overlay.visible = false).visible = true
+	_make_button(buttons, "Keep playing", func() -> void: _forfeit_overlay.visible = false, "primary").visible = true
 
 
 func _build_social_layer() -> void:
-	# Emote bar: a deed-style strip of preset emotes and phrases under the top bar.
+	# Emote bar: a deed-style strip of preset emotes and phrases above the bottom bar.
 	_emote_bar = PanelContainer.new()
-	_emote_bar.set_anchors_and_offsets_preset(Control.PRESET_TOP_WIDE)
+	_emote_bar.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_WIDE)
+	_emote_bar.grow_vertical = Control.GROW_DIRECTION_BEGIN
 	_emote_bar.offset_left = 16
 	_emote_bar.offset_right = -16
-	_emote_bar.offset_top = 70
 	_emote_bar.visible = false
 	var bar_style := StyleBoxFlat.new()
 	bar_style.bg_color = Companies.PANEL
@@ -387,7 +462,7 @@ func _build_social_layer() -> void:
 	for e in Protocol.EMOTES:
 		var b := Button.new()
 		b.text = e["text"]
-		b.custom_minimum_size = Vector2(0, 52)
+		b.custom_minimum_size = Vector2(0, maxf(52, _px(40)))
 		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		# Emoji read at a glance only when larger than the phrase text.
 		b.add_theme_font_size_override("font_size", 26 if Protocol.is_emoji(e["id"]) else 16)
@@ -524,29 +599,14 @@ func _on_connection_failed(reason: String) -> void:
 	_status.text = reason
 
 
-func _make_button(parent: Control, text: String, handler: Callable) -> Button:
-	var b := Button.new()
-	b.text = text
-	b.custom_minimum_size = Vector2(150, 56)
-	b.add_theme_font_size_override("font_size", 22)
+## A move or dialog button, hidden until a step shows it.
+func _make_button(parent: Control, text: String, handler: Callable, kind := "") -> Button:
+	var b := UiTheme.button(text, _px(14), _px(44), kind)
+	b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	b.pressed.connect(handler)
 	b.visible = false
 	parent.add_child(b)
 	return b
-
-
-## Seat slot positions (fractions of the seats layer) for N opponents.
-## Index 0 is the slot directly opposite you; slots fan out around the oval.
-func _opponent_slots(n: int) -> Array[Vector2]:
-	var slots: Array[Vector2] = []
-	match n:
-		1: slots = [Vector2(0.5, 0.15)]
-		2: slots = [Vector2(0.28, 0.15), Vector2(0.72, 0.15)]
-		3: slots = [Vector2(0.18, 0.55), Vector2(0.5, 0.12), Vector2(0.82, 0.55)]
-		4: slots = [Vector2(0.18, 0.62), Vector2(0.3, 0.14), Vector2(0.7, 0.14), Vector2(0.82, 0.62)]
-		5: slots = [Vector2(0.16, 0.72), Vector2(0.2, 0.36), Vector2(0.5, 0.1), Vector2(0.8, 0.36), Vector2(0.84, 0.72)]
-		_: slots = [Vector2(0.16, 0.78), Vector2(0.16, 0.44), Vector2(0.32, 0.12), Vector2(0.68, 0.12), Vector2(0.84, 0.44), Vector2(0.84, 0.78)]
-	return slots
 
 
 ## Attach the tutorial coach overlay (idempotent).
@@ -554,11 +614,34 @@ func enable_coach() -> void:
 	if coach != null:
 		return
 	coach = Coach.new()
+	coach.spot_provider = coach_spot
 	add_child(coach)
 	# Skipping lifts the first-turn restrictions straight away.
 	coach.finished.connect(func() -> void:
 		if not view.is_empty():
 			_render())
+
+
+## Screen area the coach points at for a step: "supply", "market", "hand",
+## "bar" or "plates" (an empty rect for none).
+func coach_spot(key: String) -> Rect2:
+	match key:
+		"supply":
+			return _board.zone_rect(TableBoard.ZONE_SUPPLY).grow(10 * _s)
+		"market":
+			return _board.zone_rect(TableBoard.ZONE_MARKET).grow(8 * _s)
+		"hand":
+			var r := Rect2(_hand_layer.global_position, _hand_layer.size)
+			return r.merge(_bar.get_global_rect()).grow(-2 * _s)
+		"bar":
+			return _bar.get_global_rect().grow(-4 * _s)
+		"plates":
+			var r := Rect2()
+			for sv in _seat_views:
+				if sv.visible and sv != _me_view:
+					r = sv.get_global_rect() if r.size == Vector2.ZERO else r.merge(sv.get_global_rect())
+			return r.grow(8 * _s)
+	return Rect2()
 
 
 # ---------------------------------------------------------------------------
@@ -829,9 +912,11 @@ func _render() -> void:
 	if not _can_forfeit():
 		_forfeit_overlay.visible = false
 
+	_layout()
 	_render_status(phase, seats, active)
 	_render_seats(seats, active, phase)
 	_render_market(phase)
+	_render_portfolio(seats)
 	_render_hand(seats, phase)
 	_update_prompt()
 	_render_result(seats)
@@ -863,55 +948,140 @@ func _render_status(phase: String, seats: Array, active: int) -> void:
 		_status.text = "%s is %s..." % [who.get("name", "?"), "choosing a share" if phase == "take" else "playing"]
 
 
+## Opponents in turn order from your left, on plates around the far side of
+## the felt, with their face-down hands on the felt in front of them; you in
+## the bottom bar.
 func _render_seats(seats: Array, active: int, phase: String) -> void:
-	# Opponents are listed clockwise starting after me so the oval reads in turn order.
 	var order: Array[int] = []
 	var n := seats.size()
 	var start := _my_seat if _my_seat >= 0 else 0
 	for k in range(1, n):
 		order.append((start + k) % n)
-	var slots := _opponent_slots(order.size())
-	while _seat_views.size() < n:
+	var plates: Array[SeatView] = []
+	for sv in _seat_views:
+		if sv != _me_view:
+			plates.append(sv)
+	while plates.size() < order.size():
 		var sv := SeatView.new()
+		sv.s = _s
 		sv.seat_pressed.connect(_on_seat_pressed)
 		_seats_layer.add_child(sv)
 		_seat_views.append(sv)
-	for sv in _seat_views:
+		plates.append(sv)
+	for sv in plates:
 		sv.visible = false
-	var layer_size := _seats_layer.size
-	if layer_size.x <= 0:
-		layer_size = Vector2(720, 430)
-	for i in order.size():
+	var screen := get_viewport_rect().size
+	if screen.x < 200:
+		screen = Vector2(720, 1280)
+	var slots: Array = PLATE_SLOTS[clampi(order.size(), 1, PLATE_SLOTS.size()) - 1]
+	var spots := TableBoard.hand_spots(order.size())
+	var hands := []
+	for i in mini(order.size(), slots.size()):
 		var seat_idx := order[i]
-		var sv := _seat_views[i]
-		var slot := slots[i]
-		sv.position = Vector2(slot.x * layer_size.x - SeatView.W / 2.0, slot.y * layer_size.y)
+		var slot: Array = slots[i]
+		var sv := plates[i]
+		var w: float = float(slot[3]) * _s
+		var x: float = float(slot[1]) * _s
+		match String(slot[0]):
+			"R":
+				x = screen.x - x - w
+			"C":
+				x = screen.x / 2.0 + x - w / 2.0
+		sv.custom_minimum_size = Vector2(w, PLATE_H * _s)
+		sv.size = sv.custom_minimum_size
+		sv.position = Vector2(x, _board.origin.y + (float(slot[2]) - 400.0) * _s)
+		sv.wide = int(slot[3]) >= 170
+		sv.avatar_color = SeatView.AVATARS[(i + 1) % SeatView.AVATARS.size()]
 		sv.visible = true
 		sv.update(seat_idx, seats[seat_idx], seat_idx == active and phase != "ended", false, float(view.get("deadline", 0)), _step_seconds)
-	# My own seat card sits just above the hand.
-	if _my_seat >= 0 and _my_seat < n:
-		var me := _seat_views[order.size()]
-		me.position = Vector2(layer_size.x / 2.0 - SeatView.W / 2.0, layer_size.y - SeatView.H - 4)
-		me.visible = true
-		me.update(_my_seat, seats[_my_seat], _my_seat == active and phase != "ended", true, float(view.get("deadline", 0)), _step_seconds)
+		if phase != "ended":
+			hands.append({"at": spots[i]["at"], "angle": spots[i]["angle"], "count": int(seats[seat_idx].get("handCount", 0))})
+	_board.hands = hands
+	_me_view.visible = _my_seat >= 0 and _my_seat < n
+	if _me_view.visible:
+		_me_view.update(_my_seat, seats[_my_seat], _my_seat == active and phase != "ended", true, float(view.get("deadline", 0)), _step_seconds)
+
+
+## Market slot k of m on the felt: rows of at least five, two rows at most,
+## squeezed together as the Market grows (dp from the felt's centre).
+static func _market_pos(k: int, m: int) -> Vector2:
+	var per := maxi(5, ceili(m / 2.0))
+	var row := k / per
+	var in_row := mini(per, m) if row == 0 else m - per
+	var col := k % per
+	var spacing := minf(54.0, 264.0 / per)
+	return Vector2((col - (in_row - 1) / 2.0) * spacing, -52.0 + row * 72.0)
+
+
+## Lays a card on the felt at `p` (dp from the centre), `card` = its design
+## scale before perspective.
+func _place_on_felt(cv: CardView, p: Vector2, card: float, tilt_deg: float = 0.0) -> void:
+	var k := card * _board.depth(p) * _s * 100.0 / CardView.W
+	cv.pivot_offset = Vector2(CardView.W, CardView.H) / 2.0
+	cv.scale = Vector2(k, k)
+	cv.rotation = deg_to_rad(tilt_deg)
+	cv.position = _board.project(p) - cv.pivot_offset
+
+
+func _place_supply() -> void:
+	if _supply_pile != null and _board != null:
+		_place_on_felt(_supply_pile, TableBoard.SUPPLY_AT, SUPPLY_CARD, -1.0)
 
 
 func _render_market(phase: String) -> void:
 	for child in _market_row.get_children():
 		_market_row.remove_child(child)
 		child.queue_free()
-	for slot in view.get("market", []):
+	var market: Array = view.get("market", [])
+	var tokens: Array = view.get("tokens", [])
+	for k in market.size():
+		var slot: Dictionary = market[k]
 		var card: Dictionary = slot.get("card", {})
+		var company := int(card.get("company", 0))
 		var cv := CardView.new()
-		cv.setup(int(card.get("id", -1)), int(card.get("company", 0)), int(slot.get("coins", 0)))
+		cv.setup(int(card.get("id", -1)), company, int(slot.get("coins", 0)))
 		cv.selectable = _is_my_turn() and phase == "take" and _allowed("take_market", cv.card_id)
+		cv.highlight = cv.selectable
+		cv.blocked = _my_seat >= 0 and company < tokens.size() and tokens[company] != null and int(tokens[company]) == _my_seat
 		cv.card_pressed.connect(_on_market_card_pressed)
 		cv.card_held.connect(_on_card_held)
 		cv.card_released.connect(_on_card_released)
 		_market_row.add_child(cv)
+		_place_on_felt(cv, _market_pos(k, market.size()), MARKET_CARD, ((cv.card_id * 5) % 3 - 1) * 1.5)
 	var supply := int(view.get("supplyCount", 0))
-	_supply_count.text = "%d left" % supply
-	_supply_pile.modulate = Color(1, 1, 1, 1 if supply > 0 else 0.3)
+	_board.supply_count = supply
+	_supply_pile.visible = supply > 0
+	_supply_pile.selectable = _is_my_turn() and phase == "take" and _allowed("take_supply")
+	_supply_pile.highlight = _supply_pile.selectable
+	_place_supply()
+
+
+## Your kept shares, face up on the felt in one small stack per company.
+func _render_portfolio(seats: Array) -> void:
+	for child in _portfolio_layer.get_children():
+		_portfolio_layer.remove_child(child)
+		child.queue_free()
+	if _my_seat < 0 or _my_seat >= seats.size():
+		return
+	var groups := []
+	for company in 6:
+		var ids := []
+		for card in seats[_my_seat].get("portfolio", []):
+			if int(card.get("company", -1)) == company:
+				ids.append(int(card.get("id", -1)))
+		if not ids.is_empty():
+			groups.append([company, ids])
+	for gi in groups.size():
+		var company: int = groups[gi][0]
+		var ids: Array = groups[gi][1]
+		for j in ids.size():
+			var cv := CardView.new()
+			cv.setup(ids[j], company)
+			cv.selectable = false
+			cv.card_held.connect(_on_card_held)
+			cv.card_released.connect(_on_card_released)
+			_portfolio_layer.add_child(cv)
+			_place_on_felt(cv, Vector2((gi - (groups.size() - 1) / 2.0) * 46.0, 92.0 + j * 10.0), PORTFOLIO_CARD)
 
 
 func _render_hand(seats: Array, phase: String) -> void:
@@ -930,12 +1100,13 @@ func _render_hand(seats: Array, phase: String) -> void:
 		var card: Dictionary = hand[i]
 		var cv := CardView.new()
 		cv.setup(int(card.get("id", -1)), int(card.get("company", 0)))
-		cv.scale = Vector2(HAND_SCALE, HAND_SCALE)
+		cv.scale = Vector2(_hand_scale, _hand_scale)
 		cv.pivot_offset = Vector2(CardView.W / 2.0, CardView.H)
 		var slot := _hand_slot(i, count)
 		cv.rotation = slot["rot"]
 		cv.set_rest_position(slot["pos"])
 		cv.selectable = _is_my_turn() and phase == "play" and _card_playable(cv.card_id)
+		cv.highlight = cv.selectable
 		cv.card_pressed.connect(_on_hand_card_pressed)
 		cv.card_held.connect(_on_card_held)
 		cv.card_released.connect(_on_card_released)
@@ -947,21 +1118,22 @@ func _render_hand(seats: Array, phase: String) -> void:
 ## layer (it scales and tilts about its bottom centre), "rot" its tilt.
 func _hand_slot(i: int, count: int) -> Dictionary:
 	var layer_w := _hand_layer.size.x if _hand_layer.size.x > 0 else 720.0
-	# WHY: cards scale around their bottom-centre pivot and the edge cards
-	# tilt by HAND_TILT_DEG, so lay out the scaled width and keep room for
-	# the tilted top corners; laying out the unscaled box pushed a 4-card
-	# hand past the left edge of every phone.
-	var card_w := CardView.W * HAND_SCALE
-	var margin := 16.0 + CardView.H * HAND_SCALE * sin(deg_to_rad(HAND_TILT_DEG))
-	var spacing := card_w + 12
+	var layer_h := _hand_layer.size.y if _hand_layer.size.y > 0 else CardView.H * _hand_scale + 40.0 * _s
+	var card_w := CardView.W * _hand_scale
+	var card_h := CardView.H * _hand_scale
+	# WHY: cards scale and tilt about their bottom centre, so the outermost
+	# top corner reaches card_w / 2 * cos + card_h * sin past the centre;
+	# keep that on screen for a 4-card hand on every phone.
+	var tilt_max := deg_to_rad(HAND_TILT_DEG * (count - 1) / 2.0)
+	var reach := card_w / 2.0 * cos(tilt_max) + card_h * sin(tilt_max)
+	var spacing := 62.0 * _s
 	if count > 1:
-		spacing = minf(spacing, (layer_w - 2.0 * margin - card_w) / (count - 1))
-	var total := spacing * (count - 1) + card_w
-	var first_center := (layer_w - total) / 2.0 + card_w / 2.0
-	var t := 0.0 if count == 1 else (float(i) / (count - 1) - 0.5)
+		spacing = minf(spacing, (layer_w - 2.0 * (8.0 * _s + reach)) / (count - 1))
+	var off := i - (count - 1) / 2.0
+	var bottom := layer_h - 10.0 * _s + off * off * 4.0 * _s
 	return {
-		"pos": Vector2(first_center + i * spacing - CardView.W / 2.0, 50 + abs(t) * 20),
-		"rot": deg_to_rad(t * 2.0 * HAND_TILT_DEG),
+		"pos": Vector2(layer_w / 2.0 + off * spacing - CardView.W / 2.0, bottom - CardView.H),
+		"rot": deg_to_rad(off * HAND_TILT_DEG),
 	}
 
 
@@ -971,7 +1143,6 @@ func _on_card_held(cv: CardView) -> void:
 	var big := CardView.new()
 	big.setup(cv.card_id, cv.company, cv.coins, cv.face_up)
 	big.selectable = false
-	big.modulate = Color.WHITE
 	big.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	big.size = Vector2(CardView.W, CardView.H)
 	big.pivot_offset = big.size / 2.0
@@ -1010,35 +1181,53 @@ func _update_prompt() -> void:
 	_sell_button.visible = false
 	_cancel_button.visible = false
 	_set_buttons_enabled(true)
+	_board.glow = {}
 	if phase == "ended":
-		_prompt.text = ""
+		_prompt.text = "The supply is empty. Dividends are paid."
 		return
 	if not mine:
-		_prompt.text = "Waiting for your turn"
+		if not _action_note.is_empty():
+			_prompt.text = _action_note
+		else:
+			var seats: Array = view.get("seats", [])
+			var active := int(view.get("active", 0))
+			_prompt.text = "%s is thinking…" % (seats[active].get("name", "?") if active < seats.size() else "?")
 		return
 	if phase == "take":
 		var cost = view.get("drawCost")
-		var cost_text := ""
-		if cost != null:
-			cost_text = "free" if int(cost) == 0 else "%d coin%s onto the Market" % [int(cost), "" if int(cost) == 1 else "s"]
-		_prompt.text = _hinted("Take a share from the Market, or draw from the supply (%s)" % cost_text)
+		var market_empty: bool = view.get("market", []).is_empty()
+		if market_empty:
+			_prompt.text = _hinted("Tap the supply to draw a share. The Market is empty, so it costs nothing.")
+		elif cost == null:
+			_prompt.text = _hinted("Not enough capital to draw. Take a share from the Market.")
+		else:
+			var cost_text := "free" if int(cost) == 0 else "%d capital onto the Market" % int(cost)
+			_prompt.text = _hinted("Draw from the supply (%s), or tap a Market share to take it with its coins." % cost_text)
 		_draw_button.visible = true
 		_draw_button.disabled = not _allowed("take_supply")
+		if not _draw_button.disabled:
+			_board.glow = {"supply": true}
 		return
 	# Play step.
 	if _selected_card < 0:
-		_prompt.text = _hinted("Tap a card in your hand")
+		_prompt.text = _hinted("Tap a share in your hand to play it.")
 		return
 	var company := -1
 	for cv in _hand_cards:
 		if cv.card_id == _selected_card:
 			company = cv.company
-	_prompt.text = _hinted("%s: keep it in your portfolio or sell it to the Market?" % Companies.name_of(company))
+	_prompt.text = _hinted("%s: keep it in your Portfolio or sell it to the Market?" % Companies.name_of(company))
 	_keep_button.visible = true
 	_sell_button.visible = true
 	_cancel_button.visible = true
 	_keep_button.disabled = not _allowed("play_portfolio", _selected_card)
 	_sell_button.disabled = not _allowed("play_market", _selected_card)
+	var glow := {}
+	if not _keep_button.disabled:
+		glow["portfolio"] = true
+	if not _sell_button.disabled:
+		glow["market"] = true
+	_board.glow = glow
 
 
 func _hinted(text: String) -> String:
@@ -1051,6 +1240,16 @@ func _render_result(seats: Array) -> void:
 	_result_backdrop.visible = result != null
 	if result == null:
 		return
+	for child in _result_rows.get_children():
+		_result_rows.remove_child(child)
+		child.queue_free()
+	var scores: Array = result.get("scores", []).duplicate()
+	scores.sort_custom(func(a, b) -> bool: return int(a.get("rank", 1)) < int(b.get("rank", 1)))
+	for sc in scores:
+		var seat_idx := int(sc.get("seat", 0))
+		var seat: Dictionary = seats[seat_idx] if seat_idx < seats.size() else {}
+		var who := "You" if seat_idx == _my_seat else String(seat.get("name", "?"))
+		_result_rows.add_child(_result_row(int(sc.get("rank", 1)), who, int(sc.get("bronze", 0)), int(sc.get("gold", 0)), int(sc.get("score", 0))))
 	var lines := PackedStringArray()
 	for div in result.get("companies", []):
 		var company := int(div.get("company", 0))
@@ -1062,13 +1261,38 @@ func _render_result(seats: Array) -> void:
 			for p in div.get("payments", []):
 				paid += int(p.get("coins", 0))
 			lines.append("%s: %s collects %d" % [Companies.name_of(company), seats[int(majority)].get("name", "?"), paid])
-	lines.append("")
-	for sc in result.get("scores", []):
-		var seat: Dictionary = seats[int(sc.get("seat", 0))]
-		var rank := int(sc.get("rank", 1))
-		var medal: String = ["🥇", "🥈", "🥉"][rank - 1] if rank <= 3 else "  "
-		lines.append("%s %s  %d  (%d bronze + %d gold)" % [medal, seat.get("name", "?"), int(sc.get("score", 0)), int(sc.get("bronze", 0)), int(sc.get("gold", 0))])
 	_result_label.text = "\n".join(lines)
+
+
+## One standings row: place, name over "bronze + gold", score.
+func _result_row(rank: int, who: String, bronze: int, gold: int, score: int) -> Control:
+	var row := PanelContainer.new()
+	var line := StyleBoxFlat.new()
+	line.bg_color = Color(0, 0, 0, 0)
+	line.border_color = Color(Companies.INK, 0.2)
+	line.border_width_bottom = 1
+	line.content_margin_top = 8 * _s
+	line.content_margin_bottom = 8 * _s
+	row.add_theme_stylebox_override("panel", line)
+	var h := HBoxContainer.new()
+	h.add_theme_constant_override("separation", _px(10))
+	row.add_child(h)
+	var place := UiTheme.label(str(rank), _px(16), Companies.INK, true)
+	place.custom_minimum_size = Vector2(_px(22), 0)
+	place.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	h.add_child(place)
+	var names := VBoxContainer.new()
+	names.add_theme_constant_override("separation", 0)
+	names.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	h.add_child(names)
+	names.add_child(UiTheme.label(who, _px(14), Companies.INK, rank == 1))
+	var detail := UiTheme.label("%d bronze + %d gold" % [bronze, gold], _px(11), UiTheme.MUTED)
+	detail.add_theme_font_override("font", UiTheme.body_font())
+	names.add_child(detail)
+	var total := UiTheme.label(str(score), _px(18), Companies.INK, true)
+	total.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	h.add_child(total)
+	return row
 
 
 # ---------------------------------------------------------------------------
@@ -1080,21 +1304,35 @@ func _seat_anchor(seat_idx: int) -> Vector2:
 	for sv in _seat_views:
 		if sv.visible and sv.seat_index == seat_idx:
 			return sv.avatar_center()
-	return _seats_layer.global_position + _seats_layer.size / 2.0
+	return get_viewport_rect().size / 2.0
+
+
+func _center_of(cv: CardView) -> Vector2:
+	return cv.get_global_transform() * (Vector2(CardView.W, CardView.H) / 2.0)
 
 
 func _market_card_anchor(card_id: int) -> Vector2:
 	for cv in _market_row.get_children():
 		if cv is CardView and cv.card_id == card_id:
-			return cv.global_position
-	return _supply_pile.global_position
+			return _center_of(cv)
+	return _center_of(_supply_pile)
 
 
 func _hand_anchor(card_id: int) -> Vector2:
 	for cv in _hand_cards:
 		if cv.card_id == card_id:
-			return cv.global_position
-	return _hand_layer.global_position + Vector2(_hand_layer.size.x / 2.0 - CardView.W / 2.0, 40)
+			return _center_of(cv)
+	return _hand_layer.global_position + _hand_layer.size / 2.0
+
+
+## Scale of a card on the felt at `p`, as `_place_on_felt` would set it.
+func _felt_scale(p: Vector2, card: float) -> float:
+	return card * _board.depth(p) * _s * 100.0 / CardView.W
+
+
+func _seat_name(seat: int) -> String:
+	var seats: Array = view.get("seats", [])
+	return String(seats[seat].get("name", "Someone")) if seat >= 0 and seat < seats.size() else "Someone"
 
 
 func _play_events_then_render() -> void:
@@ -1103,39 +1341,65 @@ func _play_events_then_render() -> void:
 	_animating = true
 	var events := _pending_events.duplicate()
 	_pending_events.clear()
+	var supply_c := _center_of(_supply_pile)
+	var supply_k := _felt_scale(TableBoard.SUPPLY_AT, SUPPLY_CARD)
+	var small_k := 0.2 * _s * 100.0 / CardView.W
 	for e in events:
+		var seat := int(e.get("seat", 0))
+		var mine := seat == _my_seat
 		match String(e.get("type", "")):
 			"took_supply":
-				var seat := int(e.get("seat", 0))
 				var cost := int(e.get("cost", 0))
 				if cost > 0:
 					sfx.play("coin")
+					var d := 0.0
 					for cv in _market_row.get_children():
-						if cv is CardView:
-							_fly_coin(_seat_anchor(seat), cv.global_position + Vector2(CardView.W / 2.0, CardView.H / 2.0))
-					await get_tree().create_timer(COIN_TIME).timeout
+						if cv is CardView and not cv.blocked:
+							_fly_coin(_seat_anchor(seat), _center_of(cv), false, d)
+							d = minf(d + 0.04, 0.12)
+					await get_tree().create_timer(COIN_TIME + d).timeout
+				_action_note = "" if mine else "%s draws from the supply%s." % [_seat_name(seat), " and pays %d capital onto the Market" % cost if cost > 0 else ""]
 				sfx.play("deal")
-				if seat == _my_seat:
-					await _fly_to_hand(_supply_pile.global_position)
+				if mine:
+					await _fly_to_hand(supply_c, supply_k)
 				else:
-					await _fly_card(_supply_pile.global_position, _target_for_seat(seat), 0, false)
+					await _fly_card(supply_c, _seat_anchor(seat), 0, false, supply_k, small_k)
 			"took_market":
-				var seat := int(e.get("seat", 0))
 				var card: Dictionary = e.get("card", {})
-				sfx.play("coin" if int(e.get("coins", 0)) > 0 else "deal")
+				var coins := int(e.get("coins", 0))
+				var company := int(card.get("company", 0))
+				sfx.play("coin" if coins > 0 else "deal")
 				var from := _market_card_anchor(int(card.get("id", -1)))
-				if seat == _my_seat:
-					await _fly_to_hand(from)
+				_action_note = "" if mine else "%s takes a %s share from the Market%s." % [_seat_name(seat), Companies.name_of(company), " with %d capital on it" % coins if coins > 0 else ""]
+				for i in mini(coins, 8):
+					_fly_coin(from, _seat_anchor(seat), false, i * 0.07)
+				var market_k := _felt_scale(_market_pos(0, 1), MARKET_CARD)
+				if mine:
+					await _fly_to_hand(from, market_k)
 				else:
-					await _fly_card(from, _target_for_seat(seat), int(card.get("company", 0)), true)
+					await _fly_card(from, _seat_anchor(seat), company, true, market_k, small_k)
 			"played":
-				var seat := int(e.get("seat", 0))
 				var card: Dictionary = e.get("card", {})
-				var from := _hand_anchor(int(card.get("id", -1))) if seat == _my_seat else _seat_anchor(seat) - Vector2(CardView.W / 2.0, CardView.H / 2.0)
-				var to := _seat_anchor(seat) - Vector2(CardView.W / 2.0, CardView.H / 2.0) if e.get("to") == "portfolio" else _market_row.global_position + Vector2(_market_row.size.x, 0)
-				await _fly_card(from, to, int(card.get("company", 0)), true)
+				var company := int(card.get("company", 0))
+				var to_market: bool = e.get("to") != "portfolio"
+				var from := _hand_anchor(int(card.get("id", -1))) if mine else _seat_anchor(seat)
+				var from_k := _hand_scale if mine else small_k
+				var to := _seat_anchor(seat)
+				var to_k := small_k
+				if to_market:
+					var m: int = _market_row.get_child_count()
+					var p := _market_pos(m, m + 1)
+					to = _board.get_global_transform() * _board.project(p)
+					to_k = _felt_scale(p, MARKET_CARD)
+				elif mine:
+					var p := TableBoard.zone_center(TableBoard.ZONE_PORTFOLIO)
+					to = _board.get_global_transform() * _board.project(p)
+					to_k = _felt_scale(p, PORTFOLIO_CARD)
+				if not mine:
+					_action_note = "%s %s %s%s." % [_seat_name(seat), "sells" if to_market else "keeps", Companies.name_of(company), " to the Market" if to_market else ""]
+				await _fly_card(from, to, company, true, from_k, to_k)
 				sfx.play("place")
-				if seat == _my_seat:
+				if mine:
 					Sfx.buzz(25)
 			"token_moved":
 				# WHY: not awaited, so the stamp lands while play carries on
@@ -1156,16 +1420,17 @@ func _stamp_token(seat: int, company: int) -> void:
 	seal.text = "R"
 	seal.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	seal.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	seal.add_theme_font_size_override("font_size", 40)
+	seal.add_theme_font_override("font", UiTheme.display_font())
+	seal.add_theme_font_size_override("font_size", _px(22))
 	seal.add_theme_color_override("font_color", Companies.INK)
 	var style := StyleBoxFlat.new()
 	style.bg_color = Companies.GOLD
 	style.border_color = Companies.color_of(company)
-	style.set_border_width_all(6)
-	style.set_corner_radius_all(40)
+	style.set_border_width_all(_px(4))
+	style.set_corner_radius_all(_px(40))
 	seal.add_theme_stylebox_override("normal", style)
 	seal.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	seal.size = Vector2(80, 80)
+	seal.size = Vector2(_px(44), _px(44))
 	seal.pivot_offset = seal.size / 2.0
 	_fx_layer.add_child(seal)
 	seal.global_position = _seat_anchor(seat) - seal.size / 2.0
@@ -1184,8 +1449,8 @@ func _stamp_token(seat: int, company: int) -> void:
 
 func _target_for_seat(seat: int) -> Vector2:
 	if seat == _my_seat:
-		return _hand_layer.global_position + Vector2(_hand_layer.size.x / 2.0 - CardView.W / 2.0, 40)
-	return _seat_anchor(seat) - Vector2(CardView.W / 2.0, CardView.H / 2.0)
+		return _hand_layer.global_position + _hand_layer.size / 2.0
+	return _seat_anchor(seat)
 
 
 ## Where a share you just took will sit: the slot of the card in the new
@@ -1206,54 +1471,77 @@ func _new_hand_slot() -> Dictionary:
 	return {}
 
 
-## A share you took flies face up into its own slot in your hand, so the
-## hand drawn next shows it exactly where it landed.
-func _fly_to_hand(from: Vector2) -> void:
+## A share you took hops face up from `from` (its centre, at scale
+## `from_k`) into its own slot in your hand, so the hand drawn next shows
+## it exactly where it landed.
+func _fly_to_hand(from: Vector2, from_k: float) -> void:
 	var slot := _new_hand_slot()
 	if slot.is_empty():
-		await _fly_card(from, _target_for_seat(_my_seat), 0, false)
+		await _fly_card(from, _target_for_seat(_my_seat), 0, false, from_k, _hand_scale)
 		return
 	var ghost := CardView.new()
 	ghost.setup(-1, int(slot["company"]), 0, true)
 	ghost.selectable = false
-	ghost.modulate = Color(1, 1, 1, 1)
 	ghost.pivot_offset = Vector2(CardView.W / 2.0, CardView.H)
 	_fx_layer.add_child(ghost)
-	ghost.global_position = from
-	var to: Vector2 = _hand_layer.global_position + slot["pos"]
+	ghost.scale = Vector2(from_k, from_k)
+	var start := from - ghost.pivot_offset + Vector2(0, CardView.H / 2.0 * from_k)
+	var end: Vector2 = _hand_layer.global_position + slot["pos"]
+	ghost.global_position = start
 	var tw := create_tween().set_parallel().set_ease(Tween.EASE_IN_OUT).set_trans(Tween.TRANS_CUBIC)
-	tw.tween_property(ghost, "global_position", to, FLY_TIME)
-	tw.tween_property(ghost, "scale", Vector2(HAND_SCALE, HAND_SCALE), FLY_TIME)
+	tw.tween_method(func(t: float) -> void:
+		ghost.global_position = start.lerp(end, t) + Vector2(0, -sin(t * PI) * 60.0 * _s), 0.0, 1.0, FLY_TIME)
+	tw.tween_property(ghost, "scale", Vector2(_hand_scale, _hand_scale), FLY_TIME)
 	tw.tween_property(ghost, "rotation", float(slot["rot"]), FLY_TIME)
 	await tw.finished
 	ghost.queue_free()
 
 
-func _fly_card(from: Vector2, to: Vector2, company: int, face_up: bool) -> void:
+## A card hops from centre `from` to centre `to`, growing or shrinking
+## from scale `from_k` to `to_k` on the way.
+func _fly_card(from: Vector2, to: Vector2, company: int, face_up: bool, from_k: float = 1.0, to_k: float = 1.0) -> void:
 	var ghost := CardView.new()
 	ghost.setup(-1, company, 0, face_up)
 	ghost.selectable = false
-	ghost.modulate = Color(1, 1, 1, 1)
+	ghost.pivot_offset = Vector2(CardView.W, CardView.H) / 2.0
 	_fx_layer.add_child(ghost)
-	ghost.global_position = from
-	var tw := create_tween().set_ease(Tween.EASE_IN_OUT).set_trans(Tween.TRANS_CUBIC)
-	tw.tween_property(ghost, "global_position", to, FLY_TIME)
-	tw.parallel().tween_property(ghost, "scale", Vector2(0.9, 0.9), FLY_TIME)
+	ghost.scale = Vector2(from_k, from_k)
+	var a := from - ghost.pivot_offset
+	var b := to - ghost.pivot_offset
+	ghost.global_position = a
+	var hop := 40.0 * _s
+	var tw := create_tween().set_parallel().set_ease(Tween.EASE_IN_OUT).set_trans(Tween.TRANS_CUBIC)
+	tw.tween_method(func(t: float) -> void:
+		ghost.global_position = a.lerp(b, t) + Vector2(0, -sin(t * PI) * hop), 0.0, 1.0, FLY_TIME)
+	tw.tween_property(ghost, "scale", Vector2(to_k, to_k), FLY_TIME)
 	await tw.finished
 	ghost.queue_free()
 
 
-func _fly_coin(from: Vector2, to: Vector2, gold: bool = false) -> void:
-	var coin := ColorRect.new()
-	coin.color = Companies.GOLD if gold else Companies.BRONZE
-	coin.size = Vector2(16, 16)
-	coin.pivot_offset = Vector2(8, 8)
+## A bronze (or gold) coin hops from one point to another after `delay`.
+func _fly_coin(from: Vector2, to: Vector2, gold: bool = false, delay: float = 0.0) -> void:
+	var coin := Panel.new()
+	var r := 9.0 * _s
+	var face := StyleBoxFlat.new()
+	face.bg_color = Companies.GOLD if gold else Companies.BRONZE
+	face.border_color = Companies.INK
+	face.set_border_width_all(2)
+	face.border_width_bottom = 4
+	face.set_corner_radius_all(int(r) + 2)
+	coin.add_theme_stylebox_override("panel", face)
+	coin.size = Vector2(r, r) * 2.0
 	coin.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	coin.visible = delay <= 0.0
 	_fx_layer.add_child(coin)
-	coin.global_position = from - Vector2(8, 8)
-	var tw := create_tween().set_ease(Tween.EASE_IN_OUT).set_trans(Tween.TRANS_QUAD)
-	tw.tween_property(coin, "global_position", to - Vector2(8, 8), COIN_TIME)
-	tw.parallel().tween_property(coin, "rotation", TAU, COIN_TIME)
+	coin.global_position = from - Vector2(r, r)
+	var a := from - Vector2(r, r)
+	var b := to - Vector2(r, r)
+	var tw := create_tween()
+	if delay > 0.0:
+		tw.tween_interval(delay)
+		tw.tween_callback(func() -> void: coin.visible = true)
+	tw.tween_method(func(t: float) -> void:
+		coin.global_position = a.lerp(b, t) + Vector2(0, -sin(t * PI) * 50.0 * _s), 0.0, 1.0, COIN_TIME).set_ease(Tween.EASE_IN_OUT).set_trans(Tween.TRANS_QUAD)
 	tw.tween_callback(coin.queue_free)
 
 

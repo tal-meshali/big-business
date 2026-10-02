@@ -9,6 +9,7 @@ import { CONFIG_COLLECTION } from './remote_config';
 import { ROOM_COLLECTION, SYSTEM_USER } from './rooms';
 import { PURCHASE_COLLECTION } from './store';
 import { ART_COLLECTION, ART_QUEUE_COLLECTION, DECK_COLLECTION, STANDING_COLLECTION } from './designer_store';
+import { STATS_COLLECTION } from './stats';
 
 export const REPORT_COLLECTION = 'reports';
 const REPORT_REASONS = ['name', 'behaviour', 'cheating', 'other'];
@@ -110,6 +111,7 @@ export const SERVER_COLLECTIONS = [
   STANDING_COLLECTION,
   ART_COLLECTION,
   ART_QUEUE_COLLECTION,
+  STATS_COLLECTION,
 ];
 
 /** True when a client storage request touches a server-only collection. */

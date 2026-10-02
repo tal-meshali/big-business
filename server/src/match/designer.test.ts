@@ -167,7 +167,7 @@ describe('Designer entitlement', () => {
   it('is read from RevenueCat like the skins and kept in the owned row', () => {
     const body = { subscriber: { entitlements: { designer: { expires_date: null }, skin_table_walnut: { expires_date: null } } } };
     expect(ownedFromSubscriber(body, Date.now())).toEqual(['table_walnut', 'designer']);
-    expect(normalizeOwned({ owned: ['designer', 'designer', 'plus'] }).owned).toEqual(['designer']);
-    expect(unlockCatalog(['designer'])).toEqual([{ id: 'designer', name: 'Designer', productId: 'bb_designer', owned: true }]);
+    expect(normalizeOwned({ owned: ['designer', 'designer', 'gold'] }).owned).toEqual(['designer']);
+    expect(unlockCatalog(['designer'])[0]).toEqual({ id: 'designer', name: 'Designer', productId: 'bb_designer', owned: true });
   });
 });

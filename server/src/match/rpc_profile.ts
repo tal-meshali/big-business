@@ -1,4 +1,5 @@
 /** Profile RPCs: get_profile and claim_daily. Registered by main.ts. */
+import { availableCosmetics, dropUnavailable } from './cosmetics';
 import { requireUser } from './input';
 import { trackActive } from './metrics';
 import { loadProfile, readProgress, saveProfile } from './profile';
@@ -12,8 +13,11 @@ export const rpcGetProfile: nkruntime.RpcFunction = (ctx, logger, nk, payload) =
   const userId = requireUser(ctx);
   // The lobby loads the profile on every visit, so this is the day-active signal.
   trackActive(nk, logger, userId, now);
-  const p = readProgress(nk, userId);
-  return JSON.stringify({ progress: p, dailyAvailable: p.lastDailyClaim !== utcDate(now), ...profileExtras(p, now, readOwned(nk, userId).owned) });
+  const stored = readProgress(nk, userId);
+  const owned = readOwned(nk, userId).owned;
+  // A lapsed Plus (or a refund the webhook missed) shows the default skin.
+  const p = { ...stored, equipped: dropUnavailable(stored.equipped, availableCosmetics(stored.trackPoints, owned, now)) };
+  return JSON.stringify({ progress: p, dailyAvailable: p.lastDailyClaim !== utcDate(now), ...profileExtras(p, now, owned) });
 };
 
 /** RPC claim_daily: once per UTC day; streak grows on consecutive days. */

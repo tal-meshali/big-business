@@ -15,6 +15,8 @@
  *   8. Designer: refused until unlocked (the unlock is seeded through the
  *      console API, as no store is configured), age gate, upload, the
  *      moderation queue, and the host's deck reaching a private room
+ *   9. Plus: listed only when offered, ten deck slots, quick play opt-in,
+ *      the host's skins on every seat, and stats recorded after a game
  * Exit code 0 on success.
  */
 import WebSocket from 'ws';
@@ -636,6 +638,50 @@ async function testDesigner() {
   for (const p of [host, guest]) p.socket.disconnect(true);
 }
 
+async function testPlus() {
+  log('--- Plus: offer switch, decks, quick play opt-in, host skins, stats');
+  const host = await makePlayer('PlusHost');
+  const guest = await makePlayer('PlusGuest');
+  const listed = async () => (await rpc(host, 'store_catalog')).unlocks.map((u) => u.id).join(',');
+  if ((await listed()) !== 'designer') fail('Plus must not be listed until offered');
+  await serverRpc('set_remote_config', { plusEnabled: true });
+  if ((await listed()) !== 'designer,plus') fail('Plus should be listed once offered');
+  await serverRpc('set_remote_config', { plusEnabled: false });
+  await rpcRejected(host, 'set_public_deck', { on: true }, 'quick play opt-in without Plus');
+  await consoleWrite('purchases', 'owned', host.userId, { owned: ['plus', 'table_walnut'], syncedAt: Date.now(), expires: { plus: Date.now() + 86_400_000 } });
+  const st = await rpc(host, 'designer_state');
+  if (!st.plus || st.slots !== 10) fail(`designer_state with Plus: ${JSON.stringify({ plus: st.plus, slots: st.slots })}`);
+  if (!(await rpc(host, 'set_public_deck', { on: true })).publicDeck) fail('set_public_deck with Plus');
+  const eq = await rpc(host, 'equip_cosmetic', { slot: 'cardBack', id: 'back_ticker' });
+  const eq2 = await rpc(host, 'equip_cosmetic', { slot: 'table', id: 'table_walnut' });
+  if (!eq.ok || !eq2.ok) fail('a Plus member can equip the Plus skin and an owned felt');
+  const free = await rpc(guest, 'equip_cosmetic', { slot: 'cardBack', id: 'back_ticker' });
+  if (free.ok) fail('the Plus skin must not equip without Plus');
+  log('plus: listed only when offered, ten decks, quick play opt-in, Plus skin for members only');
+
+  const created = await rpc(host, 'create_room', { stepSeconds: 5, maxSeats: 3 });
+  await join(host, created.matchId, created.code);
+  await join(guest, created.matchId, created.code);
+  await waitFor(() => host.lobby && host.lobby.seats.length === 2, 5000, 'both players in the Plus room');
+  send(host, OP_READY);
+  send(guest, OP_READY);
+  await waitFor(() => guest.deck, 8000, "the Plus host's table should reach the guest");
+  if (guest.deck.cardBack !== 'back_ticker' || guest.deck.table !== 'table_walnut' || guest.deck.back !== null) fail(`host skins: ${JSON.stringify(guest.deck)}`);
+  log("host skins: the guest's table shows the host's back and felt");
+  await playOut([host, guest], { maxMs: 120000 });
+  let stats = null;
+  for (let i = 0; i < 25; i++) {
+    stats = await rpc(host, 'get_stats');
+    if (stats.games >= 1) break;
+    await sleep(200);
+  }
+  if (!stats.plus || stats.games !== 1 || !Array.isArray(stats.majorities) || stats.recent.length !== 1 || stats.bestScore !== stats.recent[0].score) fail(`get_stats with Plus: ${JSON.stringify(stats)}`);
+  const guestStats = await rpc(guest, 'get_stats');
+  if (guestStats.plus !== false || guestStats.games !== 1 || 'majorities' in guestStats) fail(`get_stats without Plus: ${JSON.stringify(guestStats)}`);
+  log(`stats: recorded for both; full breakdown for Plus (capital ${stats.bestScore}, place ${stats.recent[0].rank}), games and wins otherwise`);
+  for (const p of [host, guest]) p.socket.disconnect(true);
+}
+
 try {
   await testPrivateRoom();
   await testForfeit();
@@ -645,6 +691,7 @@ try {
   await testTutorial();
   await testServices();
   await testDesigner();
+  await testPlus();
   log('E2E OK');
   process.exit(0);
 } catch (e) {

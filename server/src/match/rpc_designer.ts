@@ -9,7 +9,7 @@ import {
   answerAge,
   BACK_TEMPLATE,
   checkArt,
-  DESIGNER_SLOTS,
+  deckSlotsFor,
   isArtHash,
   PARTS,
   setPart,
@@ -19,6 +19,7 @@ import {
 } from './designer';
 import {
   deckSlots,
+  designerAccess,
   enqueueArt,
   ownsDesigner,
   readArt,
@@ -68,10 +69,11 @@ function readPart(req: Body): string {
 export const rpcDesignerState: nkruntime.RpcFunction = (ctx, logger, nk, payload) => {
   void logger; void payload;
   const userId = requireUser(ctx);
-  const owned = ownsDesigner(nk, userId);
+  const access = designerAccess(nk, userId);
+  const owned = access.designer;
   const standing = readStanding(nk, userId).standing;
   const row = readDecks(nk, userId).row;
-  const slots = owned ? DESIGNER_SLOTS : 0;
+  const slots = deckSlotsFor(access.designer, access.plus);
   const decks = row.decks.slice(0, slots);
   const hashes: string[] = [];
   for (const d of decks) for (const h of [d.back].concat(d.art)) if (h && hashes.indexOf(h) < 0) hashes.push(h);
@@ -86,6 +88,8 @@ export const rpcDesignerState: nkruntime.RpcFunction = (ctx, logger, nk, payload
     blocker: uploadBlocker(owned, standing),
     decks: decks.map((d) => ({ back: d.back, backStatus: status(d.back), art: d.art, artStatus: d.art.map(status) })),
     active: row.active < slots ? row.active : -1,
+    plus: access.plus,
+    publicDeck: access.plus && row.public,
     templates: { back: BACK_TEMPLATE, window: WINDOW_TEMPLATE },
   });
 };
@@ -180,11 +184,30 @@ export const rpcSelectDeck: nkruntime.RpcFunction = (ctx, logger, nk, payload) =
   const slot = req['slot'] === -1 ? -1 : readSlot(req, slots);
   const decks = readDecks(nk, userId);
   try {
-    writeDecks(nk, userId, { decks: decks.row.decks, active: slot }, decks.version);
+    writeDecks(nk, userId, { decks: decks.row.decks, active: slot, public: decks.row.public }, decks.version);
   } catch (e) {
     reject('try again');
   }
   return JSON.stringify({ active: slot });
+};
+
+/**
+ * RPC set_public_deck {on} (Plus): also show the active deck in quick play
+ * games. Only players who said they are 13 or older receive it there, and
+ * only if they turned on custom cards in public games on their device.
+ */
+export const rpcSetPublicDeck: nkruntime.RpcFunction = (ctx, logger, nk, payload) => {
+  void logger;
+  const userId = requireUser(ctx);
+  const on = parseBody(payload)['on'] === true;
+  if (on && !designerAccess(nk, userId).plus) reject('Plus is needed for quick play');
+  const decks = readDecks(nk, userId);
+  try {
+    writeDecks(nk, userId, { decks: decks.row.decks, active: decks.row.active, public: on }, decks.version);
+  } catch (e) {
+    reject('try again');
+  }
+  return JSON.stringify({ publicDeck: on });
 };
 
 /**

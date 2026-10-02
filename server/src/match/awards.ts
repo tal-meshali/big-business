@@ -3,6 +3,7 @@ import { trackActive, trackMilestone } from './metrics';
 import { loadProfile, saveProfile } from './profile';
 import { applyForfeit, applyGameResult, SEASON_LEADERBOARD, seasonPointsForGame } from './progression';
 import { applyGameToQuests, gameStats } from './quests';
+import { recordStats } from './rpc_stats';
 import type { MatchState } from './state';
 
 /** Best effort: a storage failure is logged and never breaks the match. */
@@ -39,6 +40,13 @@ export function awardProgress(s: MatchState, nk: nkruntime.Nakama, logger: nkrun
         nk.leaderboardRecordWrite(SEASON_LEADERBOARD, seat.id, seat.name, points, score.rank === 1 ? 1 : 0);
       }
       trackGame(nk, logger, seat.id, s.params.tutorial, humans, now);
+      if (!s.params.tutorial) {
+        try {
+          recordStats(nk, seat.id, s.game.result, score.seat, seatCount, humans, now);
+        } catch (e) {
+          logger.warn('stats failed for %s: %s', seat.id, String(e));
+        }
+      }
     } catch (e) {
       logger.warn('progress award failed for %s: %s', seat.id, String(e));
     }

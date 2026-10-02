@@ -1,5 +1,6 @@
 class_name DesignerApi
-## Designer RPCs (server/src/match/rpc_designer.ts) for the Designer panel.
+## Designer and Plus RPCs (server/src/match/rpc_designer.ts, rpc_stats.ts)
+## for the Designer, shop and stats panels.
 ## Every call answers {} (or false) when offline or refused, with the
 ## server's message in `last_error`, so the panel can say what went wrong.
 
@@ -53,6 +54,17 @@ static func clear_part(slot: int, part: String) -> bool:
 ## The deck shown in private rooms this player creates; -1 for none.
 static func select_deck(slot: int) -> bool:
 	return not (await _call("select_deck", {"slot": slot})).is_empty()
+
+
+## Plus: also show the selected deck in quick play games.
+static func set_public_deck(on: bool) -> bool:
+	return not (await _call("set_public_deck", {"on": on})).is_empty()
+
+
+## Lifetime stats: {plus: false, games, wins}, or with Plus the full
+## breakdown (stats.ts on the server).
+static func stats() -> Dictionary:
+	return await _call("get_stats", {})
 
 
 ## Two-letter country from the OS locale ("en_US" -> "US"), or "".

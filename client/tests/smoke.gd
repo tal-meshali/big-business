@@ -116,6 +116,7 @@ func _run() -> void:
 	failures += await _account_checks()
 	failures += await _shop_checks()
 	failures += await _designer_checks()
+	failures += await _plus_checks()
 
 	if failures == 0:
 		print("SMOKE OK")
@@ -1476,4 +1477,89 @@ func _designer_checks() -> int:
 		push_error("Remote Config can switch Designer off")
 		failures += 1
 	RemoteConfig.reset()
+	return failures
+
+
+## Plus: the subscription row, host skins on the table, the Plus skin, the
+## stats text and the larger Designer.
+func _plus_checks() -> int:
+	var failures := 0
+	Cosmetics.reset()
+	RemoteConfig.reset()
+	if not Cosmetics.is_plus("back_ticker") or not Cosmetics.is_plus("table_slate") or Cosmetics.is_paid("back_ticker"):
+		push_error("Plus skins are flagged plus, not paid")
+		failures += 1
+	Cosmetics.set_room_skins("back_ticker", "table_walnut")
+	if Cosmetics.shown_card_back() != "back_ticker" or Cosmetics.table_bg_color() != Cosmetics.swatch_color("table_walnut") or Cosmetics.card_back != "back_classic":
+		push_error("a Plus host's skins show on the table without changing your own")
+		failures += 1
+	var card := CardView.new()
+	card.size = Vector2(CardView.W, CardView.H)
+	root.add_child(card)
+	card.setup(1, 0, 0, false)
+	await process_frame
+	card.queue_free()
+	Cosmetics.set_room_skins("", "")
+	if Cosmetics.shown_card_back() != "back_classic" or Cosmetics.shown_table() != "table_green":
+		push_error("leaving the room restores your own skins")
+		failures += 1
+
+	var stats_script = load("res://scripts/ui/stats_panel.gd")
+	var locked: String = stats_script.describe({"plus": false, "games": 4, "wins": 1})
+	var full: String = stats_script.describe({"plus": true, "games": 4, "wins": 1, "winRate": 25, "averageScore": 12.5, "bestScore": 20, "podiums": 3, "peopleGames": 2,
+		"majorities": [0, 2, 0, 0, 1, 0], "recent": [{"rank": 2}, {"rank": 1}]})
+	if not locked.begins_with("4 games, 1 wins") or not locked.contains("Plus shows"):
+		push_error("without Plus the stats show games and wins and what Plus adds, got '%s'" % locked)
+		failures += 1
+	if not full.contains("(25%)") or not full.contains("Foods 2") or not full.contains("#2 #1"):
+		push_error("Plus stats should show the breakdown, got '%s'" % full)
+		failures += 1
+
+	var shop = load("res://scripts/ui/shop_panel.gd").new()
+	root.add_child(shop)
+	await process_frame
+	var catalog := {"configured": true, "owned": [], "skins": [], "unlocks": [
+		{"id": "designer", "name": "Designer", "productId": "bb_designer", "owned": false},
+		{"id": "plus", "name": "Plus", "productId": "bb_plus_monthly", "owned": false}]}
+	shop.apply_catalog(catalog)
+	if shop._plus_box.visible:
+		push_error("Plus stays hidden while Remote Config does not offer it")
+		failures += 1
+	RemoteConfig.apply({"plusEnabled": true})
+	shop.apply_catalog(catalog)
+	await process_frame
+	if not shop._plus_box.visible or shop._plus_button.text != "Subscribe" or not shop._plus_button.disabled:
+		push_error("offered Plus shows Subscribe, disabled without the store plugin")
+		failures += 1
+	failures += _check_button_sizes(shop, "shop with Plus")
+	RemoteConfig.reset()
+	catalog["owned"] = ["plus"]
+	catalog["unlocks"][1]["owned"] = true
+	shop.apply_catalog(catalog)
+	if not shop._plus_box.visible or shop._plus_button.text != "Plus active":
+		push_error("a member always sees Plus as active")
+		failures += 1
+	shop.queue_free()
+
+	var panel = load("res://scripts/ui/designer_panel.gd").new()
+	panel.size = Vector2(672, 1100)
+	root.add_child(panel)
+	await process_frame
+	var empty := {"back": null, "backStatus": null, "art": [null, null, null, null, null, null], "artStatus": [null, null, null, null, null, null]}
+	var decks := []
+	for i in 10:
+		decks.append(empty)
+	panel.apply_state({"enabled": true, "owned": true, "plus": true, "publicDeck": true, "slots": 10, "blocker": "", "decks": decks, "active": 0})
+	await process_frame
+	var shown: int = panel._slot_buttons.filter(func(b): return b.visible).size()
+	if shown != 10 or not panel._public_toggle.visible or not panel._public_toggle.button_pressed:
+		push_error("Plus shows ten decks and the quick play switch (got %d decks)" % shown)
+		failures += 1
+	failures += _check_button_sizes(panel, "designer with Plus")
+	panel.apply_state({"enabled": true, "owned": true, "plus": false, "slots": 3, "blocker": "", "decks": [empty, empty, empty], "active": -1})
+	if panel._public_toggle.visible:
+		push_error("the quick play switch is Plus only")
+		failures += 1
+	panel.queue_free()
+	Cosmetics.reset()
 	return failures

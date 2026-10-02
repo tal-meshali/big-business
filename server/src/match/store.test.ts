@@ -34,7 +34,7 @@ describe('ownedFromSubscriber', () => {
   });
 
   it('ignores unknown entitlements and junk', () => {
-    expect(ownedFromSubscriber(subscriber({ plus: { expires_date: null } }), NOW)).toEqual([]);
+    expect(ownedFromSubscriber(subscriber({ gold: { expires_date: null } }), NOW)).toEqual([]);
     expect(ownedFromSubscriber(null, NOW)).toEqual([]);
     expect(ownedFromSubscriber({ subscriber: { entitlements: 'x' } }, NOW)).toEqual([]);
     expect(ownedFromSubscriber(subscriber({ skin_back_gilded: { expires_date: 'not a date' } }), NOW)).toEqual([]);
@@ -47,8 +47,8 @@ describe('ownedFromSubscriber', () => {
 
 describe('normalizeOwned', () => {
   it('keeps known skins once and drops track items or junk', () => {
-    expect(normalizeOwned({ owned: ['back_gilded', 'back_gilded', 'back_midnight', 7, 'nope'], syncedAt: 5 })).toEqual({ owned: ['back_gilded'], syncedAt: 5 });
-    expect(normalizeOwned('x')).toEqual({ owned: [], syncedAt: 0 });
+    expect(normalizeOwned({ owned: ['back_gilded', 'back_gilded', 'back_midnight', 7, 'nope'], syncedAt: 5 })).toEqual({ owned: ['back_gilded'], syncedAt: 5, expires: {} });
+    expect(normalizeOwned('x')).toEqual({ owned: [], syncedAt: 0, expires: {} });
   });
 });
 

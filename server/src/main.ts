@@ -42,7 +42,9 @@ import {
   guardedModerateCardArt,
   guardedModerationQueue,
   guardedReportCardArt,
+  guardedGetStats,
   guardedSelectDeck,
+  guardedSetPublicDeck,
   guardedSetAgeBracket,
   guardedUploadCardArt,
 } from './match/guarded_designer';
@@ -86,8 +88,10 @@ function InitModule(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkrunt
   initializer.registerRpc('upload_card_art', guardedUploadCardArt);
   initializer.registerRpc('clear_deck_part', guardedClearDeckPart);
   initializer.registerRpc('select_deck', guardedSelectDeck);
+  initializer.registerRpc('set_public_deck', guardedSetPublicDeck);
   initializer.registerRpc('get_card_art', guardedGetCardArt);
   initializer.registerRpc('report_card_art', guardedReportCardArt);
+  initializer.registerRpc('get_stats', guardedGetStats);
   // Server-to-server only (runtime http_key; they refuse player sessions).
   initializer.registerRpc('revenuecat_webhook', guardedRevenueCatWebhook);
   initializer.registerRpc('set_remote_config', guardedSetRemoteConfig);

@@ -15,7 +15,12 @@ export interface Cosmetic {
   name: string;
   /** Sold in the shop; owned only through a purchase, never through the track. */
   paid?: boolean;
+  /** Plus collection: usable while Plus is active, from this UTC month (YYYY-MM) on. */
+  plusSince?: string;
 }
+
+/** Owned id of the Plus subscription (store.ts PLUS); here so this module imports nothing. */
+export const PLUS_OWNED_ID = 'plus';
 
 export interface Equipped {
   cardBack: string;
@@ -38,7 +43,18 @@ export const COSMETICS: ReadonlyArray<Cosmetic> = [
   { id: 'back_gilded', slot: 'cardBack', name: 'Gilded', paid: true },
   { id: 'back_blueprint', slot: 'cardBack', name: 'Blueprint', paid: true },
   { id: 'table_walnut', slot: 'table', name: 'Walnut', paid: true },
+  // Plus: a new skin each month. WHY dated: members get each month's skin on
+  // its month, so the collection keeps growing without a client release
+  // gating it (the client still needs the drawing, shipped ahead).
+  { id: 'back_ticker', slot: 'cardBack', name: 'Ticker', plusSince: '2026-10' },
+  { id: 'table_slate', slot: 'table', name: 'Slate', plusSince: '2026-11' },
 ];
+
+/** Plus skins released by `nowMs` (UTC month). */
+export function plusCosmetics(nowMs: number): string[] {
+  const month = new Date(nowMs).toISOString().slice(0, 7);
+  return COSMETICS.filter((c) => c.plusSince && c.plusSince <= month).map((c) => c.id);
+}
 
 /** Everyone owns the defaults. */
 export const DEFAULT_EQUIPPED: Equipped = { cardBack: 'back_classic', table: 'table_green' };
@@ -77,17 +93,19 @@ export function nextUnlock(trackPoints: number): TrackStep | null {
 }
 
 /**
- * Everything the player may equip: the track unlocks plus the paid skins in
- * `owned` (purchased ids from the server's purchase row). Ids in `owned`
+ * Everything the player may equip: the track unlocks, the paid skins in
+ * `owned` (purchased ids from the server's purchase row), and the released
+ * Plus skins while Plus is in `owned`. Ids in `owned`
  * that are not paid skins are ignored, so a purchase row can never unlock a
  * track item early.
  */
-export function availableCosmetics(trackPoints: number, owned: ReadonlyArray<string>): string[] {
+export function availableCosmetics(trackPoints: number, owned: ReadonlyArray<string>, nowMs: number = Date.now()): string[] {
   const out = unlockedCosmetics(trackPoints);
   for (const id of owned) {
     const c = cosmeticById(id);
     if (c && c.paid && out.indexOf(id) < 0) out.push(id);
   }
+  if (owned.indexOf(PLUS_OWNED_ID) >= 0) for (const id of plusCosmetics(nowMs)) out.push(id);
   return out;
 }
 

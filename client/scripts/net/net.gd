@@ -397,15 +397,19 @@ func _on_match_state(state: NakamaRTAPI.MatchData) -> void:
 		Protocol.OP_FORFEITED:
 			player_forfeited.emit(int(data.get("seat", -1)))
 		Protocol.OP_DECK:
-			if data is Dictionary and not is_blocked(String(data.get("owner", ""))):
+			# A Plus member's deck in quick play shows only to players who opted in.
+			if data is Dictionary and not is_blocked(String(data.get("owner", ""))) and (not data.get("public", false) or CardArt.show_public):
+				Cosmetics.set_room_skins(String(data.get("cardBack", "")), String(data.get("table", "")))
 				_set_room_deck(data)
 				await fetch_card_art(CardArt.missing_hashes())
 				custom_deck_changed.emit()
 
 
 func _set_room_deck(deck: Dictionary) -> void:
-	if deck.is_empty() and CardArt.room_deck.is_empty():
-		return
+	if deck.is_empty():
+		Cosmetics.set_room_skins("", "")
+		if CardArt.room_deck.is_empty():
+			return
 	CardArt.set_room_deck(deck)
 	custom_deck_changed.emit()
 

@@ -39,6 +39,13 @@ export const ART_MAX_BYTES = 64 * 1024;
 
 /** Deck slots the Designer unlock gives. */
 export const DESIGNER_SLOTS = 3;
+/** Deck slots with Plus (which includes Designer); also the most a deck row holds. */
+export const PLUS_SLOTS = 10;
+
+/** Deck slots for a player with these purchases. */
+export function deckSlotsFor(designer: boolean, plus: boolean): number {
+  return plus ? PLUS_SLOTS : designer ? DESIGNER_SLOTS : 0;
+}
 
 /** Upload strikes (rejected by a moderator, or a takedown) before uploads stop for good. */
 export const STRIKES_TO_BAN = 3;
@@ -192,6 +199,8 @@ export interface DeckRow {
   decks: Deck[];
   /** Deck shown in the player's private rooms, -1 for none. */
   active: number;
+  /** Plus: also show the active deck in quick play (public) games. */
+  public: boolean;
 }
 
 const HASH_RE = /^[0-9a-f]{64}$/;
@@ -205,7 +214,7 @@ export function emptyDeck(): Deck {
 }
 
 export function normalizeDeckRow(raw: unknown, slots: number): DeckRow {
-  const o = (typeof raw === 'object' && raw !== null ? raw : {}) as { decks?: unknown; active?: unknown };
+  const o = (typeof raw === 'object' && raw !== null ? raw : {}) as { decks?: unknown; active?: unknown; public?: unknown };
   const decks: Deck[] = [];
   const list = Array.isArray(o.decks) ? o.decks : [];
   for (let i = 0; i < slots; i++) {
@@ -216,7 +225,7 @@ export function normalizeDeckRow(raw: unknown, slots: number): DeckRow {
     decks.push({ back: isArtHash(d.back) ? d.back : null, art });
   }
   const a = typeof o.active === 'number' && isFinite(o.active) ? Math.floor(o.active) : -1;
-  return { decks, active: a >= 0 && a < slots ? a : -1 };
+  return { decks, active: a >= 0 && a < slots ? a : -1, public: o.public === true };
 }
 
 /** The deck row with `part` of deck `slot` set to `hash` (or cleared with null). */
@@ -226,7 +235,7 @@ export function setPart(row: DeckRow, slot: number, part: Part, hash: string | n
   if (!deck) return row;
   if (part === 'back') deck.back = hash;
   else deck.art[PARTS.indexOf(part) - 1] = hash;
-  return { decks, active: row.active };
+  return { decks, active: row.active, public: row.public };
 }
 
 /** Every hash a deck uses, once each. */

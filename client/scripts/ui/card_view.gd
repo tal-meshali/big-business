@@ -187,7 +187,7 @@ func _draw_back() -> void:
 		draw_texture_rect(custom, inner, false)
 		draw_rect(inner, Companies.INK, false, 1.5)
 		return
-	match Cosmetics.card_back:
+	match Cosmetics.shown_card_back():
 		"back_midnight":
 			_draw_back_midnight(inner)
 		"back_sunrise":
@@ -198,6 +198,8 @@ func _draw_back() -> void:
 			_draw_back_gilded(inner)
 		"back_blueprint":
 			_draw_back_blueprint(inner)
+		"back_ticker":
+			_draw_back_ticker(inner)
 		_:
 			_draw_back_classic(inner)
 
@@ -285,6 +287,23 @@ func _draw_back_blueprint(inner: Rect2) -> void:
 		y += 10.0
 	draw_rect(inner, line, false, 1.5)
 	_draw_monogram(line)
+
+
+## Plus skin: a dark trading screen with a rising green price line.
+## Placeholder drawing until the commissioned art (TODO-local F).
+func _draw_back_ticker(inner: Rect2) -> void:
+	var entry := Cosmetics.card_back_entry("back_ticker")
+	var green: Color = entry["ink"]
+	draw_rect(inner, entry["accent"], true)
+	var pts := PackedVector2Array()
+	var steps := 9
+	for i in steps + 1:
+		var t := float(i) / steps
+		var wobble := 10.0 * sin(i * 2.1)
+		pts.append(Vector2(inner.position.x + 6 + t * (inner.size.x - 12), inner.end.y - 24 - t * (inner.size.y * 0.45) + wobble))
+	draw_polyline(pts, Color(green, 0.55), 2.0, true)
+	draw_rect(inner, green, false, 1.5)
+	_draw_monogram(green)
 
 
 func _draw_monogram(color: Color) -> void:

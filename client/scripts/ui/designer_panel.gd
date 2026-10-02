@@ -3,7 +3,7 @@ extends PanelContainer
 ## Designer unlock (decision D5): the player's own card art for private
 ## rooms. Opened from the shop. Shows, in order of what is missing: the
 ## unlock (Buy and Restore), the neutral age question (decision D4), then
-## three deck slots with a row per part (card back and six art windows).
+## its deck slots (three, or ten with Plus) with a row per part (card back and six art windows).
 ## Picking a picture opens the crop editor: the picture is framed at the
 ## part's fixed aspect with zoom and drag, previewed on a real card, then
 ## rendered and uploaded through CardArt and DesignerApi. Pictures show to
@@ -31,6 +31,8 @@ var _blocked_label: Label
 var _deck_box: VBoxContainer
 var _slot_buttons: Array[Button] = []
 var _use_toggle: CheckButton
+var _public_toggle: CheckButton
+var _show_public_toggle: CheckButton
 var _parts_list: VBoxContainer
 var _show_toggle: CheckButton
 var _editor: VBoxContainer
@@ -86,14 +88,15 @@ func _init() -> void:
 	_deck_box = VBoxContainer.new()
 	_deck_box.add_theme_constant_override("separation", 8)
 	column.add_child(_deck_box)
-	var slots_row := HBoxContainer.new()
-	slots_row.add_theme_constant_override("separation", 8)
+	var slots_row := HFlowContainer.new()
+	slots_row.add_theme_constant_override("h_separation", 8)
+	slots_row.add_theme_constant_override("v_separation", 8)
 	_deck_box.add_child(slots_row)
-	for i in 3:
+	for i in 10:
 		var index := i
 		var b := _button("Deck %d" % (i + 1), func() -> void: _on_slot(index))
 		b.toggle_mode = true
-		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		b.custom_minimum_size = Vector2(196, ROW_HEIGHT)
 		slots_row.add_child(b)
 		_slot_buttons.append(b)
 	_use_toggle = CheckButton.new()
@@ -101,6 +104,11 @@ func _init() -> void:
 	_use_toggle.custom_minimum_size = Vector2(0, ROW_HEIGHT)
 	_use_toggle.toggled.connect(_on_use_toggled)
 	_deck_box.add_child(_use_toggle)
+	_public_toggle = CheckButton.new()
+	_public_toggle.text = "Also use it in quick play (Plus)"
+	_public_toggle.custom_minimum_size = Vector2(0, ROW_HEIGHT)
+	_public_toggle.toggled.connect(_on_public_toggled)
+	_deck_box.add_child(_public_toggle)
 	_parts_list = VBoxContainer.new()
 	_parts_list.add_theme_constant_override("separation", 6)
 	_deck_box.add_child(_parts_list)
@@ -147,6 +155,14 @@ func _init() -> void:
 		CardArt.show_custom = on
 		CardArt.save_settings())
 	column.add_child(_show_toggle)
+	_show_public_toggle = CheckButton.new()
+	_show_public_toggle.text = "Show custom cards in quick play"
+	_show_public_toggle.custom_minimum_size = Vector2(0, ROW_HEIGHT)
+	_show_public_toggle.button_pressed = CardArt.show_public
+	_show_public_toggle.toggled.connect(func(on: bool) -> void:
+		CardArt.show_public = on
+		CardArt.save_settings())
+	column.add_child(_show_public_toggle)
 
 	_status = _label("")
 	_status.add_theme_color_override("font_color", Companies.INK_SOFT)
@@ -217,6 +233,8 @@ func _refresh_deck() -> void:
 		_slot_buttons[i].button_pressed = i == slot
 		_slot_buttons[i].visible = i < int(state.get("slots", 0))
 	_use_toggle.set_pressed_no_signal(int(state.get("active", -1)) == slot)
+	_public_toggle.visible = state.get("plus", false)
+	_public_toggle.set_pressed_no_signal(state.get("publicDeck", false))
 	for child in _parts_list.get_children():
 		child.queue_free()
 	var decks: Array = state.get("decks", [])
@@ -276,6 +294,15 @@ func _on_use_toggled(on: bool) -> void:
 		_status.text = "Rooms you create will use Deck %d." % (slot + 1) if on else "Rooms you create will use the standard cards."
 	else:
 		_use_toggle.set_pressed_no_signal(not on)
+		_status.text = DesignerApi.last_error
+
+
+func _on_public_toggled(on: bool) -> void:
+	if await DesignerApi.set_public_deck(on):
+		state["publicDeck"] = on
+		_status.text = "Your selected deck shows in quick play to players who turned custom cards on." if on else "Your deck stays in your private rooms."
+	else:
+		_public_toggle.set_pressed_no_signal(not on)
 		_status.text = DesignerApi.last_error
 
 

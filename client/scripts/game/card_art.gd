@@ -20,6 +20,8 @@ const SETTINGS_PATH := "user://designer.cfg"
 static var room_deck: Dictionary = {}
 ## Show custom decks other players bring to a private room.
 static var show_custom: bool = true
+## Show a Plus member's deck in quick play games (off unless the player opts in).
+static var show_public: bool = false
 ## Textures by art hash (memory cache over the disk cache).
 static var _textures: Dictionary = {}
 
@@ -172,9 +174,11 @@ static func load_settings() -> void:
 	var cfg := ConfigFile.new()
 	if cfg.load(SETTINGS_PATH) == OK:
 		show_custom = bool(cfg.get_value("designer", "show_custom", true))
+		show_public = bool(cfg.get_value("designer", "show_public", false))
 
 
 static func save_settings() -> void:
 	var cfg := ConfigFile.new()
 	cfg.set_value("designer", "show_custom", show_custom)
+	cfg.set_value("designer", "show_public", show_public)
 	cfg.save(SETTINGS_PATH)

@@ -63,6 +63,8 @@ Phase 2 shop, analytics and push, server and client code: three curated skins (t
 
 Phase 3 Designer unlock, server and client code: a one-time unlock for custom card art in private rooms (decision D10). Three deck slots, each with a card back and an art window per company; pictures are framed on the phone, checked by the server, scanned or queued for review, and only approved art reaches other players. An operator moderation queue with strikes, report and block that cover custom cards, and an age gate. The store product, the optional scan key and the DMCA agent are local steps (`docs/TODO-local.md` G, `docs/deploy.md` "Designer").
 
+Phase 3 Plus, built and switched off (decision D11): a monthly subscription with ten Designer decks, the deck in quick play for players who opt in, a Plus skin each month, full lifetime stats, and the host's card back and felt on every seat of their private rooms. The operator turns it on with Remote Config `plusEnabled`.
+
 Code conventions (acyclic, layered dependency graph checked with graphify on every push and in CI) are in `docs/conventions.md`.
 
 What still needs a real machine (phone builds, playtesting, store accounts, art) is listed in `docs/TODO-local.md`.

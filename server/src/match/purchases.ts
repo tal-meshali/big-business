@@ -8,7 +8,7 @@
  * `configured: false` and the owned list stays as stored (empty).
  */
 import { trackMilestone } from './metrics';
-import { newlyOwned, normalizeOwned, ownedFromSubscriber, PURCHASE_COLLECTION, PURCHASE_KEY, type OwnedRow } from './store';
+import { activeOwned, entitlementsFromSubscriber, newlyOwned, normalizeOwned, PURCHASE_COLLECTION, PURCHASE_KEY, type OwnedRow } from './store';
 
 const REVENUECAT_API = 'https://api.revenuecat.com/v1/subscribers/';
 const HTTP_TIMEOUT_MS = 5000;
@@ -17,11 +17,13 @@ export function revenueCatKey(env: { [key: string]: string } | undefined): strin
   return env && typeof env['REVENUECAT_API_KEY'] === 'string' ? env['REVENUECAT_API_KEY'].trim() : '';
 }
 
+/** What the player owns now: the stored row with expired subscriptions dropped. */
 export function readOwned(nk: nkruntime.Nakama, userId: string): OwnedRow {
   const row = nk.storageRead([{ collection: PURCHASE_COLLECTION, key: PURCHASE_KEY, userId }])[0];
   // Same rule as the profile row: a row the client wrote itself is ignored.
   if (!row || row.permissionWrite !== 0) return normalizeOwned(null);
-  return normalizeOwned(row.value);
+  const stored = normalizeOwned(row.value);
+  return { ...stored, owned: activeOwned(stored, Date.now()) };
 }
 
 export interface SyncResult {
@@ -41,8 +43,8 @@ export function syncOwned(nk: nkruntime.Nakama, logger: nkruntime.Logger, env: {
   const res = nk.httpRequest(REVENUECAT_API + encodeURIComponent(userId), 'get', { Authorization: 'Bearer ' + key, Accept: 'application/json' }, undefined, HTTP_TIMEOUT_MS);
   if (res.code !== 200) throw new Error('revenuecat answered ' + res.code);
   const now = Date.now();
-  const owned = ownedFromSubscriber(JSON.parse(res.body), now);
-  nk.storageWrite([{ collection: PURCHASE_COLLECTION, key: PURCHASE_KEY, userId, value: { owned, syncedAt: now }, permissionRead: 1, permissionWrite: 0 }]);
+  const { owned, expires } = entitlementsFromSubscriber(JSON.parse(res.body), now);
+  nk.storageWrite([{ collection: PURCHASE_COLLECTION, key: PURCHASE_KEY, userId, value: { owned, syncedAt: now, expires }, permissionRead: 1, permissionWrite: 0 }]);
   const added = newlyOwned(before.owned, owned);
   if (added.length > 0) {
     logger.info('purchases for %s: +%s', userId, added.join(','));

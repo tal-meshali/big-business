@@ -8,10 +8,10 @@
  * refused once is refused for everyone, and a hash is an immutable name the
  * client can cache forever (research 05 section 3).
  */
-import { DESIGNER_SLOTS, normalizeDeckRow, normalizeStanding, type ArtStatus, type DeckRow, type Standing } from './designer';
+import { deckSlotsFor, normalizeDeckRow, normalizeStanding, PLUS_SLOTS, type ArtStatus, type DeckRow, type Standing } from './designer';
 import { SYSTEM_USER } from './protocol';
 import { readOwned } from './purchases';
-import { DESIGNER } from './store';
+import { DESIGNER, PLUS } from './store';
 
 export const DECK_COLLECTION = 'designer';
 export const DECK_KEY = 'decks';
@@ -40,23 +40,31 @@ export interface QueueRow {
   reports: number;
 }
 
+/** Which of the Designer-related purchases the player has now. Plus includes Designer. */
+export function designerAccess(nk: nkruntime.Nakama, userId: string): { designer: boolean; plus: boolean } {
+  const owned = readOwned(nk, userId).owned;
+  const plus = owned.indexOf(PLUS) >= 0;
+  return { designer: plus || owned.indexOf(DESIGNER) >= 0, plus };
+}
+
 export function ownsDesigner(nk: nkruntime.Nakama, userId: string): boolean {
-  return readOwned(nk, userId).owned.indexOf(DESIGNER) >= 0;
+  return designerAccess(nk, userId).designer;
 }
 
 /** Deck slots for this player; 0 without the unlock. */
 export function deckSlots(nk: nkruntime.Nakama, userId: string): number {
-  return ownsDesigner(nk, userId) ? DESIGNER_SLOTS : 0;
+  const a = designerAccess(nk, userId);
+  return deckSlotsFor(a.designer, a.plus);
 }
 
 /**
- * The deck row with its storage version. Read at the full Designer slot
- * count so a lost entitlement (refund) hides decks without deleting them.
+ * The deck row with its storage version. Read at the largest slot count so
+ * a lost entitlement (refund, lapsed Plus) hides decks without deleting them.
  */
 export function readDecks(nk: nkruntime.Nakama, userId: string): { row: DeckRow; version: string | null } {
   const r = nk.storageRead([{ collection: DECK_COLLECTION, key: DECK_KEY, userId }])[0];
-  if (!r || r.permissionWrite !== 0) return { row: normalizeDeckRow(null, DESIGNER_SLOTS), version: r ? r.version : null };
-  return { row: normalizeDeckRow(r.value, DESIGNER_SLOTS), version: r.version };
+  if (!r || r.permissionWrite !== 0) return { row: normalizeDeckRow(null, PLUS_SLOTS), version: r ? r.version : null };
+  return { row: normalizeDeckRow(r.value, PLUS_SLOTS), version: r.version };
 }
 
 /** Writes the deck row; with a version it fails (as 'try again') when the row changed. */

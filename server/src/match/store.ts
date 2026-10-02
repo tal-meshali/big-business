@@ -8,7 +8,7 @@
  * plugin, then asks the server to sync; the server asks RevenueCat with the
  * secret key and stores the result in a row only the server writes.
  */
-import { COSMETICS, type CosmeticSlot } from './cosmetics';
+import { COSMETICS, PLUS_OWNED_ID, type CosmeticSlot } from './cosmetics';
 
 export const PURCHASE_COLLECTION = 'purchases';
 export const PURCHASE_KEY = 'owned';
@@ -51,7 +51,15 @@ export interface Unlock {
  * shares the owned list with the skins, so it must never equal a cosmetic id.
  */
 export const DESIGNER = 'designer';
-export const UNLOCKS: ReadonlyArray<Unlock> = [{ id: DESIGNER, name: 'Designer', productId: 'bb_designer', entitlement: 'designer' }];
+/**
+ * Plus: a monthly subscription (plus.ts). Its entitlement expires, so the
+ * owned row keeps the expiry and readers drop it once passed.
+ */
+export const PLUS = PLUS_OWNED_ID;
+export const UNLOCKS: ReadonlyArray<Unlock> = [
+  { id: DESIGNER, name: 'Designer', productId: 'bb_designer', entitlement: 'designer' },
+  { id: PLUS, name: 'Plus', productId: 'bb_plus_monthly', entitlement: 'plus' },
+];
 
 /** Every product the server reads from RevenueCat: skins, then unlocks. */
 const PRODUCTS: ReadonlyArray<{ id: string; entitlement: string }> = (SKINS as ReadonlyArray<{ id: string; entitlement: string }>).concat(UNLOCKS);
@@ -66,11 +74,13 @@ export interface OwnedRow {
   owned: string[];
   /** Epoch ms of the last successful sync with RevenueCat; 0 when never. */
   syncedAt: number;
+  /** Expiry (epoch ms) of owned ids that expire, such as Plus; lifetime ids are absent. */
+  expires: { [id: string]: number };
 }
 
 /** Keeps only known skin and unlock ids, once each; anything else in a stored row is dropped. */
 export function normalizeOwned(raw: unknown): OwnedRow {
-  const obj = (typeof raw === 'object' && raw !== null ? raw : {}) as { owned?: unknown; syncedAt?: unknown };
+  const obj = (typeof raw === 'object' && raw !== null ? raw : {}) as { owned?: unknown; syncedAt?: unknown; expires?: unknown };
   const owned: string[] = [];
   if (Array.isArray(obj.owned)) {
     for (const id of obj.owned) {
@@ -78,7 +88,18 @@ export function normalizeOwned(raw: unknown): OwnedRow {
     }
   }
   const syncedAt = typeof obj.syncedAt === 'number' && isFinite(obj.syncedAt) && obj.syncedAt > 0 ? obj.syncedAt : 0;
-  return { owned, syncedAt };
+  const expires: { [id: string]: number } = {};
+  const rawExpires = (typeof obj.expires === 'object' && obj.expires !== null ? obj.expires : {}) as { [id: string]: unknown };
+  for (const id of owned) {
+    const t = rawExpires[id];
+    if (typeof t === 'number' && isFinite(t)) expires[id] = t;
+  }
+  return { owned, syncedAt, expires };
+}
+
+/** Owned ids still active at `nowMs`: an expired subscription drops out without waiting for a sync. */
+export function activeOwned(row: OwnedRow, nowMs: number): string[] {
+  return row.owned.filter((id) => !(id in row.expires) || (row.expires[id] as number) > nowMs);
 }
 
 /**
@@ -88,22 +109,31 @@ export function normalizeOwned(raw: unknown): OwnedRow {
  * RevenueCat, so it drops out here on the next sync. Never throws.
  */
 export function ownedFromSubscriber(body: unknown, nowMs: number): string[] {
+  return entitlementsFromSubscriber(body, nowMs).owned;
+}
+
+/** Like ownedFromSubscriber, with the expiry of every owned id that has one. */
+export function entitlementsFromSubscriber(body: unknown, nowMs: number): { owned: string[]; expires: { [id: string]: number } } {
   const root = (typeof body === 'object' && body !== null ? body : {}) as { subscriber?: unknown };
   const sub = (typeof root.subscriber === 'object' && root.subscriber !== null ? root.subscriber : {}) as { entitlements?: unknown };
   const ents = (typeof sub.entitlements === 'object' && sub.entitlements !== null ? sub.entitlements : {}) as { [id: string]: unknown };
-  const out: string[] = [];
+  const owned: string[] = [];
+  const expiry: { [id: string]: number } = {};
   for (const product of PRODUCTS) {
     const e = ents[product.entitlement];
     if (typeof e !== 'object' || e === null) continue;
     const expires = (e as { expires_date?: unknown }).expires_date;
     if (expires === null || expires === undefined) {
-      out.push(product.id);
+      owned.push(product.id);
       continue;
     }
     const t = typeof expires === 'string' ? Date.parse(expires) : NaN;
-    if (isFinite(t) && t > nowMs) out.push(product.id);
+    if (isFinite(t) && t > nowMs) {
+      owned.push(product.id);
+      expiry[product.id] = t;
+    }
   }
-  return out;
+  return { owned, expires: expiry };
 }
 
 /** Skins in `next` that were not in `prev`: new purchases, for analytics. */

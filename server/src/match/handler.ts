@@ -52,8 +52,8 @@ function startGame(s: MatchState, nk: nkruntime.Nakama, logger: nkruntime.Logger
   chooseRoomDeck(s, nk, logger);
   logger.info('match started seats=%d seed=%d tutorial=%s deck=%s', s.game.seats.length, seed, String(s.params.tutorial), s.customDeck ? 'custom' : 'standard');
   dispatcher.matchLabelUpdate(label(s));
-  // The deck goes first so the table can fetch the art while it lays out.
-  sendDeck(s, dispatcher);
+  // The look goes first so the table can fetch the art while it lays out.
+  sendDeck(s, nk, dispatcher);
   sendViews(s, dispatcher);
 }
 
@@ -137,7 +137,7 @@ export const matchJoin: nkruntime.MatchJoinFunction<MatchState> = (ctx, logger, 
           seatState.connected = true;
           seatState.isBot = false;
         }
-        sendDeck(state, dispatcher, [p]);
+        sendDeck(state, nk, dispatcher, [p]);
         logger.info('user %s rejoined seat %d', p.userId, seat);
       }
       continue;

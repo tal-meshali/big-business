@@ -28,7 +28,7 @@ var _status: Label
 func _init() -> void:
 	add_theme_stylebox_override("panel", StyleBoxEmpty.new())
 	var deed := UiTheme.deed_panel(Companies.CHANCE, "Quests", Color.WHITE)
-	deed["title"].add_theme_font_size_override("font_size", 24)
+	deed["title"].add_theme_font_size_override("font_size", 28)
 	deed["panel"].size_flags_vertical = Control.SIZE_EXPAND_FILL
 	add_child(deed["panel"])
 	var body: MarginContainer = deed["body"]
@@ -41,7 +41,7 @@ func _init() -> void:
 	# Track summary stays visible above the scrolling list.
 	_track_label = Label.new()
 	_track_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_track_label.add_theme_font_size_override("font_size", 16)
+	_track_label.add_theme_font_size_override("font_size", 19)
 	column.add_child(_track_label)
 	_track_bar = _make_bar(Companies.CHANCE)
 	column.add_child(_track_bar)
@@ -81,7 +81,7 @@ func _init() -> void:
 
 	_status = Label.new()
 	_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_status.add_theme_font_size_override("font_size", 14)
+	_status.add_theme_font_size_override("font_size", 17)
 	_status.text = "Quests reset at midnight UTC; weekly ones on Monday."
 	content.add_child(_status)
 
@@ -99,7 +99,7 @@ func _init() -> void:
 func _heading(text: String) -> Label:
 	var l := Label.new()
 	l.text = text.to_upper()
-	l.add_theme_font_size_override("font_size", 13)
+	l.add_theme_font_size_override("font_size", 15)
 	l.add_theme_color_override("font_color", Companies.INK_SOFT)
 	return l
 
@@ -162,7 +162,7 @@ func _add_row(parent: Control, q: Dictionary) -> void:
 	var label := Label.new()
 	label.text = "%s  (+%d pts)" % [String(q.get("text", "")), int(q.get("points", 0))]
 	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	label.add_theme_font_size_override("font_size", 15)
+	label.add_theme_font_size_override("font_size", 18)
 	col.add_child(label)
 	var bar := _make_bar(Companies.GOLD)
 	bar.max_value = maxf(1.0, float(q.get("target", 1)))
@@ -170,7 +170,7 @@ func _add_row(parent: Control, q: Dictionary) -> void:
 	col.add_child(bar)
 	var count := Label.new()
 	count.text = "%d / %d" % [int(q.get("progress", 0)), int(q.get("target", 1))]
-	count.add_theme_font_size_override("font_size", 12)
+	count.add_theme_font_size_override("font_size", 14)
 	count.add_theme_color_override("font_color", Companies.INK_SOFT)
 	col.add_child(count)
 	var button := Button.new()

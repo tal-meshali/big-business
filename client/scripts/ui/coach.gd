@@ -108,11 +108,11 @@ func _build() -> void:
 	deed["body"].add_child(box)
 	var tag := Label.new()
 	tag.text = "TUTORIAL"
-	tag.add_theme_font_size_override("font_size", 13)
+	tag.add_theme_font_size_override("font_size", 15)
 	tag.add_theme_color_override("font_color", Companies.INK_SOFT)
 	box.add_child(tag)
 	_body = Label.new()
-	_body.add_theme_font_size_override("font_size", 19)
+	_body.add_theme_font_size_override("font_size", 22)
 	_body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	box.add_child(_body)
 	var buttons := HBoxContainer.new()
@@ -127,7 +127,7 @@ func _build() -> void:
 	_got_it = Button.new()
 	_got_it.text = "Got it"
 	_got_it.custom_minimum_size = Vector2(160, 52)
-	_got_it.add_theme_font_size_override("font_size", 18)
+	_got_it.add_theme_font_size_override("font_size", 22)
 	_got_it.pressed.connect(_on_got_it)
 	buttons.add_child(_got_it)
 	visible = false

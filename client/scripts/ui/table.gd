@@ -126,11 +126,11 @@ func _build_layout() -> void:
 	_status = Label.new()
 	_status.text = "Connecting..."
 	_status.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_status.add_theme_font_size_override("font_size", 22)
+	_status.add_theme_font_size_override("font_size", 26)
 	_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	top.add_child(_status)
 	_timer_label = Label.new()
-	_timer_label.add_theme_font_size_override("font_size", 22)
+	_timer_label.add_theme_font_size_override("font_size", 26)
 	_timer_label.add_theme_color_override("font_color", Companies.ALERT)
 	top.add_child(_timer_label)
 	var help := Button.new()
@@ -169,7 +169,7 @@ func _build_layout() -> void:
 	add_child(market_box)
 	var market_title := Label.new()
 	market_title.text = "The Market"
-	market_title.add_theme_font_size_override("font_size", 16)
+	market_title.add_theme_font_size_override("font_size", 19)
 	market_title.add_theme_color_override("font_color", Companies.INK_SOFT)
 	market_box.add_child(market_title)
 	var strip := HBoxContainer.new()
@@ -185,7 +185,7 @@ func _build_layout() -> void:
 	supply_box.add_child(_supply_pile)
 	_supply_count = Label.new()
 	_supply_count.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_supply_count.add_theme_font_size_override("font_size", 14)
+	_supply_count.add_theme_font_size_override("font_size", 17)
 	supply_box.add_child(_supply_count)
 
 	var sep := ColorRect.new()
@@ -213,7 +213,7 @@ func _build_layout() -> void:
 	add_child(actions)
 	_prompt = Label.new()
 	_prompt.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_prompt.add_theme_font_size_override("font_size", 18)
+	_prompt.add_theme_font_size_override("font_size", 20)
 	_prompt.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	actions.add_child(_prompt)
 	var buttons := HBoxContainer.new()
@@ -272,7 +272,7 @@ func _build_layout() -> void:
 	result_box.add_theme_constant_override("separation", 12)
 	deed["body"].add_child(result_box)
 	_result_label = Label.new()
-	_result_label.add_theme_font_size_override("font_size", 18)
+	_result_label.add_theme_font_size_override("font_size", 22)
 	result_box.add_child(_result_label)
 	var result_buttons := HBoxContainer.new()
 	result_buttons.alignment = BoxContainer.ALIGNMENT_CENTER
@@ -311,15 +311,15 @@ func _build_get_ready() -> void:
 	deed["body"].add_child(box)
 	var order_title := Label.new()
 	order_title.text = "Turn order"
-	order_title.add_theme_font_size_override("font_size", 16)
+	order_title.add_theme_font_size_override("font_size", 19)
 	order_title.add_theme_color_override("font_color", Companies.INK_SOFT)
 	box.add_child(order_title)
 	_ready_seats = Label.new()
-	_ready_seats.add_theme_font_size_override("font_size", 20)
+	_ready_seats.add_theme_font_size_override("font_size", 24)
 	box.add_child(_ready_seats)
 	_ready_first = Label.new()
 	_ready_first.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_ready_first.add_theme_font_size_override("font_size", 22)
+	_ready_first.add_theme_font_size_override("font_size", 26)
 	box.add_child(_ready_first)
 	_ready_count = Label.new()
 	_ready_count.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -329,7 +329,7 @@ func _build_get_ready() -> void:
 	tip.text = "Collect shares, hold the most of a company, and cash in on dividend day."
 	tip.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	tip.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	tip.add_theme_font_size_override("font_size", 15)
+	tip.add_theme_font_size_override("font_size", 18)
 	tip.add_theme_color_override("font_color", Companies.INK_SOFT)
 	box.add_child(tip)
 
@@ -353,7 +353,7 @@ func _build_forfeit_confirm() -> void:
 	var body := Label.new()
 	body.text = "A bot plays your seat for the rest of the game and you can't come back to it. It counts as a game played, with no XP."
 	body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	body.add_theme_font_size_override("font_size", 18)
+	body.add_theme_font_size_override("font_size", 22)
 	box.add_child(body)
 	var buttons := HBoxContainer.new()
 	buttons.alignment = BoxContainer.ALIGNMENT_CENTER
@@ -390,7 +390,7 @@ func _build_social_layer() -> void:
 		b.custom_minimum_size = Vector2(0, 52)
 		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		# Emoji read at a glance only when larger than the phrase text.
-		b.add_theme_font_size_override("font_size", 26 if Protocol.is_emoji(e["id"]) else 15)
+		b.add_theme_font_size_override("font_size", 26 if Protocol.is_emoji(e["id"]) else 16)
 		var id: String = e["id"]
 		b.pressed.connect(func() -> void:
 			Net.send_emote(id)
@@ -423,7 +423,7 @@ func _build_social_layer() -> void:
 	deed["panel"].custom_minimum_size = Vector2(480, 0)
 	_reconnect_label = Label.new()
 	_reconnect_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_reconnect_label.add_theme_font_size_override("font_size", 18)
+	_reconnect_label.add_theme_font_size_override("font_size", 22)
 	deed["body"].add_child(_reconnect_label)
 	rc.add_child(deed["panel"])
 
@@ -444,7 +444,7 @@ func _on_emote_shown(seat: int, emote: String) -> void:
 	_show_bubble(seat, text, 32 if Protocol.is_emoji(emote) else 20)
 
 
-func _show_bubble(seat: int, text: String, font_size: int = 20) -> void:
+func _show_bubble(seat: int, text: String, font_size: int = 24) -> void:
 	var old = _emote_bubbles.get(seat)
 	if old != null and is_instance_valid(old):
 		old.queue_free()
@@ -528,7 +528,7 @@ func _make_button(parent: Control, text: String, handler: Callable) -> Button:
 	var b := Button.new()
 	b.text = text
 	b.custom_minimum_size = Vector2(150, 56)
-	b.add_theme_font_size_override("font_size", 18)
+	b.add_theme_font_size_override("font_size", 22)
 	b.pressed.connect(handler)
 	b.visible = false
 	parent.add_child(b)

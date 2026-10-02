@@ -6,11 +6,11 @@ Tick items off as they are done.
 
 ## A. First run on your machine
 
-- [ ] Install Godot 4.6 and Docker Desktop. Node 22 for the server.
-- [ ] `cd server && npm install && npm run check && docker compose up`. Open http://127.0.0.1:7351 (admin / password) and confirm the "Big Business runtime loaded" log line.
+- [x] Install Godot 4.6 and Docker Desktop. Node 22 for the server. (Local: Godot 4.6.3 in ~/Applications; Node 26 also passes.)
+- [x] `cd server && npm install && npm run check && docker compose up`. Open http://127.0.0.1:7351 (admin / password) and confirm the "Big Business runtime loaded" log line. (Local: 104/104, runtime loaded, console up.)
 - [ ] Open `client/` in Godot, press Play. The lobby auto-connects to 127.0.0.1. Press "Play now", wait 20 seconds, and play a full game against bots.
 - [ ] Run two Godot instances (Debug > Run Multiple Instances) and try a private room: create in one, join by code in the other, both press "I'm ready".
-- [ ] Run `node e2e/play.mjs` in `server/` and `godot --headless --path client --script res://tests/e2e_client.gd` to confirm the automated checks pass on your machine too.
+- [x] Run `node e2e/play.mjs` in `server/` and `godot --headless --path client --script res://tests/e2e_client.gd` to confirm the automated checks pass on your machine too. (Local: all pass; smoke.gd failed under a Hebrew macOS locale until the layout was pinned left to right, see D8.)
 
 ## B. Play it on a phone (the Phase 1 goal)
 

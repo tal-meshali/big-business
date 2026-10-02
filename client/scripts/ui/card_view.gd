@@ -147,11 +147,11 @@ func _draw() -> void:
 	draw_string(font, Vector2(INSET + 6, INSET + 22), str(comp["shares"]), HORIZONTAL_ALIGNMENT_LEFT, -1, 20, text_on_band)
 	_draw_icon(Vector2(size.x - INSET - 14, INSET + 14), 8.0, text_on_band)
 	_draw_centered_text("SHARE OF", Vector2(size.x / 2.0, INSET + 14), 8, Color(text_on_band, 0.85))
-	_draw_centered_text(Companies.short_name_of(company).to_upper(), Vector2(size.x / 2.0, INSET + 38), 15, text_on_band)
+	_draw_centered_text(Companies.short_name_of(company).to_upper(), Vector2(size.x / 2.0, INSET + 38), 17, text_on_band)
 
 	# Body: full name, a deed-style rule, and the share count in words.
 	var body_top := INSET + BAND_H + 6
-	_draw_centered_text(String(comp["name"]), Vector2(size.x / 2.0, body_top + 10), 9, Companies.INK)
+	_draw_centered_text(String(comp["name"]), Vector2(size.x / 2.0, body_top + 10), 11, Companies.INK)
 	draw_line(Vector2(INSET + 8, body_top + 20), Vector2(size.x - INSET - 8, body_top + 20), Companies.INK_SOFT, 1.0)
 	# Art window: the only area a custom design may replace.
 	var art := Rect2(INSET + 10, body_top + 26, size.x - INSET * 2 - 20, 46)
@@ -159,7 +159,7 @@ func _draw() -> void:
 	draw_rect(art, Companies.INK_SOFT, false, 1.0)
 	_draw_icon(art.get_center(), 14.0, color)
 	draw_line(Vector2(INSET + 8, size.y - 30), Vector2(size.x - INSET - 8, size.y - 30), Companies.INK_SOFT, 1.0)
-	_draw_centered_text("%d shares issued" % int(comp["shares"]), Vector2(size.x / 2.0, size.y - 17), 9, Companies.INK)
+	_draw_centered_text("%d shares issued" % int(comp["shares"]), Vector2(size.x / 2.0, size.y - 17), 11, Companies.INK)
 
 	if coins > 0:
 		_draw_coin_badge(coins)

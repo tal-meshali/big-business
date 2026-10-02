@@ -6,7 +6,7 @@ extends Control
 
 signal seat_pressed(seat_index: int, at: Vector2)
 
-const W := 200.0
+const W := 220.0
 const H := 96.0
 
 var seat_index: int = -1
@@ -90,18 +90,18 @@ func _draw() -> void:
 		label += " • bot"
 	elif not connected:
 		label += " • away"
-	draw_string(font, Vector2(68, 24), label, HORIZONTAL_ALIGNMENT_LEFT, W - 72, 15, Companies.INK if connected else Companies.INK_SOFT)
+	draw_string(font, Vector2(68, 24), label, HORIZONTAL_ALIGNMENT_LEFT, W - 72, 17, Companies.INK if connected else Companies.INK_SOFT)
 
 	# Coins and hand count.
 	var bronze := int(data.get("bronze", 0))
 	var gold := int(data.get("gold", 0))
 	draw_circle(Vector2(76, 42), 8, Companies.INK)
 	draw_circle(Vector2(76, 42), 6.5, Companies.BRONZE)
-	draw_string(font, Vector2(88, 47), str(bronze), HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Companies.INK)
+	draw_string(font, Vector2(88, 47), str(bronze), HORIZONTAL_ALIGNMENT_LEFT, -1, 16, Companies.INK)
 	if gold > 0:
 		draw_circle(Vector2(122, 42), 8, Companies.INK)
 		draw_circle(Vector2(122, 42), 6.5, Companies.GOLD)
-		draw_string(font, Vector2(134, 47), str(gold), HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Companies.INK)
+		draw_string(font, Vector2(134, 47), str(gold), HORIZONTAL_ALIGNMENT_LEFT, -1, 16, Companies.INK)
 	var hand_count := int(data.get("handCount", 0))
 	for i in hand_count:
 		draw_rect(Rect2(W - 30 + i * 6, 34, 8, 12), Companies.CARD_FACE, true)

@@ -79,7 +79,7 @@ func _build() -> void:
 	tagline.text = "Collect shares. Corner the market. Cash in on dividend day."
 	tagline.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	tagline.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	tagline.add_theme_font_size_override("font_size", 16)
+	tagline.add_theme_font_size_override("font_size", 18)
 	deed["body"].add_child(tagline)
 	box.add_child(deed["panel"])
 
@@ -103,14 +103,14 @@ func _build() -> void:
 
 	# Profile card: level, XP bar, streak and the daily bonus.
 	var profile := UiTheme.deed_panel(Companies.CHEST, "Your portfolio", Color.WHITE)
-	profile["title"].add_theme_font_size_override("font_size", 20)
+	profile["title"].add_theme_font_size_override("font_size", 24)
 	var pbox := VBoxContainer.new()
 	pbox.add_theme_constant_override("separation", 8)
 	profile["body"].add_child(pbox)
 	_profile_label = Label.new()
 	_profile_label.text = "Level 1"
 	_profile_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_profile_label.add_theme_font_size_override("font_size", 16)
+	_profile_label.add_theme_font_size_override("font_size", 18)
 	pbox.add_child(_profile_label)
 	_xp_bar = ProgressBar.new()
 	_xp_bar.custom_minimum_size = Vector2(0, 14)
@@ -151,7 +151,7 @@ func _build() -> void:
 	prow.add_child(friends_button)
 	_board_label = Label.new()
 	_board_label.visible = false
-	_board_label.add_theme_font_size_override("font_size", 15)
+	_board_label.add_theme_font_size_override("font_size", 18)
 	pbox.add_child(_board_label)
 	_quests_button = Button.new()
 	_quests_button.text = "Quests & card backs"
@@ -189,7 +189,7 @@ func _build() -> void:
 
 	_lobby_label = Label.new()
 	_lobby_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_lobby_label.add_theme_font_size_override("font_size", 18)
+	_lobby_label.add_theme_font_size_override("font_size", 22)
 	box.add_child(_lobby_label)
 
 	_copy_button = Button.new()

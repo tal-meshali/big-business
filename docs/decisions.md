@@ -47,3 +47,9 @@ Decisions made by the project owner on 2026-09-27, after the research in `docs/r
 - `docs/` research, design and decisions.
 - `server/` Nakama TypeScript runtime: pure rules engine in `server/src/engine`, match handler in `server/src/match`.
 - `client/` Godot 4.6 project.
+
+## D8. Left-to-right layout, larger type (2026-10-02)
+
+- **Decision:** the client always lays out left to right (`internationalization/rendering/root_node_layout_direction=1`), and UI text is about 20% larger than the first pass (labels 19 px, buttons and inputs 22 px on the 720 px canvas; seat cards widened to 220 px).
+- **Why:** on the owner's first local run (macOS in Hebrew) Godot mirrored the whole table: the supply pile jumped to the right and the hand fan rendered off screen. The app has no translations, so the locale should not flip the layout. Text was also too small on a phone.
+- **Implies:** if Hebrew or Arabic translations ever ship, right-to-left support is a deliberate project: the table's absolute positions (`_hand_slot`, seat slots) assume left to right. New UI uses the larger sizes as the floor.

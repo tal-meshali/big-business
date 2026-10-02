@@ -29,7 +29,7 @@ static func get_theme() -> Theme:
 	t.set_color("font_pressed_color", "Button", Companies.INK)
 	t.set_color("font_focus_color", "Button", Companies.INK)
 	t.set_color("font_disabled_color", "Button", Color("#9A9A9A"))
-	t.set_font_size("font_size", "Button", 18)
+	t.set_font_size("font_size", "Button", 22)
 
 	var edit := _box(Companies.CARD_FACE, Companies.INK, 2)
 	t.set_stylebox("normal", "LineEdit", edit)
@@ -37,10 +37,10 @@ static func get_theme() -> Theme:
 	t.set_color("font_color", "LineEdit", Companies.INK)
 	t.set_color("font_placeholder_color", "LineEdit", Companies.INK_SOFT)
 	t.set_color("caret_color", "LineEdit", Companies.INK)
-	t.set_font_size("font_size", "LineEdit", 18)
+	t.set_font_size("font_size", "LineEdit", 22)
 
 	t.set_color("font_color", "Label", Companies.INK)
-	t.set_font_size("font_size", "Label", 16)
+	t.set_font_size("font_size", "Label", 19)
 
 	var scroll_bg := StyleBoxEmpty.new()
 	t.set_stylebox("panel", "ScrollContainer", scroll_bg)
@@ -103,7 +103,7 @@ static func deed_panel(band_color: Color, title: String, band_text: Color = Colo
 	var title_label := Label.new()
 	title_label.text = title
 	title_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	title_label.add_theme_font_size_override("font_size", 26)
+	title_label.add_theme_font_size_override("font_size", 30)
 	title_label.add_theme_color_override("font_color", band_text)
 	band.add_child(title_label)
 

@@ -22,6 +22,8 @@ signal invite_received(from_name: String, code: String)
 signal account_switched(provider_name: String)
 ## The server's Remote Config arrived and `RemoteConfig` now reflects it.
 signal remote_config_updated
+## The room's custom deck (CardArt.room_deck) or its pictures changed; cards redraw.
+signal custom_deck_changed
 
 const SETTINGS_PATH := "user://net.cfg"
 const DEFAULT_PORT := 7350
@@ -64,6 +66,7 @@ var _reconnecting: bool = false
 
 func _ready() -> void:
 	_load_settings()
+	CardArt.load_settings()
 	connected.connect(_on_connected_social)
 	connected.connect(_on_connected_services)
 
@@ -276,6 +279,7 @@ func leave_match() -> void:
 	room_code = ""
 	last_view = {}
 	tutorial_mode = false
+	_set_room_deck({})
 	match_left.emit()
 
 
@@ -340,6 +344,10 @@ func season_leaderboard(limit: int = 20) -> Array:
 func report_player(target_user_id: String, reason: String, note: String = "") -> bool:
 	var payload := JSON.stringify({"userId": target_user_id, "reason": reason, "matchId": match_id, "note": note})
 	var rpc: NakamaAPI.ApiRpc = await client.rpc_async(session, "report_player", payload)
+	# Reporting the player whose custom deck is on the table reports its art too.
+	if CardArt.deck_owner() == target_user_id:
+		for h in CardArt.deck_hashes():
+			await client.rpc_async(session, "report_card_art", JSON.stringify({"hash": h, "matchId": match_id}))
 	return not rpc.is_exception()
 
 
@@ -347,6 +355,8 @@ func report_player(target_user_id: String, reason: String, note: String = "") ->
 ## and hides their emotes from now on.
 func block_player(target_user_id: String) -> bool:
 	blocked[target_user_id] = true
+	if CardArt.deck_owner() == target_user_id:
+		_set_room_deck({})
 	var res: NakamaAsyncResult = await client.block_friends_async(session, [target_user_id])
 	return not res.is_exception()
 
@@ -386,6 +396,34 @@ func _on_match_state(state: NakamaRTAPI.MatchData) -> void:
 			emote_shown.emit(int(data.get("seat", -1)), String(data.get("emote", "")))
 		Protocol.OP_FORFEITED:
 			player_forfeited.emit(int(data.get("seat", -1)))
+		Protocol.OP_DECK:
+			if data is Dictionary and not is_blocked(String(data.get("owner", ""))):
+				_set_room_deck(data)
+				await fetch_card_art(CardArt.missing_hashes())
+				custom_deck_changed.emit()
+
+
+func _set_room_deck(deck: Dictionary) -> void:
+	if deck.is_empty() and CardArt.room_deck.is_empty():
+		return
+	CardArt.set_room_deck(deck)
+	custom_deck_changed.emit()
+
+
+## Fetches pictures by hash into CardArt's cache. Returns how many arrived.
+func fetch_card_art(hashes: Array[String]) -> int:
+	if hashes.is_empty() or client == null or session == null:
+		return 0
+	var rpc: NakamaAPI.ApiRpc = await client.rpc_async(session, "get_card_art", JSON.stringify({"hashes": hashes}))
+	if rpc.is_exception():
+		return 0
+	var data = JSON.parse_string(rpc.payload)
+	var got := 0
+	if data is Dictionary and data.get("art") is Dictionary:
+		for h in data["art"]:
+			if CardArt.add_art(String(h), String(data["art"][h])):
+				got += 1
+	return got
 
 
 func _on_match_presence(_event: NakamaRTAPI.MatchPresenceEvent) -> void:

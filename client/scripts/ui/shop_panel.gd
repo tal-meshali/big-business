@@ -5,7 +5,8 @@ extends PanelContainer
 ## Buy or Use, plus Restore Purchases (required by both stores). Built in
 ## code on a deed panel and fed by `Net.store_catalog()` through
 ## `apply_catalog`. Buying goes through `Purchases` (the store plugin);
-## what the player owns always comes back from the server.
+## what the player owns always comes back from the server. The Designer
+## unlock (custom card art) opens its own panel over this one.
 
 signal closed
 ## Emitted after a skin is put on, once `Cosmetics` already reflects it.
@@ -21,6 +22,9 @@ var prices: Dictionary = {}
 var _list: VBoxContainer
 var _status: Label
 var _restore_button: Button
+var _designer_button: Button
+var designer_panel: DesignerPanel
+var _deed_panel: Control
 
 
 func _init() -> void:
@@ -41,6 +45,13 @@ func _init() -> void:
 	intro.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	intro.add_theme_font_size_override("font_size", 15)
 	column.add_child(intro)
+
+	_designer_button = Button.new()
+	_designer_button.text = "Designer: your own card art"
+	_designer_button.custom_minimum_size = Vector2(0, ROW_HEIGHT)
+	_designer_button.visible = RemoteConfig.designer_enabled
+	_designer_button.pressed.connect(_on_open_designer)
+	column.add_child(_designer_button)
 
 	var scroll := ScrollContainer.new()
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
@@ -71,11 +82,24 @@ func _init() -> void:
 		closed.emit())
 	column.add_child(close)
 
+	# A PanelContainer stacks its children, so the Designer covers the shop.
+	designer_panel = DesignerPanel.new()
+	designer_panel.visible = false
+	_deed_panel = deed["panel"]
+	designer_panel.closed.connect(func() -> void: _deed_panel.visible = true)
+	add_child(designer_panel)
+
 
 ## Shows the panel and loads the catalog and prices.
 func open() -> void:
 	visible = true
+	_designer_button.visible = RemoteConfig.designer_enabled
 	await refresh()
+
+
+func _on_open_designer() -> void:
+	_deed_panel.visible = false
+	await designer_panel.open()
 
 
 func refresh() -> void:
@@ -227,7 +251,7 @@ func _sync(success_text: String) -> void:
 	elif not success_text.is_empty():
 		_status.text = success_text
 	elif owned.size() > before:
-		_status.text = "Restored %d skin%s." % [owned.size(), "" if owned.size() == 1 else "s"]
+		_status.text = "Restored %d purchase%s." % [owned.size(), "" if owned.size() == 1 else "s"]
 	else:
 		_status.text = "Your purchases are up to date."
 

@@ -61,6 +61,8 @@ Phase 2 social and accounts, ported onto this line: a friends list with room inv
 
 Phase 2 shop, analytics and push, server and client code: three curated skins (two card backs and a table felt) sold a la carte through RevenueCat with entitlements checked on the server, a Shop overlay in the lobby with Buy, Use and Restore purchases, D1 / D7 retention and a first-session funnel counted per install day in Nakama storage, Remote Config switches (shop, push, tutorial auto-routing, quick-play wait) the operator changes without a release, and a "your turn" push sender over FCM with device-token registration. The store and Firebase plugins, accounts and keys are local steps (`docs/TODO-local.md` G, `docs/deploy.md` "Shop, push and analytics").
 
+Phase 3 Designer unlock, server and client code: a one-time unlock for custom card art in private rooms (decision D10). Three deck slots, each with a card back and an art window per company; pictures are framed on the phone, checked by the server, scanned or queued for review, and only approved art reaches other players. An operator moderation queue with strikes, report and block that cover custom cards, and an age gate. The store product, the optional scan key and the DMCA agent are local steps (`docs/TODO-local.md` G, `docs/deploy.md` "Designer").
+
 Code conventions (acyclic, layered dependency graph checked with graphify on every push and in CI) are in `docs/conventions.md`.
 
 What still needs a real machine (phone builds, playtesting, store accounts, art) is listed in `docs/TODO-local.md`.

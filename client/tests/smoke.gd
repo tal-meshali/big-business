@@ -115,6 +115,7 @@ func _run() -> void:
 	failures += await _quests_checks()
 	failures += await _account_checks()
 	failures += await _shop_checks()
+	failures += await _designer_checks()
 
 	if failures == 0:
 		print("SMOKE OK")
@@ -1348,4 +1349,131 @@ func _shop_checks() -> int:
 	main.queue_free()
 	RemoteConfig.reset()
 	Cosmetics.reset()
+	return failures
+
+
+## Designer: framing and rendering pictures to the templates, the room deck
+## on cards, and the panel showing the step that is missing.
+func _designer_checks() -> int:
+	var failures := 0
+	var back_rect := CardArt.crop_rect(Vector2i(1000, 1000), "back", 1.0, Vector2(0.5, 0.5))
+	if back_rect.size != Vector2i(714, 1000) or back_rect.position != Vector2i(143, 0):
+		push_error("back crop should be the largest 5:7 box, centred (got %s)" % back_rect)
+		failures += 1
+	var win_rect := CardArt.crop_rect(Vector2i(1000, 1000), "c0", 2.0, Vector2(1.0, 0.0))
+	if win_rect.size != Vector2i(500, 261) or win_rect.end.x != 1000 or win_rect.position.y != 0:
+		push_error("a zoomed window crop should stay inside the picture (got %s)" % win_rect)
+		failures += 1
+	var picture := Image.create(900, 600, false, Image.FORMAT_RGBA8)
+	picture.fill(Color(0.2, 0.5, 0.8))
+	picture.fill_rect(Rect2i(300, 200, 300, 200), Color(0.9, 0.7, 0.1))
+	for part in ["back", "c4"]:
+		var img := CardArt.render(picture, part, 1.5, Vector2(0.4, 0.5))
+		var bytes := CardArt.encode(img)
+		if img.get_size() != CardArt.template_size(part) or img.get_format() != Image.FORMAT_RGB8:
+			push_error("%s should render at its template size without alpha" % part)
+			failures += 1
+		if bytes.is_empty() or bytes.size() > CardArt.MAX_BYTES or CardArt.webp_size(bytes) != CardArt.template_size(part):
+			push_error("%s should encode as a lossy WebP the server accepts (%d bytes, %s)" % [part, bytes.size(), CardArt.webp_size(bytes)])
+			failures += 1
+
+	# A room deck puts its pictures on the cards; the setting hides them.
+	var hash := "f".repeat(64)
+	var webp := CardArt.encode(CardArt.render(picture, "back"))
+	if not CardArt.add_art(hash, Marshalls.raw_to_base64(webp)) or CardArt.texture(hash) == null:
+		push_error("fetched art should be cached by hash")
+		failures += 1
+	CardArt.set_room_deck({"owner": "u1", "back": hash, "art": [null, null, hash, null, null, null]})
+	if CardArt.back_texture() == null or CardArt.company_texture(2) == null or CardArt.company_texture(0) != null:
+		push_error("the room deck should give the back and company 2 a picture, others none")
+		failures += 1
+	if CardArt.deck_hashes() != [hash] or CardArt.missing_hashes().size() != 0 or CardArt.deck_owner() != "u1":
+		push_error("deck hashes should be listed once and found in the cache")
+		failures += 1
+	var card := CardView.new()
+	card.size = Vector2(CardView.W, CardView.H)
+	root.add_child(card)
+	card.setup(1, 2, 0, true)
+	await process_frame
+	card.setup(1, 2, 0, false)
+	await process_frame
+	card.queue_free()
+	CardArt.show_custom = false
+	if CardArt.back_texture() != null:
+		push_error("turning custom decks off should show the standard back")
+		failures += 1
+	CardArt.show_custom = true
+	CardArt.clear_room_deck()
+	if CardArt.back_texture() != null:
+		push_error("leaving the room clears its deck")
+		failures += 1
+	DirAccess.remove_absolute("%s/%s.webp" % [CardArt.CACHE_DIR, hash])
+
+	if load("res://scripts/net/designer_api.gd").clean_error("Error: Designer is not unlocked at reject (index.js:866:13(3))") != "Designer is not unlocked":
+		push_error("server refusals should read as their message only")
+		failures += 1
+
+	# Loaded by path: these scripts use the Net autoload, which a --script run
+	# only has once the tree is up.
+	var panel = load("res://scripts/ui/designer_panel.gd").new()
+	panel.size = Vector2(672, 1100)
+	root.add_child(panel)
+	await process_frame
+	panel.apply_state({"enabled": true, "owned": false, "slots": 0, "blocker": "not_owned", "decks": [], "active": -1})
+	if not panel._unlock_box.visible or panel._deck_box.visible or panel._age_box.visible:
+		push_error("without the unlock the panel offers it and nothing else")
+		failures += 1
+	panel.apply_state({"enabled": true, "owned": true, "slots": 3, "blocker": "age_unknown", "decks": [], "active": -1})
+	if not panel._age_box.visible or panel._unlock_box.visible or panel._deck_box.visible:
+		push_error("with the unlock and no age the panel asks the age")
+		failures += 1
+	panel.apply_state({"enabled": true, "owned": true, "slots": 3, "blocker": "too_young", "decks": [], "active": -1})
+	if not panel._blocked_label.visible or panel._deck_box.visible:
+		push_error("too young to upload: say so, no decks")
+		failures += 1
+	var empty_deck := {"back": null, "backStatus": null, "art": [null, null, null, null, null, null], "artStatus": [null, null, null, null, null, null]}
+	var deck0 := {"back": hash, "backStatus": "pending", "art": [null, null, null, null, null, null], "artStatus": [null, null, null, null, null, null]}
+	panel.apply_state({"enabled": true, "owned": true, "slots": 3, "blocker": "", "decks": [deck0, empty_deck, empty_deck], "active": 0})
+	await process_frame
+	if not panel._deck_box.visible or panel._parts_list.get_child_count() != 7 or not panel._use_toggle.button_pressed:
+		push_error("an unlocked adult sees 7 part rows for the active deck")
+		failures += 1
+	var first_row: Label = panel._parts_list.get_child(0).get_child(0)
+	if not first_row.text.contains("Card back") or not first_row.text.contains("Waiting for review"):
+		push_error("the back row should show its review status, got '%s'" % first_row.text)
+		failures += 1
+	failures += _check_button_sizes(panel, "designer")
+	panel.open_editor(picture, "c1")
+	await process_frame
+	if not panel._editor.visible or panel._deck_box.visible or panel._preview.preview_art == null:
+		push_error("picking a picture opens the framing editor with a live preview")
+		failures += 1
+	if panel.rendered().get_size() != CardArt.WINDOW_SIZE:
+		push_error("the editor renders at the art-window template")
+		failures += 1
+	panel.close_editor()
+	if panel._editor.visible or not panel._deck_box.visible or panel._preview.preview_art != null:
+		push_error("cancel returns to the deck")
+		failures += 1
+	panel.queue_free()
+
+	var shop = load("res://scripts/ui/shop_panel.gd").new()
+	root.add_child(shop)
+	await process_frame
+	if not shop._designer_button.visible:
+		push_error("the shop offers Designer by default")
+		failures += 1
+	await shop._on_open_designer()
+	if not shop.designer_panel.visible or shop._deed_panel.visible:
+		push_error("Designer opens over the shop")
+		failures += 1
+	if shop.designer_panel._status.text != "Connect to use Designer.":
+		push_error("offline the Designer panel says to connect, got '%s'" % shop.designer_panel._status.text)
+		failures += 1
+	shop.queue_free()
+	RemoteConfig.apply({"designerEnabled": false})
+	if RemoteConfig.designer_enabled:
+		push_error("Remote Config can switch Designer off")
+		failures += 1
+	RemoteConfig.reset()
 	return failures

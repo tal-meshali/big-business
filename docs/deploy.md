@@ -25,7 +25,7 @@ All three run without any account: the shop says it "opens soon", no push is sen
 
 - **Skin shop (RevenueCat)**: in RevenueCat, create the app for both stores, the non-consumable products `bb_skin_back_gilded`, `bb_skin_back_blueprint` and `bb_skin_table_walnut`, and an entitlement `skin_<cosmetic id>` attached to each (`server/src/match/store.ts`). Put the *secret* API key in `REVENUECAT_API_KEY`. The client logs in to RevenueCat with its Nakama user id, buys through the store plugin, then calls `sync_purchases`; the server reads the entitlements back from RevenueCat and keeps them in a server-only `purchases` row. Restore Purchases runs the plugin's restore and the same sync. For refunds and purchases made on another device, add a webhook in RevenueCat: URL `https://<domain>/v2/rpc/revenuecat_webhook?http_key=<NAKAMA_HTTP_KEY>&unwrap`, Authorization header value `REVENUECAT_WEBHOOK_AUTH`. The webhook only triggers a re-read, so a forged event cannot grant anything.
 - **"Your turn" push (FCM)**: in the Firebase project, create a service account with the "Firebase Cloud Messaging API Admin" role and download its JSON key. Copy `project_id`, `client_email` and `private_key` (one line, `\n` escapes kept) into `FCM_PROJECT_ID`, `FCM_CLIENT_EMAIL` and `FCM_PRIVATE_KEY`. The server sends a push when a turn starts for a player who is away from the match, in untimed games or steps of 30 seconds or more, at most once per `pushCooldownMinutes` per player and match. The client side (plugin, permission prompt, token) is `client/scripts/net/push_tokens.gd`.
-- **Remote Config**: switches in Nakama storage (`server/src/match/remote_config.ts`): `shopEnabled`, `pushEnabled`, `pushCooldownMinutes`, `tutorialAutoRoute`, `quickPlayWaitSeconds`. Change them without a release:
+- **Remote Config**: switches in Nakama storage (`server/src/match/remote_config.ts`): `shopEnabled`, `pushEnabled`, `pushCooldownMinutes`, `tutorialAutoRoute`, `quickPlayWaitSeconds`, `designerEnabled`. Change them without a release:
 
   ```
   curl -X POST "https://<domain>/v2/rpc/set_remote_config?http_key=$NAKAMA_HTTP_KEY&unwrap" -d '{"tutorialAutoRoute": true}'
@@ -40,6 +40,23 @@ All three run without any account: the shop says it "opens soon", no push is sen
 
   Each row has `installs`, `d1` and `d7` (active on exactly day 1 / day 7, UTC days) with their rates, and the funnel steps `tutorial`, `firstGame`, `peopleGame` (a game with another person) and `purchase`. A day's D7 is final a week after it. Crashlytics needs the Firebase SDK on a device and is a local task.
 
+## Designer (custom card art)
+
+The Designer unlock (decision D5, `server/src/match/designer.ts`) runs with no extra account: uploads wait in a moderation queue until the operator approves them.
+
+- **Store**: a non-consumable product `bb_designer` in both stores, attached in RevenueCat to an entitlement `designer`. It is read with the skins (same `sync_purchases`, webhook and Restore Purchases).
+- **Automated scan (optional)**: enable the Cloud Vision API in a Google Cloud project, create an API key restricted to it, and put it in `GOOGLE_VISION_API_KEY`. Clean pictures then go live at once, clear adult or violent ones are refused, and uncertain ones wait in the queue. Without the key every new picture waits for a person.
+- **Moderation queue**: the operator reads it and decides with two server-to-server RPCs. The queue holds pictures not yet reviewed and reported ones (three reports hide a picture until it is reviewed again). Each item carries the base64 WebP in `data`:
+
+  ```
+  curl -X POST "https://<domain>/v2/rpc/moderation_queue?http_key=$NAKAMA_HTTP_KEY&unwrap" -d '{"limit": 20}'
+  curl -X POST "https://<domain>/v2/rpc/moderate_card_art?http_key=$NAKAMA_HTTP_KEY&unwrap" -d '{"hash": "<hash>", "verdict": "approve"}'
+  curl -X POST "https://<domain>/v2/rpc/moderate_card_art?http_key=$NAKAMA_HTTP_KEY&unwrap" -d '{"hash": "<hash>", "verdict": "reject", "note": "DMCA notice 2026-10-02"}'
+  ```
+
+  A refusal deletes the picture, shows the standard card wherever it was used, and gives the uploader a strike (pass `"strike": false` for an honest mistake). Three strikes stop that account's uploads for good (repeat-infringer policy). Apple and Google expect reports handled within a day; check the queue daily once Designer is on sale.
+- **Kill switch**: Remote Config `designerEnabled: false` stops uploads and custom decks in rooms without touching anyone's decks.
+
 Backups: `docker exec <postgres container> pg_dump -U postgres nakama > backup.sql` on a cron job. Nakama's data is small at this stage.
 
 ## Security checklist
@@ -49,10 +66,10 @@ What the code and compose files already do, and what only the operator can do. T
 Done by the repository (verify, do not repeat):
 
 - Every RPC validates its payload (`server/src/match/input.ts`) and returns short errors; internal failures are logged and reported as `internal error`.
-- Storage: `profile` and `purchases` rows are server-owned (clients read their own, write nothing); `rooms`, `reports`, `ratelimit`, `analytics`, `analytics_cohort`, `config` and `push` are unreadable by clients; before-hooks refuse every client write or delete in all of them. The season leaderboard is authoritative.
-- Server-to-server RPCs (`set_remote_config`, `analytics_report`, `revenuecat_webhook`) refuse any player session; they need the runtime http_key, and the webhook also its Authorization secret. Store entitlements are read from RevenueCat by the server, never taken from the client.
+- Storage: `profile` and `purchases` rows are server-owned (clients read their own, write nothing); `designer` (decks) and `standing` (age bracket and strikes) are server-owned the same way; `rooms`, `reports`, `ratelimit`, `analytics`, `analytics_cohort`, `config`, `push`, `card_art` and `art_queue` are unreadable by clients; before-hooks refuse every client write or delete in all of them. The season leaderboard is authoritative.
+- Server-to-server RPCs (`set_remote_config`, `analytics_report`, `revenuecat_webhook`, `moderation_queue`, `moderate_card_art`) refuse any player session; they need the runtime http_key, and the webhook also its Authorization secret. Store entitlements are read from RevenueCat by the server, never taken from the client.
 - Private rooms: joining needs the room code, and match labels never carry it, so listing matches does not reveal a way in.
-- Per-user rate limits (`server/src/match/ratelimit.ts`): find_player 20/min, invite_friend 10/min, report_player 5/min, create_room 6/min, quick_play 12/min, sync_purchases 6/min, register_push_token 6/min, and friend requests 20 players/min through a before-hook. Reports are one row per (day, reporter, reported) with a count and the first 10 reports' details, so the collection cannot be grown by a single account.
+- Per-user rate limits (`server/src/match/ratelimit.ts`): find_player 20/min, invite_friend 10/min, report_player 5/min, create_room 6/min, quick_play 12/min, sync_purchases 6/min, register_push_token 6/min, set_age_bracket 6/min, upload_card_art 10/min, get_card_art 30/min, report_card_art 5/min, and friend requests 20 players/min through a before-hook. Reports are one row per (day, reporter, reported) with a count and the first 10 reports' details, so the collection cannot be grown by a single account.
 - Invite notifications carry the sender's server-side username (32 characters at most), never a client-supplied string.
 - The match handler drops oversized or malformed messages before parsing them and never lets a client message throw.
 - Production sessions last 2 hours with a 7 day refresh token (the defaults are 60 seconds and 1 hour, which the client does not refresh yet).

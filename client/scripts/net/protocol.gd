@@ -14,6 +14,9 @@ const OP_ERROR := 13
 const OP_EMOTE_SHOWN := 14
 ## {"seat": n} That seat's player forfeited.
 const OP_FORFEITED := 15
+## {"owner", "back", "art": [6]}: the host's custom card art for this
+## private room, as art hashes (null keeps the standard drawing).
+const OP_DECK := 16
 
 ## Nakama notification code of a room invite (INVITE_CODE on the server).
 const INVITE_CODE := 100

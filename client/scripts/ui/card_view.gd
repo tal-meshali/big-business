@@ -3,7 +3,8 @@ extends Button
 ## A share card drawn like a title deed: off-white face, black border, a
 ## solid colour band with the company name, and black text on the body.
 ## Drawn in code so no art assets are needed yet. Portrait 5:7. The back
-## follows the card back selected in Cosmetics.
+## follows the card back selected in Cosmetics. In a private room with a
+## custom deck (CardArt), its pictures fill the art window and the back.
 ## Press and hold for HOLD_SECONDS to look at a card closely: that emits
 ## card_held (and card_released on letting go) instead of card_pressed.
 
@@ -55,6 +56,9 @@ var _press_pos := Vector2.ZERO
 ## Bumped on every press and release so a stale hold timer does nothing.
 var _press_serial: int = 0
 var _swallow_press: bool = false
+## Designer preview: pictures shown instead of the room's (null: use the room's).
+var preview_back: Texture2D
+var preview_art: Texture2D
 
 
 func _init() -> void:
@@ -62,6 +66,13 @@ func _init() -> void:
 	flat = true
 	focus_mode = Control.FOCUS_NONE
 	pressed.connect(_on_pressed)
+
+
+func _ready() -> void:
+	# WHY by path: tests compile CardView before autoloads exist.
+	var net := get_node_or_null("/root/Net")
+	if net != null:
+		net.custom_deck_changed.connect(queue_redraw)
 
 
 func _on_pressed() -> void:
@@ -155,9 +166,13 @@ func _draw() -> void:
 	draw_line(Vector2(INSET + 8, body_top + 20), Vector2(size.x - INSET - 8, body_top + 20), Companies.INK_SOFT, 1.0)
 	# Art window: the only area a custom design may replace.
 	var art := Rect2(INSET + 10, body_top + 26, size.x - INSET * 2 - 20, 46)
-	draw_rect(art, color.lerp(Color.WHITE, 0.82), true)
+	var custom := preview_art if preview_art != null else CardArt.company_texture(company)
+	if custom != null:
+		draw_texture_rect(custom, art, false)
+	else:
+		draw_rect(art, color.lerp(Color.WHITE, 0.82), true)
+		_draw_icon(art.get_center(), 14.0, color)
 	draw_rect(art, Companies.INK_SOFT, false, 1.0)
-	_draw_icon(art.get_center(), 14.0, color)
 	draw_line(Vector2(INSET + 8, size.y - 30), Vector2(size.x - INSET - 8, size.y - 30), Companies.INK_SOFT, 1.0)
 	_draw_centered_text("%d shares issued" % int(comp["shares"]), Vector2(size.x / 2.0, size.y - 17), 9, Companies.INK)
 
@@ -167,6 +182,11 @@ func _draw() -> void:
 
 func _draw_back() -> void:
 	var inner := Rect2(INSET, INSET, size.x - INSET * 2, size.y - INSET * 2)
+	var custom := preview_back if preview_back != null else CardArt.back_texture()
+	if custom != null:
+		draw_texture_rect(custom, inner, false)
+		draw_rect(inner, Companies.INK, false, 1.5)
+		return
 	match Cosmetics.card_back:
 		"back_midnight":
 			_draw_back_midnight(inner)

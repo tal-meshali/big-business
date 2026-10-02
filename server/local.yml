@@ -36,6 +36,7 @@ runtime:
     - "FCM_PROJECT_ID="
     - "FCM_CLIENT_EMAIL="
     - "FCM_PRIVATE_KEY="
+    - "GOOGLE_VISION_API_KEY="
 
 match:
   input_queue_size: 128

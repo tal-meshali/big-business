@@ -1,6 +1,6 @@
 /** Match state shared by the handler and its helper modules. */
 import type { Action, GameState } from '../engine';
-import type { DeckMessage, LobbyMessage, LobbySeat, MatchParams } from './protocol';
+import { OP_READY, OP_START_NOW, type DeckMessage, type LobbyMessage, type LobbySeat, type MatchParams } from './protocol';
 
 export const BOT_THINK_MS = 900;
 export const TUTORIAL_BOT_THINK_MS = 1800;
@@ -121,6 +121,22 @@ export function lobbyJoinError(s: MatchState, userId: string, code: unknown, now
 export function mayStartNow(s: MatchState, userId: string): boolean {
   if (!s.lobby.some((l) => l.userId === userId)) return false;
   return !s.params.isPrivate || userId === s.params.hostId;
+}
+
+/**
+ * Applies lobby messages: OP_READY marks the sender ready. Returns true when
+ * someone allowed to (mayStartNow) asked to start now with bots.
+ */
+export function readLobbyMessages(s: MatchState, messages: nkruntime.MatchMessage[]): boolean {
+  let startNow = false;
+  for (const m of messages) {
+    if (m.opCode === OP_READY) {
+      for (const l of s.lobby) if (l.userId === m.sender.userId) l.ready = true;
+    } else if (m.opCode === OP_START_NOW && mayStartNow(s, m.sender.userId)) {
+      startNow = true;
+    }
+  }
+  return startNow;
 }
 
 export function send(dispatcher: nkruntime.MatchDispatcher, op: number, data: unknown, to?: nkruntime.Presence[]): void {

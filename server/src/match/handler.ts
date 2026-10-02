@@ -7,12 +7,12 @@
  * actions and decoding client messages live in actions.ts and emotes.ts.
  */
 import { autoAction, botAction, createGame, type SeatDef } from '../engine';
-import { BOT_NAMES, clampStepSeconds, DEFAULT_PARAMS, OP_ACTION, OP_ERROR, OP_LOBBY, OP_READY, OP_START_NOW, type MatchParams } from './protocol';
+import { BOT_NAMES, clampStepSeconds, DEFAULT_PARAMS, OP_ACTION, OP_ERROR, OP_LOBBY, type MatchParams } from './protocol';
 import { apply, handleActions } from './actions';
 import { awardProgress } from './awards';
 import { handleEmotes } from './emotes';
 import { handleForfeits } from './forfeit';
-import { botThinkMs, GET_READY_MS, label, lobbyJoinError, lobbyMessage, mayStartNow, nowMs, send, type MatchState } from './state';
+import { botThinkMs, GET_READY_MS, label, lobbyJoinError, lobbyMessage, nowMs, readLobbyMessages, send, type MatchState } from './state';
 import { chooseRoomDeck, sendDeck } from './room_deck';
 import { pushTurnIfAway } from './turn_push';
 import { sendViews } from './views';
@@ -215,14 +215,7 @@ export const matchLoop: nkruntime.MatchLoopFunction<MatchState> = (ctx, logger, 
 
   // ---- Lobby -------------------------------------------------------------
   if (!state.game) {
-    let startNow = false;
-    for (const m of messages) {
-      if (m.opCode === OP_READY) {
-        for (const l of state.lobby) if (l.userId === m.sender.userId) l.ready = true;
-      } else if (m.opCode === OP_START_NOW && mayStartNow(state, m.sender.userId)) {
-        startNow = true;
-      }
-    }
+    const startNow = readLobbyMessages(state, messages);
     const humans = state.lobby.length;
     const allReady = humans > 0 && state.lobby.every((l) => l.ready);
     const enough = humans >= state.params.minSeats;

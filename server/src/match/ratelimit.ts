@@ -22,6 +22,8 @@ export const RATE_LIMITS = {
   report_player: 5,
   create_room: 6,
   quick_play: 12,
+  sync_purchases: 6,
+  register_push_token: 6,
   /** Charged per user named in an AddFriends request, not per request. */
   add_friends: 20,
 };

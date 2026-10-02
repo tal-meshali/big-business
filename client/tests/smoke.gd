@@ -114,6 +114,7 @@ func _run() -> void:
 	failures += await _friends_checks()
 	failures += await _quests_checks()
 	failures += await _account_checks()
+	failures += await _shop_checks()
 
 	if failures == 0:
 		print("SMOKE OK")
@@ -1258,4 +1259,93 @@ func _account_checks() -> int:
 		push_error("link buttons must be hidden without a token provider")
 		failures += 1
 	lobby.queue_free()
+	return failures
+
+
+## Shop: rows from a fake catalog, Buy disabled without the store plugin,
+## Use / In use for owned skins, Restore purchases always offered, paid
+## skins labelled in the quests picker, and Remote Config hiding the shop.
+func _shop_checks() -> int:
+	var failures := 0
+	Cosmetics.reset()
+	RemoteConfig.reset()
+	if not Cosmetics.is_paid("back_gilded") or Cosmetics.is_paid("back_midnight") or not Cosmetics.is_table("table_walnut"):
+		push_error("paid skins should be in the catalog and flagged paid")
+		failures += 1
+	var catalog := {
+		"configured": true,
+		"owned": ["table_walnut"],
+		"skins": [
+			{"id": "back_gilded", "slot": "cardBack", "name": "Gilded", "productId": "bb_skin_back_gilded", "owned": false},
+			{"id": "back_blueprint", "slot": "cardBack", "name": "Blueprint", "productId": "bb_skin_back_blueprint", "owned": false},
+			{"id": "table_walnut", "slot": "table", "name": "Walnut", "productId": "bb_skin_table_walnut", "owned": true},
+		],
+	}
+	var main = load("res://scenes/main.tscn").instantiate()
+	root.add_child(main)
+	await process_frame
+	if not main._shop_button.visible or main._shop_panel.visible:
+		push_error("shop button shows by default; the overlay starts hidden")
+		failures += 1
+	var shop = main._shop_panel
+	shop.visible = true
+	shop.apply_catalog(catalog)
+	await process_frame
+	if shop.rows.size() != 3:
+		push_error("shop should list 3 skins, got %d" % shop.rows.size())
+		failures += 1
+	var gilded: Button = shop._row_by_id("back_gilded")["button"]
+	var walnut: Button = shop._row_by_id("table_walnut")["button"]
+	if not gilded.text.begins_with("Buy") or not gilded.disabled:
+		push_error("without the store plugin Buy is shown disabled (got '%s', disabled %s)" % [gilded.text, gilded.disabled])
+		failures += 1
+	if walnut.text != "Use" or walnut.disabled:
+		push_error("an owned skin offers Use (got '%s')" % walnut.text)
+		failures += 1
+	if not shop._restore_button.visible or shop._restore_button.disabled:
+		push_error("Restore purchases must always be offered")
+		failures += 1
+	# Using an owned skin applies at once (the server call fails offline and keeps it).
+	await shop._use(shop._row_by_id("table_walnut"))
+	if Cosmetics.table != "table_walnut" or walnut.text != "In use" or not walnut.disabled:
+		push_error("Use should put the felt on and read In use (table %s, '%s')" % [Cosmetics.table, walnut.text])
+		failures += 1
+	main._on_cosmetic_changed("table", Cosmetics.table)
+	if main._felt.color != Cosmetics.swatch_color("table_walnut"):
+		push_error("the lobby felt should follow a shop felt")
+		failures += 1
+	failures += _check_button_sizes(shop, "shop")
+	# A refund (server answer without the skin) turns Use back into Buy.
+	shop.apply_owned([])
+	if not walnut.text.begins_with("Buy"):
+		push_error("a skin no longer owned should be offered for sale again")
+		failures += 1
+	# The quests picker labels paid skins instead of showing a points cost.
+	var quests = main._quests_panel
+	quests.apply_profile({"trackPoints": 0, "unlocked": ["back_classic", "table_green"], "track": [], "equipped": {}})
+	var picker_text := ""
+	for b in quests.find_children("*", "Button", true, false):
+		if String(b.text).begins_with("Gilded"):
+			picker_text = b.text
+			if not b.disabled:
+				push_error("an unowned paid skin must be disabled in the picker")
+				failures += 1
+	if picker_text != "Gilded  (shop)":
+		push_error("paid skin picker label should say shop, got '%s'" % picker_text)
+		failures += 1
+	# Remote Config hides the shop; tutorial auto-routing is read from it too.
+	RemoteConfig.apply({"shopEnabled": false, "tutorialAutoRoute": true, "pushEnabled": "junk"})
+	main._apply_remote_config()
+	if main._shop_button.visible or main._shop_panel.visible:
+		push_error("shopEnabled false should hide the shop")
+		failures += 1
+	if not RemoteConfig.tutorial_auto_route or not RemoteConfig.push_enabled:
+		push_error("RemoteConfig.apply should take typed values and ignore junk")
+		failures += 1
+	if PushTokens.request_token() != "" or Purchases.available() or PushTokens.platform() != "":
+		push_error("store and push plugins are absent on the desktop")
+		failures += 1
+	main.queue_free()
+	RemoteConfig.reset()
+	Cosmetics.reset()
 	return failures

@@ -1,0 +1,122 @@
+/**
+ * Curated skins sold a la carte: the mapping from a paid cosmetic to its
+ * store product and RevenueCat entitlement, and the pure parsing of
+ * RevenueCat's subscriber record into the skins a player owns.
+ *
+ * WHY entitlements are read on the server (decision D5): the client is
+ * untrusted, so it never says what it bought. It buys through the store
+ * plugin, then asks the server to sync; the server asks RevenueCat with the
+ * secret key and stores the result in a row only the server writes.
+ */
+import { COSMETICS, type CosmeticSlot } from './cosmetics';
+
+export const PURCHASE_COLLECTION = 'purchases';
+export const PURCHASE_KEY = 'owned';
+
+export interface Skin {
+  /** Cosmetic id (cosmetics.ts), also the client's id. */
+  id: string;
+  slot: CosmeticSlot;
+  name: string;
+  /** App Store / Play product id; the same id in both stores. */
+  productId: string;
+  /** RevenueCat entitlement that the product grants. */
+  entitlement: string;
+}
+
+/** Product ids are `bb_skin_<cosmetic id>`, entitlements `skin_<cosmetic id>`. */
+export const SKINS: ReadonlyArray<Skin> = COSMETICS.filter((c) => c.paid).map((c) => ({
+  id: c.id,
+  slot: c.slot,
+  name: c.name,
+  productId: 'bb_skin_' + c.id,
+  entitlement: 'skin_' + c.id,
+}));
+
+export function skinById(id: string): Skin | null {
+  for (const s of SKINS) if (s.id === id) return s;
+  return null;
+}
+
+/** The stored purchase row. */
+export interface OwnedRow {
+  owned: string[];
+  /** Epoch ms of the last successful sync with RevenueCat; 0 when never. */
+  syncedAt: number;
+}
+
+/** Keeps only known skin ids, once each; anything else in a stored row is dropped. */
+export function normalizeOwned(raw: unknown): OwnedRow {
+  const obj = (typeof raw === 'object' && raw !== null ? raw : {}) as { owned?: unknown; syncedAt?: unknown };
+  const owned: string[] = [];
+  if (Array.isArray(obj.owned)) {
+    for (const id of obj.owned) {
+      if (typeof id === 'string' && skinById(id) && owned.indexOf(id) < 0) owned.push(id);
+    }
+  }
+  const syncedAt = typeof obj.syncedAt === 'number' && isFinite(obj.syncedAt) && obj.syncedAt > 0 ? obj.syncedAt : 0;
+  return { owned, syncedAt };
+}
+
+/**
+ * Skins owned according to a RevenueCat `GET /v1/subscribers/{id}` body.
+ * An entitlement counts while it has no expiry (non-consumables) or its
+ * expiry is in the future. A refunded purchase loses its entitlement in
+ * RevenueCat, so it drops out here on the next sync. Never throws.
+ */
+export function ownedFromSubscriber(body: unknown, nowMs: number): string[] {
+  const root = (typeof body === 'object' && body !== null ? body : {}) as { subscriber?: unknown };
+  const sub = (typeof root.subscriber === 'object' && root.subscriber !== null ? root.subscriber : {}) as { entitlements?: unknown };
+  const ents = (typeof sub.entitlements === 'object' && sub.entitlements !== null ? sub.entitlements : {}) as { [id: string]: unknown };
+  const out: string[] = [];
+  for (const skin of SKINS) {
+    const e = ents[skin.entitlement];
+    if (typeof e !== 'object' || e === null) continue;
+    const expires = (e as { expires_date?: unknown }).expires_date;
+    if (expires === null || expires === undefined) {
+      out.push(skin.id);
+      continue;
+    }
+    const t = typeof expires === 'string' ? Date.parse(expires) : NaN;
+    if (isFinite(t) && t > nowMs) out.push(skin.id);
+  }
+  return out;
+}
+
+/** Skins in `next` that were not in `prev`: new purchases, for analytics. */
+export function newlyOwned(prev: ReadonlyArray<string>, next: ReadonlyArray<string>): string[] {
+  return next.filter((id) => prev.indexOf(id) < 0);
+}
+
+/** One shop row for the client. Prices come from the store plugin, not from here. */
+export interface CatalogRow {
+  id: string;
+  slot: CosmeticSlot;
+  name: string;
+  productId: string;
+  owned: boolean;
+}
+
+export function catalog(owned: ReadonlyArray<string>): CatalogRow[] {
+  return SKINS.map((s) => ({ id: s.id, slot: s.slot, name: s.name, productId: s.productId, owned: owned.indexOf(s.id) >= 0 }));
+}
+
+/**
+ * The app user ids a RevenueCat webhook event concerns. Only Nakama user
+ * ids count (the client logs in to RevenueCat with its Nakama user id);
+ * anonymous RevenueCat ids are ignored. TRANSFER events name both sides.
+ */
+export function webhookUserIds(body: unknown, isUserId: (v: unknown) => boolean): string[] {
+  const root = (typeof body === 'object' && body !== null ? body : {}) as { event?: unknown };
+  const ev = (typeof root.event === 'object' && root.event !== null ? root.event : {}) as { [k: string]: unknown };
+  const candidates: unknown[] = [ev['app_user_id'], ev['original_app_user_id']];
+  for (const key of ['transferred_from', 'transferred_to', 'aliases']) {
+    const list = ev[key];
+    if (Array.isArray(list)) for (const v of list) candidates.push(v);
+  }
+  const out: string[] = [];
+  for (const c of candidates) {
+    if (isUserId(c) && out.indexOf(c as string) < 0) out.push(c as string);
+  }
+  return out.slice(0, 10);
+}

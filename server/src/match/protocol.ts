@@ -1,6 +1,9 @@
 /** Wire protocol between the Godot client and the match handler. */
 import type { PlayerView } from '../engine';
 
+/** Owner of server-wide storage rows (room codes, cohorts, config). */
+export const SYSTEM_USER = '00000000-0000-0000-0000-000000000000';
+
 /** Client -> server opcodes. */
 export const OP_ACTION = 1;
 export const OP_READY = 2;

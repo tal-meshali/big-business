@@ -34,6 +34,14 @@ export function requireUser(ctx: nkruntime.Context): string {
 }
 
 /**
+ * Refuses a player: the RPC is only for server-to-server calls made with
+ * the runtime http_key (the operator, or a webhook), which carry no user.
+ */
+export function requireServer(ctx: nkruntime.Context): void {
+  if (ctx.userId) reject('forbidden');
+}
+
+/**
  * Parses an RPC payload into a plain object. Empty payloads are `{}`;
  * malformed JSON, arrays and primitives are rejected with a short message.
  */

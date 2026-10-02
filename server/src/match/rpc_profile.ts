@@ -1,14 +1,19 @@
 /** Profile RPCs: get_profile and claim_daily. Registered by main.ts. */
 import { requireUser } from './input';
+import { trackActive } from './metrics';
 import { loadProfile, readProgress, saveProfile } from './profile';
 import { claimDaily, utcDate } from './progression';
+import { readOwned } from './purchases';
 import { profileExtras } from './rpc_quests';
 
 export const rpcGetProfile: nkruntime.RpcFunction = (ctx, logger, nk, payload) => {
-  void logger; void payload;
+  void payload;
   const now = Date.now();
-  const p = readProgress(nk, requireUser(ctx));
-  return JSON.stringify({ progress: p, dailyAvailable: p.lastDailyClaim !== utcDate(now), ...profileExtras(p, now) });
+  const userId = requireUser(ctx);
+  // The lobby loads the profile on every visit, so this is the day-active signal.
+  trackActive(nk, logger, userId, now);
+  const p = readProgress(nk, userId);
+  return JSON.stringify({ progress: p, dailyAvailable: p.lastDailyClaim !== utcDate(now), ...profileExtras(p, now, readOwned(nk, userId).owned) });
 };
 
 /** RPC claim_daily: once per UTC day; streak grows on consecutive days. */

@@ -1,4 +1,5 @@
 /** Writes XP, levels, season points and quest progress for every human seat once a game ends. */
+import { trackActive, trackMilestone } from './metrics';
 import { loadProfile, saveProfile } from './profile';
 import { applyForfeit, applyGameResult, SEASON_LEADERBOARD, seasonPointsForGame } from './progression';
 import { applyGameToQuests, gameStats } from './quests';
@@ -37,10 +38,22 @@ export function awardProgress(s: MatchState, nk: nkruntime.Nakama, logger: nkrun
       if (points > 0) {
         nk.leaderboardRecordWrite(SEASON_LEADERBOARD, seat.id, seat.name, points, score.rank === 1 ? 1 : 0);
       }
+      trackGame(nk, logger, seat.id, s.params.tutorial, humans, now);
     } catch (e) {
       logger.warn('progress award failed for %s: %s', seat.id, String(e));
     }
   }
+}
+
+/** Funnel steps for a finished game (analytics.ts); each counts once per player. */
+function trackGame(nk: nkruntime.Nakama, logger: nkruntime.Logger, userId: string, tutorial: boolean, humans: number, now: number): void {
+  trackActive(nk, logger, userId, now);
+  if (tutorial) {
+    trackMilestone(nk, logger, userId, 'tutorial', now);
+    return;
+  }
+  trackMilestone(nk, logger, userId, 'firstGame', now);
+  if (humans >= 2) trackMilestone(nk, logger, userId, 'peopleGame', now);
 }
 
 /** Records a forfeit on the player's profile. Best effort, like awardProgress. */

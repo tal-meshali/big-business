@@ -27,7 +27,7 @@ node e2e/play.mjs                       # Node client: private room + quick play
 godot --headless --path ../client --script res://tests/e2e_client.gd   # real Godot client vs bots
 ```
 
-`e2e/play.mjs` verifies room codes, ready gating, hidden information, illegal and malformed action rejection (the match survives), timeout auto-move, leave and rejoin, coin conservation on every state, dividend day, friend requests with room invites delivered as notifications (and refused for strangers), bad RPC payloads and the report rate limit, and quick play filling with bots after the lobby wait. Both scripts exit non-zero on failure.
+`e2e/play.mjs` verifies room codes, ready gating, hidden information, illegal and malformed action rejection (the match survives), timeout auto-move, leave and rejoin, coin conservation on every state, dividend day, friend requests with room invites delivered as notifications (and refused for strangers), bad RPC payloads and the report rate limit, quick play filling with bots after the lobby wait, and the shop, Remote Config, push-token and analytics RPCs (including the server-to-server ones over the http_key). Both scripts exit non-zero on failure.
 
 ## Production
 
@@ -58,7 +58,20 @@ Payloads are JSON strings.
 | `get_profile` | `{}` | `{progress: {xp, level, gamesPlayed, wins, streak, lastDailyClaim, bestRank, trackPoints, quests, equipped}, dailyAvailable, quests: {daily: [...], weekly: [...]}, trackPoints, unlocked, equipped: {cardBack, table}, track: [{points, cosmeticId}]}`; each quest row is `{id, text, target, points, progress, claimable, claimed}` |
 | `claim_daily` | `{}` | `{claimed, xpAwarded, progress}`; once per UTC day, streak grows on consecutive days |
 | `claim_quest` | `{id}` | `{ok, trackPoints, unlocked}`; adds a completed quest's points to the free cosmetic track, once (a concurrent claim or daily claim of the same row fails with `try again`) |
-| `equip_cosmetic` | `{slot, id}` | `{ok, equipped}`; `slot` is `cardBack` or `table`, `id` must be unlocked |
+| `equip_cosmetic` | `{slot, id}` | `{ok, equipped}`; `slot` is `cardBack` or `table`, `id` must be unlocked on the track or an owned shop skin |
+| `store_catalog` | `{}` | `{configured, skins: [{id, slot, name, productId, owned}], owned}`; `configured` is false until `REVENUECAT_API_KEY` is set. Prices come from the store plugin on the device |
+| `sync_purchases` | `{}` | `{configured, owned, equipped, unlocked}`; re-reads the caller's RevenueCat entitlements (after a purchase, and for Restore Purchases), stores them in the server-only `purchases/owned` row and puts a refunded skin that was equipped back to the default; 6 per minute per user; `store unavailable, try again` when RevenueCat cannot be reached |
+| `get_remote_config` | `{}` | `{shopEnabled, pushEnabled, pushCooldownMinutes, tutorialAutoRoute, quickPlayWaitSeconds}` |
+| `register_push_token` | `{token, platform}` | `{ok}`; an FCM registration token, `platform` `android` or `ios`; keeps the 3 newest devices; 6 per minute per user |
+| `unregister_push_token` | `{token}` | `{ok}` |
+
+Server-to-server RPCs refuse player sessions; call them with `?http_key=<runtime http_key>&unwrap` (`docs/deploy.md` "Shop, push and analytics"):
+
+| RPC | Payload | Returns |
+|---|---|---|
+| `set_remote_config` | any subset of the Remote Config keys | the whole config; unknown keys dropped, numbers clamped |
+| `analytics_report` | `{days?}` (1..60, default 14) | `{cohorts: [{day, installs, d1, d7, d1Rate, d7Rate, tutorial, firstGame, peopleGame, purchase}]}`, newest install day first |
+| `revenuecat_webhook` | a RevenueCat webhook body | `{ok, synced}`; needs the `REVENUECAT_WEBHOOK_AUTH` value as the Authorization header, then re-syncs every Nakama user id the event names |
 | `report_player` | `{userId, reason, matchId?, note?}` | `{ok}`; `userId` must be an existing user other than the caller, `note` is cut to 200 characters; written to the `reports` storage collection (system user, console-only) as one row per UTC day, reporter and reported player with a `count` and the first 10 reports' `{reason, matchId, note, at}` in `entries`; 5 per minute per user |
 | `find_player` | `{name}` | `{userId, username}`; exact username match, never the caller; error `not found` otherwise; 20 per minute per user |
 | `invite_friend` | `{userId, code}` | `{ok}`; caller and target must be mutual friends (Nakama friend state 0), the target must not have blocked the caller, and the code must be a live room. Sends a persistent in-app notification, code 100 (`INVITE_CODE`), subject `Room invite`, content `{code, fromName, fromUserId}` where `fromName` is the caller's server-side username cut to 32 characters; 10 per minute per user |
@@ -66,11 +79,13 @@ Payloads are JSON strings.
 
 Rate-limited calls beyond their budget fail with `too many requests`. Friend requests (Nakama's own `AddFriends` API) are limited the same way by a before-hook, 20 players per minute (a request naming several players costs one per player).
 
-Storage permissions: `profile/progress` is readable by its owner only and never client-writable; `rooms`, `reports` and `ratelimit` are server-only; the `season` leaderboard is authoritative. Before-hooks on Nakama's WriteStorageObjects and DeleteStorageObjects refuse any client request touching `profile`, `ratelimit`, `rooms` or `reports`, so a client cannot pre-seed a row the server would trust (and a profile row the client created anyway is ignored).
+Storage permissions: `profile/progress` and `purchases/owned` are readable by their owner only and never client-writable; `rooms`, `reports`, `ratelimit`, `analytics`, `analytics_cohort`, `config` and `push` are server-only; the `season` leaderboard is authoritative. Before-hooks on Nakama's WriteStorageObjects and DeleteStorageObjects refuse any client request touching those collections (`SERVER_COLLECTIONS` in `src/match/reports.ts`), so a client cannot pre-seed a row the server would trust (and a profile or purchase row the client created anyway is ignored).
 
 Match labels carry the mode, open flag and seat counts, never the room code: any client can list matches.
 
 Progression (`src/match/progression.ts`, pure and unit-tested) is applied by the match handler once when a game ends: XP for participation, placement and wins (halved for games against bots only), and season points on the `season` leaderboard (monthly reset, only for games with at least two humans). Adding, accepting, removing and blocking friends use Nakama's friends API from the client; the social RPCs (`src/match/social.ts`, invite rules unit-tested) only look players up and deliver room invites as Nakama in-app notifications (no push).
+
+Shop, analytics, Remote Config and push: curated skins are cosmetics with `paid: true` (`src/match/cosmetics.ts`), owned only through RevenueCat entitlements read by the server (`src/match/store.ts`, `purchases.ts`). Analytics (`src/match/analytics.ts`, `metrics.ts`) count installs, D1 / D7 and the funnel per install day from `get_profile` and game ends. Remote Config (`src/match/remote_config.ts`) holds switches the server and client both read. "Your turn" pushes (`src/match/push.ts`, `push_sender.ts`, `turn_push.ts`) go through FCM HTTP v1 when a turn starts for a player who is away from the match. Without their `.env` keys the shop reports `configured: false` and no push is sent.
 
 Quests (`src/match/quests.ts`): three daily quests picked deterministically from the UTC date and two weekly ones from the ISO week (seeded, so every player sees the same list and nothing is stored per selection). The handler advances them from each finished game's stats (Market takes and their coins from the action log, gold, majorities and tokens at the end, human count, rank). Claimed points feed the free cosmetic track (`src/match/cosmetics.ts`): card backs and table felts unlock at point thresholds; nothing on the track is sold (decision D5).
 

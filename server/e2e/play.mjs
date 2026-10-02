@@ -669,14 +669,16 @@ async function testPlus() {
   if (guest.deck.cardBack !== 'back_ticker' || guest.deck.table !== 'table_walnut' || guest.deck.back !== null) fail(`host skins: ${JSON.stringify(guest.deck)}`);
   log("host skins: the guest's table shows the host's back and felt");
   await playOut([host, guest], { maxMs: 120000 });
+  // WHY both: the match writes each seat's stats in turn, so an RPC can land between them.
   let stats = null;
-  for (let i = 0; i < 25; i++) {
+  let guestStats = null;
+  for (let i = 0; i < 50; i++) {
     stats = await rpc(host, 'get_stats');
-    if (stats.games >= 1) break;
+    guestStats = await rpc(guest, 'get_stats');
+    if (stats.games >= 1 && guestStats.games >= 1) break;
     await sleep(200);
   }
   if (!stats.plus || stats.games !== 1 || !Array.isArray(stats.majorities) || stats.recent.length !== 1 || stats.bestScore !== stats.recent[0].score) fail(`get_stats with Plus: ${JSON.stringify(stats)}`);
-  const guestStats = await rpc(guest, 'get_stats');
   if (guestStats.plus !== false || guestStats.games !== 1 || 'majorities' in guestStats) fail(`get_stats without Plus: ${JSON.stringify(guestStats)}`);
   log(`stats: recorded for both; full breakdown for Plus (capital ${stats.bestScore}, place ${stats.recent[0].rank}), games and wins otherwise`);
   for (const p of [host, guest]) p.socket.disconnect(true);
@@ -713,8 +715,9 @@ async function testClubs() {
   let st = null;
   for (let i = 0; i < 50; i++) {
     st = await rpc(member, 'club_state');
-    // The league table can trail the club's own record by a moment.
-    if (st.club && st.club.score > 0 && st.league.some((c) => c.id === club.id)) break;
+    // The league table can trail the club's own record by a moment, and
+    // each seat's league and weekly records land one after the other.
+    if (st.club && st.club.score > 0 && st.league.some((c) => c.id === club.id) && st.club.members.reduce((n, m) => n + m.week, 0) === st.club.score) break;
     await sleep(200);
   }
   const sum = st.club.members.reduce((n, m) => n + m.week, 0);

@@ -1,6 +1,6 @@
 /** Match state shared by the handler and its helper modules. */
 import type { Action, GameState } from '../engine';
-import type { LobbyMessage, LobbySeat, MatchParams } from './protocol';
+import type { DeckMessage, LobbyMessage, LobbySeat, MatchParams } from './protocol';
 
 export const BOT_THINK_MS = 900;
 export const TUTORIAL_BOT_THINK_MS = 1800;
@@ -49,6 +49,8 @@ export interface MatchState {
   pushSentAt: { [userId: string]: number };
   /** Failed push sends; at PUSH_MAX_FAILURES the match stops trying. */
   pushFailures: number;
+  /** The host's custom deck, chosen when the game starts (room_deck.ts); null for the standard cards. */
+  customDeck: DeckMessage | null;
 }
 
 export function nowMs(): number {

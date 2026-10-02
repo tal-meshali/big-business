@@ -8,7 +8,7 @@ import { isClientError, isUserId, reject, requireServer, requireUser } from './i
 import { loadProfile, saveProfile } from './profile';
 import { readOwned, revenueCatKey, syncOwned } from './purchases';
 import { checkRate } from './ratelimit';
-import { catalog, webhookUserIds } from './store';
+import { catalog, unlockCatalog, webhookUserIds } from './store';
 
 /** RevenueCat webhook bodies run to a few KB; anything far larger is not one. */
 const WEBHOOK_MAX_BYTES = 65536;
@@ -31,12 +31,12 @@ function unequipLost(nk: nkruntime.Nakama, userId: string, owned: string[]): { c
   return equipped;
 }
 
-/** RPC store_catalog: the skins on sale and which ones the caller owns. */
+/** RPC store_catalog: the skins and unlocks on sale and which ones the caller owns. */
 export const rpcStoreCatalog: nkruntime.RpcFunction = (ctx, logger, nk, payload) => {
   void logger; void payload;
   const userId = requireUser(ctx);
   const owned = readOwned(nk, userId).owned;
-  return JSON.stringify({ configured: revenueCatKey(ctx.env) !== '', skins: catalog(owned), owned });
+  return JSON.stringify({ configured: revenueCatKey(ctx.env) !== '', skins: catalog(owned), unlocks: unlockCatalog(owned), owned });
 };
 
 /**

@@ -13,6 +13,7 @@ import { awardProgress } from './awards';
 import { handleEmotes } from './emotes';
 import { handleForfeits } from './forfeit';
 import { botThinkMs, GET_READY_MS, label, lobbyJoinError, lobbyMessage, nowMs, send, type MatchState } from './state';
+import { chooseRoomDeck, sendDeck } from './room_deck';
 import { pushTurnIfAway } from './turn_push';
 import { sendViews } from './views';
 
@@ -48,10 +49,12 @@ function startGame(s: MatchState, nk: nkruntime.Nakama, logger: nkruntime.Logger
     if (seat && !seat.isBot) s.seatByUser[seat.id] = i;
   }
   s.botActAt = firstTurnAt + botThinkMs(s);
-  logger.info('match started seats=%d seed=%d tutorial=%s', s.game.seats.length, seed, String(s.params.tutorial));
+  chooseRoomDeck(s, nk, logger);
+  logger.info('match started seats=%d seed=%d tutorial=%s deck=%s', s.game.seats.length, seed, String(s.params.tutorial), s.customDeck ? 'custom' : 'standard');
   dispatcher.matchLabelUpdate(label(s));
+  // The deck goes first so the table can fetch the art while it lays out.
+  sendDeck(s, dispatcher);
   sendViews(s, dispatcher);
-  void nk;
 }
 
 export const matchInit: nkruntime.MatchInitFunction<MatchState> = (ctx, logger, nk, params) => {
@@ -64,6 +67,7 @@ export const matchInit: nkruntime.MatchInitFunction<MatchState> = (ctx, logger, 
     lobbyWaitSeconds: Number(params['lobbyWaitSeconds']) || DEFAULT_PARAMS.lobbyWaitSeconds,
     tutorial: params['tutorial'] === true || params['tutorial'] === 'true',
     seed: Number(params['seed']) || 0,
+    hostId: typeof params['hostId'] === 'string' ? (params['hostId'] as string) : undefined,
   };
   if (p.tutorial) {
     p.isPrivate = false;
@@ -91,6 +95,7 @@ export const matchInit: nkruntime.MatchInitFunction<MatchState> = (ctx, logger, 
     pushTurnKey: '',
     pushSentAt: {},
     pushFailures: 0,
+    customDeck: null,
   };
   logger.info('match init private=%s code=%s', String(p.isPrivate), p.roomCode || '-');
   void ctx;
@@ -132,6 +137,7 @@ export const matchJoin: nkruntime.MatchJoinFunction<MatchState> = (ctx, logger, 
           seatState.connected = true;
           seatState.isBot = false;
         }
+        sendDeck(state, dispatcher, [p]);
         logger.info('user %s rejoined seat %d', p.userId, seat);
       }
       continue;

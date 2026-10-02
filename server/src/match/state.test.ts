@@ -22,6 +22,7 @@ function lobbyState(isPrivate: boolean, maxSeats: number): MatchState {
     pushTurnKey: '',
     pushSentAt: {},
     pushFailures: 0,
+    customDeck: null,
   };
 }
 

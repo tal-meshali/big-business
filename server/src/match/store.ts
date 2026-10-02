@@ -38,6 +38,29 @@ export function skinById(id: string): Skin | null {
   return null;
 }
 
+/** A one-time feature unlock (non-consumable), not a cosmetic. */
+export interface Unlock {
+  id: string;
+  name: string;
+  productId: string;
+  entitlement: string;
+}
+
+/**
+ * Designer (decision D5): custom card designs in private rooms. Its id
+ * shares the owned list with the skins, so it must never equal a cosmetic id.
+ */
+export const DESIGNER = 'designer';
+export const UNLOCKS: ReadonlyArray<Unlock> = [{ id: DESIGNER, name: 'Designer', productId: 'bb_designer', entitlement: 'designer' }];
+
+/** Every product the server reads from RevenueCat: skins, then unlocks. */
+const PRODUCTS: ReadonlyArray<{ id: string; entitlement: string }> = (SKINS as ReadonlyArray<{ id: string; entitlement: string }>).concat(UNLOCKS);
+
+function isProductId(id: string): boolean {
+  for (const p of PRODUCTS) if (p.id === id) return true;
+  return false;
+}
+
 /** The stored purchase row. */
 export interface OwnedRow {
   owned: string[];
@@ -45,13 +68,13 @@ export interface OwnedRow {
   syncedAt: number;
 }
 
-/** Keeps only known skin ids, once each; anything else in a stored row is dropped. */
+/** Keeps only known skin and unlock ids, once each; anything else in a stored row is dropped. */
 export function normalizeOwned(raw: unknown): OwnedRow {
   const obj = (typeof raw === 'object' && raw !== null ? raw : {}) as { owned?: unknown; syncedAt?: unknown };
   const owned: string[] = [];
   if (Array.isArray(obj.owned)) {
     for (const id of obj.owned) {
-      if (typeof id === 'string' && skinById(id) && owned.indexOf(id) < 0) owned.push(id);
+      if (typeof id === 'string' && isProductId(id) && owned.indexOf(id) < 0) owned.push(id);
     }
   }
   const syncedAt = typeof obj.syncedAt === 'number' && isFinite(obj.syncedAt) && obj.syncedAt > 0 ? obj.syncedAt : 0;
@@ -59,7 +82,7 @@ export function normalizeOwned(raw: unknown): OwnedRow {
 }
 
 /**
- * Skins owned according to a RevenueCat `GET /v1/subscribers/{id}` body.
+ * Skins and unlocks owned according to a RevenueCat `GET /v1/subscribers/{id}` body.
  * An entitlement counts while it has no expiry (non-consumables) or its
  * expiry is in the future. A refunded purchase loses its entitlement in
  * RevenueCat, so it drops out here on the next sync. Never throws.
@@ -69,16 +92,16 @@ export function ownedFromSubscriber(body: unknown, nowMs: number): string[] {
   const sub = (typeof root.subscriber === 'object' && root.subscriber !== null ? root.subscriber : {}) as { entitlements?: unknown };
   const ents = (typeof sub.entitlements === 'object' && sub.entitlements !== null ? sub.entitlements : {}) as { [id: string]: unknown };
   const out: string[] = [];
-  for (const skin of SKINS) {
-    const e = ents[skin.entitlement];
+  for (const product of PRODUCTS) {
+    const e = ents[product.entitlement];
     if (typeof e !== 'object' || e === null) continue;
     const expires = (e as { expires_date?: unknown }).expires_date;
     if (expires === null || expires === undefined) {
-      out.push(skin.id);
+      out.push(product.id);
       continue;
     }
     const t = typeof expires === 'string' ? Date.parse(expires) : NaN;
-    if (isFinite(t) && t > nowMs) out.push(skin.id);
+    if (isFinite(t) && t > nowMs) out.push(product.id);
   }
   return out;
 }
@@ -99,6 +122,11 @@ export interface CatalogRow {
 
 export function catalog(owned: ReadonlyArray<string>): CatalogRow[] {
   return SKINS.map((s) => ({ id: s.id, slot: s.slot, name: s.name, productId: s.productId, owned: owned.indexOf(s.id) >= 0 }));
+}
+
+/** The unlocks on sale, for the client; prices come from the store plugin. */
+export function unlockCatalog(owned: ReadonlyArray<string>): Array<{ id: string; name: string; productId: string; owned: boolean }> {
+  return UNLOCKS.map((u) => ({ id: u.id, name: u.name, productId: u.productId, owned: owned.indexOf(u.id) >= 0 }));
 }
 
 /**

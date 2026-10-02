@@ -42,12 +42,13 @@ export function requireServer(ctx: nkruntime.Context): void {
 }
 
 /**
- * Parses an RPC payload into a plain object. Empty payloads are `{}`;
+ * Parses an RPC payload of at most `maxLength` characters into a plain
+ * object (only image uploads pass a larger limit). Empty payloads are `{}`;
  * malformed JSON, arrays and primitives are rejected with a short message.
  */
-export function parseBody(payload: string | null | undefined): Body {
+export function parseBody(payload: string | null | undefined, maxLength = 4096): Body {
   if (payload === undefined || payload === null || payload === '') return {};
-  if (typeof payload !== 'string' || payload.length > 4096) reject('bad payload');
+  if (typeof payload !== 'string' || payload.length > maxLength) reject('bad payload');
   let parsed: unknown;
   try {
     parsed = JSON.parse(payload);

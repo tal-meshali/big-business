@@ -8,6 +8,7 @@ import { PUSH_COLLECTION } from './push';
 import { CONFIG_COLLECTION } from './remote_config';
 import { ROOM_COLLECTION, SYSTEM_USER } from './rooms';
 import { PURCHASE_COLLECTION } from './store';
+import { ART_COLLECTION, ART_QUEUE_COLLECTION, DECK_COLLECTION, STANDING_COLLECTION } from './designer_store';
 
 export const REPORT_COLLECTION = 'reports';
 const REPORT_REASONS = ['name', 'behaviour', 'cheating', 'other'];
@@ -105,6 +106,10 @@ export const SERVER_COLLECTIONS = [
   COHORT_COLLECTION,
   CONFIG_COLLECTION,
   PUSH_COLLECTION,
+  DECK_COLLECTION,
+  STANDING_COLLECTION,
+  ART_COLLECTION,
+  ART_QUEUE_COLLECTION,
 ];
 
 /** True when a client storage request touches a server-only collection. */

@@ -50,7 +50,7 @@ export const rpcCreateRoom: nkruntime.RpcFunction = (ctx, logger, nk, payload) =
     if (liveMatchId(nk, existing[0]) === null) code = candidate;
   }
   if (!code) reject('try again');
-  const matchId = nk.matchCreate(MATCH_MODULE, { isPrivate: true, roomCode: code, minSeats: 3, maxSeats, stepSeconds });
+  const matchId = nk.matchCreate(MATCH_MODULE, { isPrivate: true, roomCode: code, minSeats: 3, maxSeats, stepSeconds, hostId: userId });
   nk.storageWrite([
     {
       collection: ROOM_COLLECTION,

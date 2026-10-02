@@ -12,6 +12,9 @@
  *   6. quick play: 1 human, lobby wait, bots fill, game completes
  *   7. shop, Remote Config, push tokens and the analytics report (store and
  *      FCM keys are not set, so the shop answers "not configured")
+ *   8. Designer: refused until unlocked (the unlock is seeded through the
+ *      console API, as no store is configured), age gate, upload, the
+ *      moderation queue, and the host's deck reaching a private room
  * Exit code 0 on success.
  */
 import WebSocket from 'ws';
@@ -23,8 +26,11 @@ const HOST = process.env.NAKAMA_HOST || '127.0.0.1';
 const PORT = process.env.NAKAMA_PORT || '7350';
 const KEY = process.env.NAKAMA_KEY || 'defaultkey';
 const HTTP_KEY = process.env.NAKAMA_HTTP_KEY || 'defaulthttpkey';
+const CONSOLE_PORT = process.env.NAKAMA_CONSOLE_PORT || '7351';
+const CONSOLE_USER = process.env.NAKAMA_CONSOLE_USER || 'admin';
+const CONSOLE_PASSWORD = process.env.NAKAMA_CONSOLE_PASSWORD || 'password';
 
-const OP_ACTION = 1, OP_READY = 2, OP_EMOTE = 3, OP_FORFEIT = 4, OP_VIEW = 10, OP_EVENTS = 11, OP_LOBBY = 12, OP_ERROR = 13, OP_EMOTE_SHOWN = 14, OP_FORFEITED = 15;
+const OP_ACTION = 1, OP_READY = 2, OP_EMOTE = 3, OP_FORFEIT = 4, OP_VIEW = 10, OP_EVENTS = 11, OP_LOBBY = 12, OP_ERROR = 13, OP_EMOTE_SHOWN = 14, OP_FORFEITED = 15, OP_DECK = 16;
 const INVITE_CODE = 100; // notification code, see src/match/protocol.ts
 const STARTING_COINS = 10;
 
@@ -57,6 +63,7 @@ async function makePlayer(name) {
     else if (m.op_code === OP_ERROR) p.errors.push(data);
     else if (m.op_code === OP_EMOTE_SHOWN) p.emotes.push(data);
     else if (m.op_code === OP_FORFEITED) p.forfeits.push(data);
+    else if (m.op_code === OP_DECK) p.deck = data;
   };
   socket.ondisconnect = () => { p.disconnected = true; };
   return p;
@@ -552,6 +559,83 @@ async function testServices() {
   p.socket.disconnect(true);
 }
 
+/** Writes a server-owned storage row through the console API, as the operator could. */
+async function consoleWrite(collection, key, userId, value) {
+  const auth = await fetch(`http://${HOST}:${CONSOLE_PORT}/v2/console/authenticate`, { method: 'POST', body: JSON.stringify({ username: CONSOLE_USER, password: CONSOLE_PASSWORD }) });
+  const { token } = await auth.json();
+  const res = await fetch(`http://${HOST}:${CONSOLE_PORT}/v2/console/storage/${collection}/${key}/${userId}`, {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ value: JSON.stringify(value), permission_read: 1, permission_write: 0 }),
+  });
+  if (res.status !== 200) fail(`console write ${collection}/${key}: ${res.status}`);
+}
+
+/** Bytes of a WebP header at this size; the server checks only the header and length. */
+function fakeWebp(width, height, total = 2000) {
+  const b = Buffer.alloc(total);
+  b.write('RIFF', 0, 'ascii');
+  b.writeUInt32LE(total - 8, 4);
+  b.write('WEBPVP8 ', 8, 'ascii');
+  b.writeUInt32LE(total - 20, 16);
+  b[23] = 0x9d; b[24] = 0x01; b[25] = 0x2a;
+  b.writeUInt16LE(width, 26);
+  b.writeUInt16LE(height, 28);
+  for (let i = 30; i < total; i++) b[i] = (i * 31 + Date.now()) & 255;
+  return b.toString('base64');
+}
+
+async function testDesigner() {
+  log('--- Designer: unlock, age gate, upload, moderation, room deck');
+  const host = await makePlayer('Designer');
+  const guest = await makePlayer('Viewer');
+  const back = fakeWebp(250, 350);
+  const state0 = await rpc(host, 'designer_state');
+  if (state0.owned !== false || state0.slots !== 0 || state0.blocker !== 'not_owned') fail(`designer_state before the unlock: ${JSON.stringify(state0)}`);
+  const notOwned = await rpcRejected(host, 'upload_card_art', { slot: 0, part: 'back', image: back }, 'an upload without the unlock');
+  let artSeedRefused = false;
+  try {
+    await host.client.writeStorageObjects(host.session, [{ collection: 'card_art', key: 'a'.repeat(64), value: { owner: host.userId, part: 'back', data: back, status: 'approved' }, permission_read: 1, permission_write: 1 }]);
+  } catch (e) { artSeedRefused = true; }
+  if (!artSeedRefused) fail('a client write to the card_art collection must be refused');
+
+  await consoleWrite('purchases', 'owned', host.userId, { owned: ['designer'], syncedAt: Date.now() });
+  await rpcRejected(host, 'upload_card_art', { slot: 0, part: 'back', image: back }, 'an upload before the age answer');
+  const age = await rpc(host, 'set_age_bracket', { bracket: '16plus', region: 'US' });
+  if (age.blocker !== '') fail(`set_age_bracket: ${JSON.stringify(age)}`);
+  await rpcRejected(host, 'upload_card_art', { slot: 0, part: 'c0', image: back }, 'a back image as an art window');
+  const up = await rpc(host, 'upload_card_art', { slot: 0, part: 'back', image: back });
+  if (!/^[0-9a-f]{64}$/.test(up.hash) || up.status !== 'pending') fail(`upload_card_art: ${JSON.stringify(up)}`);
+  const own = await rpc(host, 'get_card_art', { hashes: [up.hash] });
+  const other = await rpc(guest, 'get_card_art', { hashes: [up.hash] });
+  if (own.art[up.hash] !== back || Object.keys(other.art).length !== 0) fail('pending art is for its uploader only');
+  log(`designer: refused until unlocked (${notOwned}), age set, upload pending, preview for the owner only`);
+
+  await rpcRejected(host, 'moderation_queue', {}, 'moderation_queue from a player');
+  const queue = await serverRpc('moderation_queue', {});
+  const item = queue.body && queue.body.items && queue.body.items.find((i) => i.hash === up.hash);
+  if (queue.status !== 200 || !item || item.reason !== 'unscanned' || item.data !== back) fail(`moderation_queue: ${JSON.stringify(queue.status)} ${item ? item.reason : 'missing'}`);
+  const approved = await serverRpc('moderate_card_art', { hash: up.hash, verdict: 'approve' });
+  if (approved.status !== 200 || approved.body.status !== 'approved') fail(`moderate_card_art: ${JSON.stringify(approved)}`);
+  await rpc(host, 'select_deck', { slot: 0 });
+  log('moderation: queued without a scanner, approved by the operator');
+
+  const created = await rpc(host, 'create_room', { stepSeconds: 30, maxSeats: 3 });
+  await join(host, created.matchId, created.code);
+  await join(guest, created.matchId, created.code);
+  await waitFor(() => host.lobby && host.lobby.seats.length === 2, 5000, 'both players in the Designer room');
+  send(host, OP_READY);
+  send(guest, OP_READY);
+  await waitFor(() => host.deck && guest.deck, 8000, 'the custom deck should reach both seats');
+  if (guest.deck.back !== up.hash || guest.deck.owner !== host.userId || guest.deck.art.length !== 6) fail(`OP_DECK: ${JSON.stringify(guest.deck)}`);
+  const fetched = await rpc(guest, 'get_card_art', { hashes: [guest.deck.back] });
+  if (fetched.art[up.hash] !== back) fail('approved art should be served to room members');
+  const rep = await rpc(guest, 'report_card_art', { hash: up.hash, matchId: created.matchId });
+  if (!rep.ok) fail('report_card_art should succeed');
+  log('room deck: sent to both seats, art fetched by the guest, report filed');
+  for (const p of [host, guest]) p.socket.disconnect(true);
+}
+
 try {
   await testPrivateRoom();
   await testForfeit();
@@ -560,6 +644,7 @@ try {
   await testQuickPlay();
   await testTutorial();
   await testServices();
+  await testDesigner();
   log('E2E OK');
   process.exit(0);
 } catch (e) {

@@ -56,7 +56,7 @@ The Designer unlock (decision D5, `server/src/match/designer.ts`) runs with no e
 
   A refusal deletes the picture, shows the standard card wherever it was used, and gives the uploader a strike (pass `"strike": false` for an honest mistake). Three strikes stop that account's uploads for good (repeat-infringer policy). Apple and Google expect reports handled within a day; check the queue daily once Designer is on sale.
 - **Kill switch**: Remote Config `designerEnabled: false` stops uploads and custom decks in rooms without touching anyone's decks.
-- **Plus (decision D11)**: an auto-renewing subscription `bb_plus_monthly` attached in RevenueCat to an entitlement `plus`. It reaches the server through the same sync and webhook (an `EXPIRATION` event triggers a re-read; an expiry date passing ends it even without one). The shop lists it only while Remote Config `plusEnabled` is true, which it is not by default.
+- **Plus (decision D12)**: an auto-renewing subscription `bb_plus_monthly` attached in RevenueCat to an entitlement `plus`. It reaches the server through the same sync and webhook (an `EXPIRATION` event triggers a re-read; an expiry date passing ends it even without one). The shop lists it only while Remote Config `plusEnabled` is true, which it is not by default.
 
 Backups: `docker exec <postgres container> pg_dump -U postgres nakama > backup.sql` on a cron job. Nakama's data is small at this stage.
 

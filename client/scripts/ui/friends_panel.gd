@@ -43,7 +43,7 @@ func _build() -> void:
 	# The deed panel supplies the look; this container only positions it.
 	add_theme_stylebox_override("panel", StyleBoxEmpty.new())
 	var deed := UiTheme.deed_panel(Companies.CHANCE, "Friends", Companies.INK)
-	deed["title"].add_theme_font_size_override("font_size", 20)
+	deed["title"].add_theme_font_size_override("font_size", 24)
 	add_child(deed["panel"])
 	var box := VBoxContainer.new()
 	box.add_theme_constant_override("separation", 10)
@@ -67,7 +67,7 @@ func _build() -> void:
 
 	_status = Label.new()
 	_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_status.add_theme_font_size_override("font_size", 15)
+	_status.add_theme_font_size_override("font_size", 18)
 	_status.add_theme_color_override("font_color", Companies.INK_SOFT)
 	box.add_child(_status)
 

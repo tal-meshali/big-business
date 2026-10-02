@@ -37,7 +37,7 @@ var _deed_panel: Control
 func _init() -> void:
 	add_theme_stylebox_override("panel", StyleBoxEmpty.new())
 	var deed := UiTheme.deed_panel(Companies.GOLD, "Shop", Companies.INK)
-	deed["title"].add_theme_font_size_override("font_size", 24)
+	deed["title"].add_theme_font_size_override("font_size", 28)
 	deed["panel"].size_flags_vertical = Control.SIZE_EXPAND_FILL
 	add_child(deed["panel"])
 	var body: MarginContainer = deed["body"]
@@ -50,7 +50,7 @@ func _init() -> void:
 	var intro := Label.new()
 	intro.text = "Card backs and table felts. Skins only change the look, never the game."
 	intro.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	intro.add_theme_font_size_override("font_size", 15)
+	intro.add_theme_font_size_override("font_size", 18)
 	column.add_child(intro)
 
 	_designer_button = Button.new()
@@ -94,7 +94,7 @@ func _init() -> void:
 
 	_status = Label.new()
 	_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_status.add_theme_font_size_override("font_size", 14)
+	_status.add_theme_font_size_override("font_size", 17)
 	_status.text = "Connect to see the shop."
 	column.add_child(_status)
 
@@ -228,7 +228,7 @@ func _add_row(skin: Dictionary) -> void:
 	label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	label.add_theme_font_size_override("font_size", 15)
+	label.add_theme_font_size_override("font_size", 18)
 	row.add_child(label)
 	var button := Button.new()
 	button.custom_minimum_size = Vector2(140, ROW_HEIGHT)

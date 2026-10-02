@@ -1,7 +1,8 @@
 class_name CardView
 extends Button
 ## A share card drawn like a title deed: off-white face, black border, a
-## solid colour band with the company name, and black text on the body.
+## solid colour band with the share count and company, the company's art
+## in a tinted window, and the share count in words at the foot.
 ## Drawn in code so no art assets are needed yet. Portrait 5:7. The back
 ## follows the card back selected in Cosmetics. In a private room with a
 ## custom deck (CardArt), its pictures fill the art window and the back.
@@ -20,9 +21,10 @@ const HOLD_SECONDS := 0.35
 const HOLD_SLOP := 14.0
 ## How far a selected card rises out of the hand.
 const LIFT := 18.0
-const RADIUS := 8
+const RADIUS := 11
 const INSET := 6.0
-const BAND_H := 50.0
+const BAND_H := 42.0
+const FOOT_H := 14.0
 
 var card_id: int = -1
 var company: int = 0
@@ -32,7 +34,17 @@ var selectable: bool = true:
 	set(value):
 		selectable = value
 		disabled = not value
-		modulate = Color(1, 1, 1, 1) if value else Color(0.82, 0.82, 0.82, 1)
+		queue_redraw()
+## Draws the orange "tap me" ring (the table sets it on cards you may use).
+var highlight: bool = false:
+	set(value):
+		highlight = value
+		queue_redraw()
+## Hatched: a Market share your own regulator token keeps you from taking.
+var blocked: bool = false:
+	set(value):
+		blocked = value
+		queue_redraw()
 var selected: bool = false:
 	set(value):
 		if selected == value:
@@ -128,16 +140,23 @@ func set_rest_position(pos: Vector2) -> void:
 
 func _draw() -> void:
 	var rect := Rect2(Vector2.ZERO, size)
+	if highlight or selected:
+		# Orange ring outside the card: you can tap this one now.
+		var ring := StyleBoxFlat.new()
+		ring.set_corner_radius_all(RADIUS + 5)
+		ring.bg_color = UiTheme.RING
+		var grow := 7.0 if selected else 5.5
+		draw_style_box(ring, rect.grow(grow))
 	var outer := StyleBoxFlat.new()
 	outer.set_corner_radius_all(RADIUS)
 	outer.bg_color = Companies.CARD_FACE
 	outer.border_color = Companies.INK
 	outer.set_border_width_all(2)
-	if selected:
-		outer.border_color = Companies.GOLD
-		outer.set_border_width_all(4)
-		outer.shadow_color = Color(Companies.GOLD, 0.5)
-		outer.shadow_size = 10
+	outer.anti_aliasing = true
+	if not highlight and not selected:
+		outer.shadow_color = Color(0.06, 0.16, 0.09, 0.28)
+		outer.shadow_size = 6
+		outer.shadow_offset = Vector2(0, 5)
 	draw_style_box(outer, rect)
 
 	if not face_up:
@@ -147,37 +166,59 @@ func _draw() -> void:
 	var color := Companies.color_of(company)
 	var text_on_band := Companies.band_text_color(company)
 	var comp := Companies.get_company(company)
-	var font := ThemeDB.fallback_font
+	var display := UiTheme.display_font()
+	var text := UiTheme.ui_font()
 
-	# Colour band with a thin ink border, like a deed's title bar.
+	# Colour band: share count on the left (the part still visible in a
+	# fanned hand), then "SHARE OF" over the short name.
 	var band := Rect2(INSET, INSET, size.x - INSET * 2, BAND_H)
-	draw_rect(band, color, true)
-	draw_rect(band, Companies.INK, false, 1.5)
-	# Share count top-left inside the band: the part of the card that stays
-	# visible in a fanned hand.
-	draw_string(font, Vector2(INSET + 6, INSET + 22), str(comp["shares"]), HORIZONTAL_ALIGNMENT_LEFT, -1, 20, text_on_band)
-	_draw_icon(Vector2(size.x - INSET - 14, INSET + 14), 8.0, text_on_band)
-	_draw_centered_text("SHARE OF", Vector2(size.x / 2.0, INSET + 14), 8, Color(text_on_band, 0.85))
-	_draw_centered_text(Companies.short_name_of(company).to_upper(), Vector2(size.x / 2.0, INSET + 38), 15, text_on_band)
+	var band_box := StyleBoxFlat.new()
+	band_box.bg_color = color
+	band_box.border_color = Companies.INK
+	band_box.set_border_width_all(2)
+	band_box.set_corner_radius_all(5)
+	draw_style_box(band_box, band)
+	var count := str(comp["shares"])
+	draw_string(display, Vector2(INSET + 6, INSET + BAND_H / 2.0 + 9), count, HORIZONTAL_ALIGNMENT_LEFT, -1, 25, text_on_band)
+	var count_w := display.get_string_size(count, HORIZONTAL_ALIGNMENT_LEFT, -1, 25).x
+	var mid := (INSET + 6 + count_w + size.x - INSET) / 2.0
+	_draw_centered_text("SHARE OF", Vector2(mid, INSET + 13), 8, text_on_band, text)
+	var short := Companies.short_name_of(company).to_upper()
+	# The short name shrinks to fit beside a two-digit count.
+	var room := size.x - INSET - 4 - (INSET + 6 + count_w + 4)
+	var short_px := 15
+	while short_px > 9 and display.get_string_size(short, HORIZONTAL_ALIGNMENT_LEFT, -1, short_px).x > room:
+		short_px -= 1
+	_draw_centered_text(short, Vector2(mid, INSET + 30), short_px, text_on_band, display)
 
-	# Body: full name, a deed-style rule, and the share count in words.
-	var body_top := INSET + BAND_H + 6
-	_draw_centered_text(String(comp["name"]), Vector2(size.x / 2.0, body_top + 10), 9, Companies.INK)
-	draw_line(Vector2(INSET + 8, body_top + 20), Vector2(size.x - INSET - 8, body_top + 20), Companies.INK_SOFT, 1.0)
+	# Full name over a rule, the art window, and the share count in words.
+	var name_y := INSET + BAND_H + 4
+	_draw_centered_text(String(comp["name"]), Vector2(size.x / 2.0, name_y + 7), 11, Companies.INK, text)
+	draw_line(Vector2(INSET, name_y + 16), Vector2(size.x - INSET, name_y + 16), Companies.INK, 1.2)
 	# Art window: the only area a custom design may replace.
-	var art := Rect2(INSET + 10, body_top + 26, size.x - INSET * 2 - 20, 46)
+	var art := Rect2(INSET, name_y + 20, size.x - INSET * 2, size.y - name_y - 20 - FOOT_H - INSET)
+	var art_box := StyleBoxFlat.new()
+	art_box.bg_color = color.lerp(Color.WHITE, 0.78)
+	art_box.border_color = Companies.INK
+	art_box.set_border_width_all(1)
+	art_box.set_corner_radius_all(4)
+	draw_style_box(art_box, art)
 	var custom := preview_art if preview_art != null else CardArt.company_texture(company)
 	if custom != null:
-		draw_texture_rect(custom, art, false)
-	else:
-		draw_rect(art, color.lerp(Color.WHITE, 0.82), true)
-		_draw_icon(art.get_center(), 14.0, color)
-	draw_rect(art, Companies.INK_SOFT, false, 1.0)
-	draw_line(Vector2(INSET + 8, size.y - 30), Vector2(size.x - INSET - 8, size.y - 30), Companies.INK_SOFT, 1.0)
-	_draw_centered_text("%d shares issued" % int(comp["shares"]), Vector2(size.x / 2.0, size.y - 17), 9, Companies.INK)
+		draw_texture_rect(custom, art.grow(-1), false)
+		draw_rect(art, Companies.INK, false, 1.0)
+	elif coins == 0:
+		_draw_icon(art.get_center(), minf(art.size.x, art.size.y) * 0.8, color)
+	var foot_y := size.y - INSET - FOOT_H
+	draw_line(Vector2(INSET, foot_y + 3), Vector2(size.x - INSET, foot_y + 3), Companies.INK, 1.2)
+	_draw_centered_text("%d shares issued" % int(comp["shares"]), Vector2(size.x / 2.0, foot_y + 12), 10, Companies.INK, text)
 
 	if coins > 0:
-		_draw_coin_badge(coins)
+		if custom == null:
+			_draw_icon(art.get_center() - Vector2(0, art.size.y * 0.12), minf(art.size.x, art.size.y) * 0.55, color)
+		_draw_coin_badge(coins, art.get_center() + Vector2(0, art.size.y * 0.16))
+	if blocked:
+		_draw_blocked_stripes(rect)
 
 
 func _draw_back() -> void:
@@ -204,13 +245,17 @@ func _draw_back() -> void:
 			_draw_back_classic(inner)
 
 
-## Six colour stripes, one per company, then the monogram.
+## Six colour stripes, one per company, ink rules, then the monogram.
 func _draw_back_classic(inner: Rect2) -> void:
-	draw_rect(inner, Companies.INK, false, 1.5)
-	var stripe_w := (inner.size.x - 12) / 6.0
-	for i in 6:
-		draw_rect(Rect2(inner.position.x + 6 + i * stripe_w, inner.position.y + 8, stripe_w - 2, 10), Companies.color_of(i), true)
-		draw_rect(Rect2(inner.position.x + 6 + i * stripe_w, inner.end.y - 18, stripe_w - 2, 10), Companies.color_of(i), true)
+	var gap := 3.0
+	var cell := (inner.size.x - gap * 5) / 6.0
+	for row_y in [inner.position.y + 2, inner.end.y - 14]:
+		for i in 6:
+			var r := Rect2(inner.position.x + i * (cell + gap), row_y, cell, 12)
+			draw_rect(r, Companies.color_of(i), true)
+			draw_rect(r, Companies.INK, false, 1.2)
+	draw_line(Vector2(inner.position.x + 12, inner.position.y + 26), Vector2(inner.end.x - 12, inner.position.y + 26), Companies.INK, 2.4)
+	draw_line(Vector2(inner.position.x + 12, inner.end.y - 26), Vector2(inner.end.x - 12, inner.end.y - 26), Companies.INK, 2.4)
 	_draw_monogram(Companies.INK)
 
 
@@ -307,31 +352,93 @@ func _draw_back_ticker(inner: Rect2) -> void:
 
 
 func _draw_monogram(color: Color) -> void:
-	_draw_centered_text("BIG", Vector2(size.x / 2.0, size.y / 2.0 - 14), 22, color)
-	_draw_centered_text("BUSINESS", Vector2(size.x / 2.0, size.y / 2.0 + 12), 16, color)
+	var display := UiTheme.display_font()
+	_draw_centered_text("BIG", Vector2(size.x / 2.0, size.y / 2.0 - 11), 21, color, display)
+	_draw_centered_text("BUSINESS", Vector2(size.x / 2.0, size.y / 2.0 + 12), 19, color, display)
 
 
-func _draw_icon(center: Vector2, r: float, color: Color) -> void:
-	# sun = circle, then triangle, square, hexagon, octagon, pentagon
-	var sides: int = [0, 3, 4, 6, 8, 5][company]
-	if sides == 0:
-		draw_circle(center, r, color)
-		return
-	var pts := PackedVector2Array()
-	for i in sides:
-		var a := TAU * i / sides - PI / 2
-		pts.append(center + Vector2(cos(a), sin(a)) * r)
-	draw_colored_polygon(pts, color)
+## The company's art in a 24-unit box centred on `center`, `box` px wide:
+## sun, pine, anchor, gear, cloud, bolt. Ink outlines, company fill.
+## WHY: each company also differs in silhouette, for colourblind players.
+func _draw_icon(center: Vector2, box: float, color: Color) -> void:
+	var k := box / 24.0
+	var at := func(x: float, y: float) -> Vector2: return center + (Vector2(x, y) - Vector2(12, 12)) * k
+	var w := maxf(1.0, 1.6 * k)
+	match company:
+		0:
+			for ray in [[12, 2, 12, 5], [12, 19, 12, 22], [2, 12, 5, 12], [19, 12, 22, 12], [4.9, 4.9, 7, 7], [17, 17, 19.1, 19.1], [4.9, 19.1, 7, 17], [17, 7, 19.1, 4.9]]:
+				draw_line(at.call(ray[0], ray[1]), at.call(ray[2], ray[3]), Companies.INK, w, true)
+			draw_circle(at.call(12, 12), 4.5 * k, color)
+			draw_arc(at.call(12, 12), 4.5 * k, 0, TAU, 32, Companies.INK, w, true)
+		1:
+			_ink_polygon([at.call(12, 2), at.call(19, 21), at.call(5, 21)], color, w)
+			for seg in [[8.6, 12, 15.4, 12], [7, 16.5, 17, 16.5], [12, 7, 12, 21]]:
+				draw_line(at.call(seg[0], seg[1]), at.call(seg[2], seg[3]), Companies.INK, w, true)
+		2:
+			draw_circle(at.call(12, 5), 2.3 * k, color)
+			draw_arc(at.call(12, 5), 2.3 * k, 0, TAU, 24, Companies.INK, w * 1.1, true)
+			draw_line(at.call(12, 7.3), at.call(12, 21), Companies.INK, w * 1.1, true)
+			draw_line(at.call(8, 10.5), at.call(16, 10.5), Companies.INK, w * 1.1, true)
+			draw_arc(at.call(12, 13.5), 7.5 * k, 0, PI, 24, Companies.INK, w * 1.1, true)
+		3:
+			var gear := [[10.4, 2], [13.6, 2], [14.2, 4.6], [16.2, 5.4], [18.5, 4], [20.7, 6.2], [19.3, 8.5], [20.1, 10.5], [22.7, 11.1], [22.7, 14.3], [20.1, 14.9], [19.3, 16.9], [20.7, 19.2], [18.5, 21.4], [16.2, 20], [14.2, 20.8], [13.6, 23.4], [10.4, 23.4], [9.8, 20.8], [7.8, 20], [5.5, 21.4], [3.3, 19.2], [4.7, 16.9], [3.9, 14.9], [2, 13.6], [2, 10.4], [4.6, 9.8], [5.4, 7.8], [4, 5.5], [6.2, 3.3], [8.5, 4.7], [10.5, 3.9]]
+			var pts: Array = []
+			for p in gear:
+				pts.append(at.call(p[0], p[1] - 0.7))
+			_ink_polygon(pts, color, w)
+			draw_circle(at.call(12, 12), 3.4 * k, Companies.CARD_FACE)
+			draw_arc(at.call(12, 12), 3.4 * k, 0, TAU, 24, Companies.INK, w, true)
+		4:
+			# Cloud: ink blobs first, then the same blobs in colour, smaller.
+			var blobs := [[7.4, 14.2, 4.8], [12.2, 10.6, 5.6], [17.2, 14.6, 4.4]]
+			for b in blobs:
+				draw_circle(at.call(b[0], b[1]), b[2] * k + w, Companies.INK)
+			draw_rect(Rect2(at.call(7.4, 14.2) - Vector2(0, w), (Vector2(17.2, 19) - Vector2(7.4, 14.2)) * k + Vector2(0, 2 * w)), Companies.INK)
+			for b in blobs:
+				draw_circle(at.call(b[0], b[1]), b[2] * k, color)
+			draw_rect(Rect2(at.call(7.4, 14.2), (Vector2(17.2, 19) - Vector2(7.4, 14.2)) * k), color)
+		5:
+			draw_circle(at.call(12, 12), 9.5 * k, color)
+			draw_arc(at.call(12, 12), 9.5 * k, 0, TAU, 40, Companies.INK, w, true)
+			draw_circle(at.call(12, 12), 6.2 * k, Companies.CARD_FACE)
+			draw_arc(at.call(12, 12), 6.2 * k, 0, TAU, 32, Companies.INK, w, true)
+			var bolt := [[13.2, 7.2], [9.4, 12.6], [12.5, 12.6], [11.4, 16.8], [15.2, 11.3], [12.1, 11.3]]
+			var bpts := PackedVector2Array()
+			for p in bolt:
+				bpts.append(at.call(p[0], p[1]))
+			draw_colored_polygon(bpts, Companies.INK)
 
 
-func _draw_coin_badge(n: int) -> void:
-	var c := Vector2(size.x / 2.0, size.y / 2.0 + 16)
-	draw_circle(c, 21, Companies.INK)
-	draw_circle(c, 18, Companies.BRONZE)
-	_draw_centered_text(str(n), c + Vector2(0, 1), 18, Color.WHITE)
+func _ink_polygon(points: Array, fill: Color, width: float) -> void:
+	var pts := PackedVector2Array(points)
+	draw_colored_polygon(pts, fill)
+	pts.append(pts[0])
+	draw_polyline(pts, Companies.INK, width, true)
 
 
-func _draw_centered_text(text: String, at: Vector2, px: int, color: Color) -> void:
-	var font := ThemeDB.fallback_font
+func _draw_coin_badge(n: int, c: Vector2) -> void:
+	draw_circle(c + Vector2(0, 3), 22, Companies.INK)
+	draw_circle(c, 22, Companies.INK)
+	draw_circle(c, 19.5, Companies.BRONZE)
+	draw_circle(c - Vector2(5, 6), 7, Color(1, 1, 1, 0.18))
+	_draw_centered_text(str(n), c + Vector2(0, 1), 22, Companies.CARD_FACE, UiTheme.display_font())
+
+
+## A share you may not take (you hold its regulator token): diagonal hatching.
+func _draw_blocked_stripes(rect: Rect2) -> void:
+	var inner := rect.grow(-3)
+	var x := inner.position.x - inner.size.y
+	while x < inner.end.x:
+		var a := Vector2(x, inner.end.y)
+		var b := Vector2(x + inner.size.y, inner.position.y)
+		var seg = Geometry2D.intersect_polyline_with_polygon(PackedVector2Array([a, b]), PackedVector2Array([inner.position, Vector2(inner.end.x, inner.position.y), inner.end, Vector2(inner.position.x, inner.end.y)]))
+		for part in seg:
+			draw_polyline(part, Color(Companies.INK, 0.28), 5.0)
+		x += 16.0
+
+
+func _draw_centered_text(text: String, at: Vector2, px: int, color: Color, font: Font = null) -> void:
+	if font == null:
+		font = UiTheme.ui_font()
 	var w := font.get_string_size(text, HORIZONTAL_ALIGNMENT_CENTER, -1, px).x
 	draw_string(font, at + Vector2(-w / 2.0, px / 3.0), text, HORIZONTAL_ALIGNMENT_LEFT, -1, px, color)

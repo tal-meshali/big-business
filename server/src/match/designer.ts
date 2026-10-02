@@ -25,10 +25,10 @@ export interface Template {
 
 /**
  * The back is the whole card face at 5:7; a company's art window is the
- * 88 x 46 box on the card face (client/scripts/ui/card_view.gd) at 4x.
+ * 108 x 76 box on the card face (client/scripts/ui/card_view.gd) at 3x.
  */
 export const BACK_TEMPLATE: Template = { width: 250, height: 350 };
-export const WINDOW_TEMPLATE: Template = { width: 352, height: 184 };
+export const WINDOW_TEMPLATE: Template = { width: 324, height: 228 };
 
 export function templateFor(part: Part): Template {
   return part === 'back' ? BACK_TEMPLATE : WINDOW_TEMPLATE;

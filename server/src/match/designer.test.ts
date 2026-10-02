@@ -109,9 +109,9 @@ describe('art checks', () => {
 
   it('accepts only WebP at the exact template size within the budget', () => {
     expect(checkArt('back', fakeWebp(250, 350))).toBe('');
-    expect(checkArt('c3', fakeWebp(352, 184))).toBe('');
-    expect(checkArt('back', fakeWebp(352, 184))).toBe('image must be 250x350');
-    expect(checkArt('c9', fakeWebp(352, 184))).toBe('bad part');
+    expect(checkArt('c3', fakeWebp(324, 228))).toBe('');
+    expect(checkArt('back', fakeWebp(324, 228))).toBe('image must be 250x350');
+    expect(checkArt('c9', fakeWebp(324, 228))).toBe('bad part');
     expect(checkArt('back', fakeWebp(250, 350, ART_MAX_BYTES + 4))).toBe('image too large');
     const gif: number[] = new Array(60).fill(120);
     put(gif, 0, 'GIF89a');

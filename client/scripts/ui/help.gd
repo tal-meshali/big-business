@@ -113,7 +113,7 @@ func _build() -> void:
 	_privacy_button.disabled = AppInfo.PRIVACY_URL.is_empty()
 	var version := _add_body(content, "Big Business %s" % AppInfo.version())
 	version.add_theme_color_override("font_color", Companies.INK_SOFT)
-	version.add_theme_font_size_override("font_size", 14)
+	version.add_theme_font_size_override("font_size", 16)
 
 	var close := Button.new()
 	close.text = "Close"
@@ -130,7 +130,7 @@ func _add_section(parent: Control, title: String, body: String) -> void:
 func _add_heading(parent: Control, text: String) -> void:
 	var l := Label.new()
 	l.text = text
-	l.add_theme_font_size_override("font_size", 21)
+	l.add_theme_font_size_override("font_size", 24)
 	parent.add_child(l)
 
 
@@ -138,7 +138,7 @@ func _add_body(parent: Control, text: String) -> Label:
 	var l := Label.new()
 	l.text = text
 	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	l.add_theme_font_size_override("font_size", 17)
+	l.add_theme_font_size_override("font_size", 20)
 	l.add_theme_color_override("font_color", Companies.INK)
 	parent.add_child(l)
 	var gap := Control.new()

@@ -29,7 +29,7 @@ describe('Designer RPCs', () => {
     call(rpcSetAgeBracket, userCtx(ALICE), nk, { bracket: '16plus', region: 'US' });
     const back = fakeWebp(250, 350);
     expect(() => call(rpcUploadCardArt, userCtx(ALICE), nk, { slot: 3, part: 'back', image: back })).toThrow('invalid slot');
-    expect(() => call(rpcUploadCardArt, userCtx(ALICE), nk, { slot: 0, part: 'c0', image: back })).toThrow('image must be 352x184');
+    expect(() => call(rpcUploadCardArt, userCtx(ALICE), nk, { slot: 0, part: 'c0', image: back })).toThrow('image must be 324x228');
     const up = call(rpcUploadCardArt, userCtx(ALICE), nk, { slot: 0, part: 'back', image: back });
     expect(up.status).toBe('pending');
     const hash = up.hash;
@@ -59,7 +59,7 @@ describe('Designer RPCs', () => {
     const { nk } = fakeNk();
     grantDesigner(nk, ALICE);
     call(rpcSetAgeBracket, userCtx(ALICE), nk, { bracket: '16plus', region: 'US' });
-    const window = fakeWebp(352, 184);
+    const window = fakeWebp(324, 228);
     const { hash } = call(rpcUploadCardArt, userCtx(ALICE), nk, { slot: 1, part: 'c2', image: window });
     call(rpcModerateCardArt, serverCtx, nk, { hash, verdict: 'approve' });
     call(rpcSelectDeck, userCtx(ALICE), nk, { slot: 1 });

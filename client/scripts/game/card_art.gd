@@ -9,7 +9,7 @@ class_name CardArt
 ## CardView around the art, so a custom design never hides what a card is.
 
 const BACK_SIZE := Vector2i(250, 350)
-const WINDOW_SIZE := Vector2i(352, 184)
+const WINDOW_SIZE := Vector2i(324, 228)
 ## The server refuses images above this many bytes.
 const MAX_BYTES := 64 * 1024
 const PARTS: Array[String] = ["back", "c0", "c1", "c2", "c3", "c4", "c5"]

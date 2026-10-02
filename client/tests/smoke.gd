@@ -48,6 +48,12 @@ func _run() -> void:
 	if table._seat_views.filter(func(sv): return sv.visible).size() != 3:
 		push_error("expected 3 visible seat views")
 		failures += 1
+	# Opponents' kept shares lie on the felt, with a regulator chip on the
+	# company whose token the holder has (Avi: one share of 2, token 2).
+	var pfs: Array = table._board.portfolios
+	if pfs.size() != 2 or not pfs.any(func(pf): return pf["stacks"] == [[2, 1, true]]):
+		push_error("expected each opponent's shares on the felt with Avi's chip on company 2, got %s" % [pfs])
+		failures += 1
 	if table._draw_button.disabled:
 		push_error("draw button should be enabled on my take step")
 		failures += 1

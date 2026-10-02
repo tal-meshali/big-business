@@ -51,6 +51,13 @@ var hands: Array = []:
 		hands = value
 		queue_redraw()
 
+## Opponents' kept shares: [{"at": Vector2 (dp), "cell": float (1 = full
+## size), "cols": stacks per row, "stacks": [[company, count, holds token], ...]}].
+var portfolios: Array = []:
+	set(value):
+		portfolios = value
+		queue_redraw()
+
 var _label_font: FontVariation
 
 
@@ -107,6 +114,25 @@ static func hand_spots(n: int) -> Array:
 	return out
 
 
+## Where an opponent lays the shares they keep: between their hand at
+## `hand_at` and the middle of the far half, clear of the Supply.
+static func portfolio_spot(hand_at: Vector2) -> Vector2:
+	return hand_at + (Vector2(0, -150) - hand_at).normalized() * 66.0
+
+
+## Size of an opponent's share stacks for `n` opponents, so neighbours'
+## stacks do not run into each other at a full table.
+static func portfolio_cell(n: int) -> float:
+	return [1.1, 1.1, 1.1, 1.0, 0.8, 0.65][clampi(n, 1, 6) - 1]
+
+
+## Stacks per row for opponent `i` of `n`: the seat straight across from
+## you lays all six in one row, so a second row cannot reach the Supply;
+## the rest use rows of three.
+static func portfolio_cols(i: int, n: int) -> int:
+	return 6 if n % 2 == 1 and i == n / 2 and n <= 3 else 3
+
+
 func _draw() -> void:
 	var outline := _stadium(Rect2(Vector2.ZERO, PLANE), RADIUS)
 	var projected := PackedVector2Array()
@@ -128,11 +154,15 @@ func _draw() -> void:
 	_draw_zone(ZONE_SUPPLY, glow.has("supply"))
 	_draw_zone(ZONE_PORTFOLIO, glow.has("portfolio"))
 	_print_label("THE MARKET", Vector2(45, 200))
-	_print_label("SUPPLY · %d" % supply_count, Vector2(230, 158))
+	# WHY: on the Market's line, not beside the Supply, where the right-hand
+	# opponent's shares lie.
+	_print_label("SUPPLY · %d" % supply_count, Vector2(ZONE_MARKET.end.x - 30, 200), true)
 	_print_label("YOUR PORTFOLIO", Vector2(45, 460))
 	_draw_supply_stack()
 	for h in hands:
 		_draw_hand_backs(h["at"], float(h["angle"]), int(h["count"]))
+	for pf in portfolios:
+		_draw_portfolio(pf["at"], pf["stacks"], float(pf["cell"]), int(pf["cols"]))
 
 
 ## Felt with a lighter middle: a fan of triangles from the centre.
@@ -177,10 +207,14 @@ func _draw_zone(zone: Rect2, on: bool) -> void:
 				drawing = not drawing
 
 
-func _print_label(text: String, plane_at: Vector2) -> void:
+## `plane_at` is the label's top-left, or its top-right when `right`.
+func _print_label(text: String, plane_at: Vector2, right := false) -> void:
 	var p := plane_at - PLANE / 2.0
 	var px := int(11 * s * depth(p))
-	draw_string(_label_font, project(p) + Vector2(0, px * 0.8), text, HORIZONTAL_ALIGNMENT_LEFT, -1, px, Color(Companies.INK, 0.72))
+	var at := project(p) + Vector2(0, px * 0.8)
+	if right:
+		at.x -= _label_font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, px).x
+	draw_string(_label_font, at, text, HORIZONTAL_ALIGNMENT_LEFT, -1, px, Color(Companies.INK, 0.72))
 
 
 ## Edges of the face-down supply under its top card.
@@ -227,6 +261,67 @@ func _draw_hand_backs(at: Vector2, angle: float, count: int) -> void:
 			draw_rect(Rect2(r.position.x + 5 * k + j * stripe, r.end.y - 16 * k, stripe - 2 * k, 10 * k), Companies.color_of(j))
 		draw_line(Vector2(r.position.x + 10 * k, 0), Vector2(r.end.x - 10 * k, 0), Companies.INK, maxf(1.0, 3 * k))
 	draw_set_transform(Vector2.ZERO)
+
+
+## An opponent's kept shares: a small face-up stack per company, `cols` to
+## a row, with the count on top and a regulator chip on the corner of each
+## company they hold the token for.
+func _draw_portfolio(at: Vector2, stacks: Array, cell: float, cols: int) -> void:
+	if stacks.is_empty():
+		return
+	var display := UiTheme.display_font()
+	var n := stacks.size()
+	var rows := ceili(n / float(cols))
+	var step := Vector2(23.0, 29.0) * cell
+	var chips := []
+	for i in n:
+		var row := i / cols
+		var in_row := mini(cols, n - row * cols)
+		var p := at + Vector2((i % cols - (in_row - 1) / 2.0) * step.x, (row - (rows - 1) / 2.0) * step.y)
+		var k := depth(p) * s
+		var c := project(p)
+		var card := Vector2(20.0, 26.0) * cell * k
+		var company: int = stacks[i][0]
+		var count: int = stacks[i][1]
+		# Edges of the shares under the top one, then the top one.
+		for e in range(mini(count, 3) - 1, -1, -1):
+			var r := Rect2(c - card / 2.0 + Vector2(0, e * 1.8 * k), card)
+			var sb := StyleBoxFlat.new()
+			sb.bg_color = Companies.color_of(company).darkened(0.25 if e > 0 else 0.0)
+			sb.border_color = Companies.INK
+			sb.set_border_width_all(maxi(1, int(1.2 * k)))
+			sb.set_corner_radius_all(int(3 * k))
+			if e == mini(count, 3) - 1:
+				sb.shadow_color = Color(0, 0, 0, 0.25)
+				sb.shadow_size = int(2 * s)
+				sb.shadow_offset = Vector2(0, 1.5 * s)
+			draw_style_box(sb, r)
+		var txt := str(count)
+		var px := int(14.0 * cell * k)
+		var tw := display.get_string_size(txt, HORIZONTAL_ALIGNMENT_LEFT, -1, px).x
+		draw_string(display, c + Vector2(-tw / 2.0, px * 0.36), txt, HORIZONTAL_ALIGNMENT_LEFT, -1, px, Companies.band_text_color(company))
+		if stacks[i][2]:
+			chips.append([c + Vector2(card.x / 2.0 - 1.0 * k, -card.y / 2.0 + 1.0 * k), 10.0 * maxf(cell, 0.9) * k, company])
+	# WHY: chips go on after every stack so a neighbouring stack cannot
+	# cover one.
+	for chip in chips:
+		draw_chip(self, chip[0], chip[1], chip[2])
+
+
+## A regulator (monopoly) chip: a gold poker chip edged in the company's
+## colour with an "R", centred on `c` with radius `r` px.
+static func draw_chip(ci: CanvasItem, c: Vector2, r: float, company: int) -> void:
+	ci.draw_circle(c + Vector2(0, r * 0.22), r, Color(0, 0, 0, 0.3))
+	ci.draw_circle(c, r, Companies.INK)
+	ci.draw_circle(c, r * 0.86, Companies.GOLD)
+	for i in 6:
+		var a := TAU * i / 6.0
+		ci.draw_arc(c, r * 0.71, a - 0.24, a + 0.24, 6, Companies.color_of(company), r * 0.3)
+	ci.draw_arc(c, r * 0.5, 0, TAU, 24, Companies.INK, maxf(1.0, r * 0.1), true)
+	var display := UiTheme.display_font()
+	var px := int(r * 0.95)
+	var rw := display.get_string_size("R", HORIZONTAL_ALIGNMENT_LEFT, -1, px).x
+	ci.draw_string(display, c + Vector2(-rw / 2.0, px * 0.36), "R", HORIZONTAL_ALIGNMENT_LEFT, -1, px, Companies.INK)
 
 
 ## Outline of a rounded rect, in plane coordinates (top-left origin).

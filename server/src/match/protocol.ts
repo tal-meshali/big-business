@@ -21,6 +21,25 @@ export const OP_ERROR = 13;
 export const OP_EMOTE_SHOWN = 14;
 /** {"seat": n} That seat's player forfeited; a bot plays it from now on. */
 export const OP_FORFEITED = 15;
+/** DeckMessage: the room's custom card art and host skins (room_deck.ts). */
+export const OP_DECK = 16;
+
+/**
+ * OP_DECK payload: art hashes (fetched with the get_card_art RPC) for the
+ * card back and each company's art window; null keeps the standard drawing.
+ * The art may be all null when only a Plus host's skins apply.
+ */
+export interface DeckMessage {
+  /** User id of the deck's owner, so a player who blocked them can hide it. */
+  owner: string;
+  back: string | null;
+  art: Array<string | null>;
+  /** A Plus host's card back and felt, shown to every seat of their private room. */
+  cardBack?: string;
+  table?: string;
+  /** A Plus member's deck in a quick play game (clients show it only if opted in). */
+  public?: boolean;
+}
 
 /** OP_VIEW payload: the seat's PlayerView plus match timing. */
 export interface ViewMessage extends PlayerView {
@@ -60,6 +79,8 @@ export interface MatchParams {
   tutorial: boolean;
   /** Fixed seed (tutorial only); 0 means random. */
   seed: number;
+  /** Private rooms: the user who created the room, whose custom deck it shows. */
+  hostId?: string;
 }
 
 export interface LobbySeat {

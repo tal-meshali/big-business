@@ -95,6 +95,7 @@ jobs:
           ./godot --headless --path client --import
           ./godot --headless --path client --script res://tests/e2e_client.gd
           ./godot --headless --path client --script res://tests/e2e_tutorial.gd
+          ./godot --headless --path client --script res://tests/e2e_designer.gd
       - name: Nakama log on failure
         if: failure()
         run: tail -n 200 nakama.log

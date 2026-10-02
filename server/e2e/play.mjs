@@ -12,6 +12,11 @@
  *   6. quick play: 1 human, lobby wait, bots fill, game completes
  *   7. shop, Remote Config, push tokens and the analytics report (store and
  *      FCM keys are not set, so the shop answers "not configured")
+ *   8. Designer: refused until unlocked (the unlock is seeded through the
+ *      console API, as no store is configured), age gate, upload, the
+ *      moderation queue, and the host's deck reaching a private room
+ *   9. Plus: listed only when offered, ten deck slots, quick play opt-in,
+ *      the host's skins on every seat, and stats recorded after a game
  * Exit code 0 on success.
  */
 import WebSocket from 'ws';
@@ -23,8 +28,11 @@ const HOST = process.env.NAKAMA_HOST || '127.0.0.1';
 const PORT = process.env.NAKAMA_PORT || '7350';
 const KEY = process.env.NAKAMA_KEY || 'defaultkey';
 const HTTP_KEY = process.env.NAKAMA_HTTP_KEY || 'defaulthttpkey';
+const CONSOLE_PORT = process.env.NAKAMA_CONSOLE_PORT || '7351';
+const CONSOLE_USER = process.env.NAKAMA_CONSOLE_USER || 'admin';
+const CONSOLE_PASSWORD = process.env.NAKAMA_CONSOLE_PASSWORD || 'password';
 
-const OP_ACTION = 1, OP_READY = 2, OP_EMOTE = 3, OP_FORFEIT = 4, OP_VIEW = 10, OP_EVENTS = 11, OP_LOBBY = 12, OP_ERROR = 13, OP_EMOTE_SHOWN = 14, OP_FORFEITED = 15;
+const OP_ACTION = 1, OP_READY = 2, OP_EMOTE = 3, OP_FORFEIT = 4, OP_VIEW = 10, OP_EVENTS = 11, OP_LOBBY = 12, OP_ERROR = 13, OP_EMOTE_SHOWN = 14, OP_FORFEITED = 15, OP_DECK = 16;
 const INVITE_CODE = 100; // notification code, see src/match/protocol.ts
 const STARTING_COINS = 10;
 
@@ -57,6 +65,7 @@ async function makePlayer(name) {
     else if (m.op_code === OP_ERROR) p.errors.push(data);
     else if (m.op_code === OP_EMOTE_SHOWN) p.emotes.push(data);
     else if (m.op_code === OP_FORFEITED) p.forfeits.push(data);
+    else if (m.op_code === OP_DECK) p.deck = data;
   };
   socket.ondisconnect = () => { p.disconnected = true; };
   return p;
@@ -552,6 +561,224 @@ async function testServices() {
   p.socket.disconnect(true);
 }
 
+/** Writes a server-owned storage row through the console API, as the operator could. */
+async function consoleWrite(collection, key, userId, value) {
+  const auth = await fetch(`http://${HOST}:${CONSOLE_PORT}/v2/console/authenticate`, { method: 'POST', body: JSON.stringify({ username: CONSOLE_USER, password: CONSOLE_PASSWORD }) });
+  const { token } = await auth.json();
+  const res = await fetch(`http://${HOST}:${CONSOLE_PORT}/v2/console/storage/${collection}/${key}/${userId}`, {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ value: JSON.stringify(value), permission_read: 1, permission_write: 0 }),
+  });
+  if (res.status !== 200) fail(`console write ${collection}/${key}: ${res.status}`);
+}
+
+/** Bytes of a WebP header at this size; the server checks only the header and length. */
+function fakeWebp(width, height, total = 2000) {
+  const b = Buffer.alloc(total);
+  b.write('RIFF', 0, 'ascii');
+  b.writeUInt32LE(total - 8, 4);
+  b.write('WEBPVP8 ', 8, 'ascii');
+  b.writeUInt32LE(total - 20, 16);
+  b[23] = 0x9d; b[24] = 0x01; b[25] = 0x2a;
+  b.writeUInt16LE(width, 26);
+  b.writeUInt16LE(height, 28);
+  for (let i = 30; i < total; i++) b[i] = (i * 31 + Date.now()) & 255;
+  return b.toString('base64');
+}
+
+async function testDesigner() {
+  log('--- Designer: unlock, age gate, upload, moderation, room deck');
+  const host = await makePlayer('Designer');
+  const guest = await makePlayer('Viewer');
+  const back = fakeWebp(250, 350);
+  const state0 = await rpc(host, 'designer_state');
+  if (state0.owned !== false || state0.slots !== 0 || state0.blocker !== 'not_owned') fail(`designer_state before the unlock: ${JSON.stringify(state0)}`);
+  const notOwned = await rpcRejected(host, 'upload_card_art', { slot: 0, part: 'back', image: back }, 'an upload without the unlock');
+  let artSeedRefused = false;
+  try {
+    await host.client.writeStorageObjects(host.session, [{ collection: 'card_art', key: 'a'.repeat(64), value: { owner: host.userId, part: 'back', data: back, status: 'approved' }, permission_read: 1, permission_write: 1 }]);
+  } catch (e) { artSeedRefused = true; }
+  if (!artSeedRefused) fail('a client write to the card_art collection must be refused');
+
+  await consoleWrite('purchases', 'owned', host.userId, { owned: ['designer'], syncedAt: Date.now() });
+  await rpcRejected(host, 'upload_card_art', { slot: 0, part: 'back', image: back }, 'an upload before the age answer');
+  const age = await rpc(host, 'set_age_bracket', { bracket: '16plus', region: 'US' });
+  if (age.blocker !== '') fail(`set_age_bracket: ${JSON.stringify(age)}`);
+  await rpcRejected(host, 'upload_card_art', { slot: 0, part: 'c0', image: back }, 'a back image as an art window');
+  const up = await rpc(host, 'upload_card_art', { slot: 0, part: 'back', image: back });
+  if (!/^[0-9a-f]{64}$/.test(up.hash) || up.status !== 'pending') fail(`upload_card_art: ${JSON.stringify(up)}`);
+  const own = await rpc(host, 'get_card_art', { hashes: [up.hash] });
+  const other = await rpc(guest, 'get_card_art', { hashes: [up.hash] });
+  if (own.art[up.hash] !== back || Object.keys(other.art).length !== 0) fail('pending art is for its uploader only');
+  log(`designer: refused until unlocked (${notOwned}), age set, upload pending, preview for the owner only`);
+
+  await rpcRejected(host, 'moderation_queue', {}, 'moderation_queue from a player');
+  const queue = await serverRpc('moderation_queue', {});
+  const item = queue.body && queue.body.items && queue.body.items.find((i) => i.hash === up.hash);
+  if (queue.status !== 200 || !item || item.reason !== 'unscanned' || item.data !== back) fail(`moderation_queue: ${JSON.stringify(queue.status)} ${item ? item.reason : 'missing'}`);
+  const approved = await serverRpc('moderate_card_art', { hash: up.hash, verdict: 'approve' });
+  if (approved.status !== 200 || approved.body.status !== 'approved') fail(`moderate_card_art: ${JSON.stringify(approved)}`);
+  await rpc(host, 'select_deck', { slot: 0 });
+  log('moderation: queued without a scanner, approved by the operator');
+
+  const created = await rpc(host, 'create_room', { stepSeconds: 30, maxSeats: 3 });
+  await join(host, created.matchId, created.code);
+  await join(guest, created.matchId, created.code);
+  await waitFor(() => host.lobby && host.lobby.seats.length === 2, 5000, 'both players in the Designer room');
+  send(host, OP_READY);
+  send(guest, OP_READY);
+  await waitFor(() => host.deck && guest.deck, 8000, 'the custom deck should reach both seats');
+  if (guest.deck.back !== up.hash || guest.deck.owner !== host.userId || guest.deck.art.length !== 6) fail(`OP_DECK: ${JSON.stringify(guest.deck)}`);
+  const fetched = await rpc(guest, 'get_card_art', { hashes: [guest.deck.back] });
+  if (fetched.art[up.hash] !== back) fail('approved art should be served to room members');
+  const rep = await rpc(guest, 'report_card_art', { hash: up.hash, matchId: created.matchId });
+  if (!rep.ok) fail('report_card_art should succeed');
+  log('room deck: sent to both seats, art fetched by the guest, report filed');
+  for (const p of [host, guest]) p.socket.disconnect(true);
+}
+
+async function testPlus() {
+  log('--- Plus: offer switch, decks, quick play opt-in, host skins, stats');
+  const host = await makePlayer('PlusHost');
+  const guest = await makePlayer('PlusGuest');
+  const listed = async () => (await rpc(host, 'store_catalog')).unlocks.map((u) => u.id).join(',');
+  if ((await listed()) !== 'designer') fail('Plus must not be listed until offered');
+  await serverRpc('set_remote_config', { plusEnabled: true });
+  if ((await listed()) !== 'designer,plus') fail('Plus should be listed once offered');
+  await serverRpc('set_remote_config', { plusEnabled: false });
+  await rpcRejected(host, 'set_public_deck', { on: true }, 'quick play opt-in without Plus');
+  await consoleWrite('purchases', 'owned', host.userId, { owned: ['plus', 'table_walnut'], syncedAt: Date.now(), expires: { plus: Date.now() + 86_400_000 } });
+  const st = await rpc(host, 'designer_state');
+  if (!st.plus || st.slots !== 10) fail(`designer_state with Plus: ${JSON.stringify({ plus: st.plus, slots: st.slots })}`);
+  if (!(await rpc(host, 'set_public_deck', { on: true })).publicDeck) fail('set_public_deck with Plus');
+  const eq = await rpc(host, 'equip_cosmetic', { slot: 'cardBack', id: 'back_ticker' });
+  const eq2 = await rpc(host, 'equip_cosmetic', { slot: 'table', id: 'table_walnut' });
+  if (!eq.ok || !eq2.ok) fail('a Plus member can equip the Plus skin and an owned felt');
+  const free = await rpc(guest, 'equip_cosmetic', { slot: 'cardBack', id: 'back_ticker' });
+  if (free.ok) fail('the Plus skin must not equip without Plus');
+  log('plus: listed only when offered, ten decks, quick play opt-in, Plus skin for members only');
+
+  const created = await rpc(host, 'create_room', { stepSeconds: 5, maxSeats: 3 });
+  await join(host, created.matchId, created.code);
+  await join(guest, created.matchId, created.code);
+  await waitFor(() => host.lobby && host.lobby.seats.length === 2, 5000, 'both players in the Plus room');
+  send(host, OP_READY);
+  send(guest, OP_READY);
+  await waitFor(() => guest.deck, 8000, "the Plus host's table should reach the guest");
+  if (guest.deck.cardBack !== 'back_ticker' || guest.deck.table !== 'table_walnut' || guest.deck.back !== null) fail(`host skins: ${JSON.stringify(guest.deck)}`);
+  log("host skins: the guest's table shows the host's back and felt");
+  await playOut([host, guest], { maxMs: 120000 });
+  // WHY both: the match writes each seat's stats in turn, so an RPC can land between them.
+  let stats = null;
+  let guestStats = null;
+  for (let i = 0; i < 50; i++) {
+    stats = await rpc(host, 'get_stats');
+    guestStats = await rpc(guest, 'get_stats');
+    if (stats.games >= 1 && guestStats.games >= 1) break;
+    await sleep(200);
+  }
+  if (!stats.plus || stats.games !== 1 || !Array.isArray(stats.majorities) || stats.recent.length !== 1 || stats.bestScore !== stats.recent[0].score) fail(`get_stats with Plus: ${JSON.stringify(stats)}`);
+  if (guestStats.plus !== false || guestStats.games !== 1 || 'majorities' in guestStats) fail(`get_stats without Plus: ${JSON.stringify(guestStats)}`);
+  log(`stats: recorded for both; full breakdown for Plus (capital ${stats.bestScore}, place ${stats.recent[0].rank}), games and wins otherwise`);
+  for (const p of [host, guest]) p.socket.disconnect(true);
+}
+
+async function testClubs() {
+  log('--- Clubs: create, join, closed group API and chat, league points from a game');
+  const owner = await makePlayer('ClubOwner');
+  const member = await makePlayer('ClubMember');
+  const club = await rpc(owner, 'club_create', { adjective: 4, noun: 2, crest: 3 });
+  if (!/^Golden Partners \d+$/.test(club.name)) fail(`club_create: ${JSON.stringify(club)}`);
+  await rpcRejected(owner, 'club_create', { adjective: 0, noun: 0, crest: 0 }, 'a second club');
+  const listed = await rpc(member, 'club_list');
+  if (!listed.clubs.some((c) => c.id === club.id)) fail('the new club should be listed');
+  await rpcRejected(member, 'club_create', { adjective: 99, noun: 0, crest: 0 }, 'a name outside the word lists');
+  let apiBlocked = false;
+  try { await member.client.createGroup(member.session, { name: 'typed name', open: true }); } catch (e) { apiBlocked = true; }
+  let joinBlocked = false;
+  try { await member.client.joinGroup(member.session, club.id); } catch (e) { joinBlocked = true; }
+  if (!apiBlocked || !joinBlocked) fail('the client group API must be closed');
+  await rpc(member, 'club_join', { clubId: club.id });
+  let chatBlocked = false;
+  try { await member.socket.joinChat(club.id, 3, true, false); } catch (e) { chatBlocked = true; }
+  if (!chatBlocked) fail('club chat must be closed');
+  log('clubs: word-list names, one club each, group API and chat closed');
+
+  const created = await rpc(owner, 'create_room', { stepSeconds: 5, maxSeats: 2 });
+  await join(owner, created.matchId, created.code);
+  await join(member, created.matchId, created.code);
+  await waitFor(() => owner.lobby && owner.lobby.seats.length === 2, 5000, 'both club members seated');
+  send(owner, OP_READY);
+  send(member, OP_READY);
+  await playOut([owner, member], { maxMs: 120000 });
+  let st = null;
+  for (let i = 0; i < 50; i++) {
+    st = await rpc(member, 'club_state');
+    // The league table can trail the club's own record by a moment, and
+    // each seat's league and weekly records land one after the other.
+    if (st.club && st.club.score > 0 && st.league.some((c) => c.id === club.id) && st.club.members.reduce((n, m) => n + m.week, 0) === st.club.score) break;
+    await sleep(200);
+  }
+  const sum = st.club.members.reduce((n, m) => n + m.week, 0);
+  if (!st.club || st.club.score <= 0 || st.club.rank < 1 || sum !== st.club.score || !st.league.some((c) => c.id === club.id && c.score === st.club.score)) fail(`club_state after a game: ${JSON.stringify(st)}`);
+  log(`league: the game added ${st.club.score} points, ranked ${st.club.rank}`);
+
+  await rpcRejected(member, 'club_kick', { userId: owner.userId }, 'a member removing the owner');
+  await rpc(owner, 'club_kick', { userId: member.userId });
+  if ((await rpc(member, 'club_state')).club !== null) fail('a removed member should have no club');
+  await rpc(owner, 'club_leave');
+  if ((await rpc(member, 'club_list')).clubs.some((c) => c.id === club.id)) fail('the last member out closes the club');
+  log('clubs: owner removes a member; the last one out closes the club');
+  for (const p of [owner, member]) p.socket.disconnect(true);
+}
+
+async function testGiftsAndWatching() {
+  log('--- Gifts and watching: friends only, track points, a seatless view');
+  const [a, b, c, stranger] = await Promise.all([makePlayer('GiftA'), makePlayer('GiftB'), makePlayer('GiftC'), makePlayer('Nosy')]);
+  await rpcRejected(a, 'send_gift', { userId: b.userId }, 'a gift before being friends');
+  await a.client.addFriends(a.session, [b.userId]);
+  await b.client.addFriends(b.session, [a.userId]);
+  await rpc(a, 'send_gift', { userId: b.userId });
+  await rpcRejected(a, 'send_gift', { userId: b.userId }, 'a second gift the same day');
+  const before = (await rpc(b, 'get_profile')).trackPoints || 0;
+  const st = await rpc(b, 'gift_state');
+  if (st.waiting !== 1 || st.names[0] !== a.session.username) fail(`gift_state: ${JSON.stringify(st)}`);
+  const claim = await rpc(b, 'claim_gifts');
+  if (claim.claimed !== 1 || claim.trackPoints !== before + st.points) fail(`claim_gifts: ${JSON.stringify(claim)} (before ${before})`);
+  log(`gifts: friends only, once a day, +${st.points} track points collected`);
+
+  const created = await rpc(a, 'create_room', { stepSeconds: 5, maxSeats: 2 });
+  await join(a, created.matchId, created.code);
+  await join(c, created.matchId, created.code);
+  await waitFor(() => a.lobby && a.lobby.seats.length === 2, 5000, 'both players seated');
+  send(a, OP_READY);
+  send(c, OP_READY);
+  await waitFor(() => a.view, 8000, 'the game to start');
+  let playing = [];
+  for (let i = 0; i < 20 && playing.length === 0; i++) {
+    playing = (await rpc(b, 'friends_playing')).playing;
+    if (playing.length === 0) await sleep(200);
+  }
+  if (playing.join() !== a.userId) fail(`friends_playing: ${JSON.stringify(playing)}`);
+  await rpcRejected(stranger, 'watch_friend', { userId: a.userId }, 'a stranger watching');
+  let sneaked = false;
+  try { await stranger.socket.joinMatch(created.matchId, undefined, { watch: '1' }); sneaked = true; } catch (e) { /* expected */ }
+  if (sneaked) fail('joining with watch metadata but no pass must be refused');
+  const pass = await rpc(b, 'watch_friend', { userId: a.userId });
+  if (pass.matchId !== created.matchId) fail(`watch_friend: ${JSON.stringify(pass)}`);
+  await b.socket.joinMatch(pass.matchId, undefined, { watch: '1' });
+  b.matchId = pass.matchId;
+  await waitFor(() => b.view, 5000, 'the watcher to get a view');
+  if (b.view.you !== null || b.view.seats.some((s) => s.hand) || b.view.legal.length !== 0) fail(`a watcher sees no hands and has no moves: ${JSON.stringify({ you: b.view.you, legal: b.view.legal })}`);
+  send(b, OP_FORFEIT);
+  await playOut([a, c], { maxMs: 120000 });
+  await waitFor(() => b.view && b.view.phase === 'ended', 5000, 'the watcher to see the end');
+  if (a.forfeits.length + c.forfeits.length > 0) fail("a watcher's forfeit must do nothing");
+  log('watching: friends only, by pass, no hands or moves, saw the game to the end');
+  for (const p of [a, b, c, stranger]) p.socket.disconnect(true);
+}
+
 try {
   await testPrivateRoom();
   await testForfeit();
@@ -560,6 +787,10 @@ try {
   await testQuickPlay();
   await testTutorial();
   await testServices();
+  await testDesigner();
+  await testPlus();
+  await testClubs();
+  await testGiftsAndWatching();
   log('E2E OK');
   process.exit(0);
 } catch (e) {

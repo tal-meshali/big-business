@@ -115,6 +115,7 @@ func _ready() -> void:
 	Net.reconnecting.connect(_on_reconnecting)
 	Net.reconnected.connect(_on_reconnected)
 	Net.player_forfeited.connect(_on_player_forfeited)
+	Net.custom_deck_changed.connect(_on_room_look)
 	get_viewport().size_changed.connect(_on_resized)
 	# The lobby opened this scene on the game's first view; render it now.
 	if not Net.last_view.is_empty():
@@ -124,6 +125,15 @@ func _ready() -> void:
 # ---------------------------------------------------------------------------
 # Layout
 # ---------------------------------------------------------------------------
+
+## A Plus host's felt arrives with the room's look (OP_DECK): repaint.
+func _on_room_look() -> void:
+	if _board == null:
+		return
+	_board.felt_color = Cosmetics.table_bg_color()
+	_board.edge_color = Cosmetics.table_edge_color()
+	UiTheme.paint_room(_room, Cosmetics.table_bg_color(), Vector2(0.5, 0.42))
+
 
 func _px(dp: float) -> int:
 	return int(round(dp * _s))
@@ -1192,6 +1202,9 @@ func _update_prompt() -> void:
 			var seats: Array = view.get("seats", [])
 			var active := int(view.get("active", 0))
 			_prompt.text = "%s is thinking…" % (seats[active].get("name", "?") if active < seats.size() else "?")
+		# A friend watching has no seat (Net.watch_friend).
+		if _my_seat < 0:
+			_prompt.text = "Watching. " + _prompt.text
 		return
 	if phase == "take":
 		var cost = view.get("drawCost")

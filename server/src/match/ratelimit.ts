@@ -24,6 +24,18 @@ export const RATE_LIMITS = {
   quick_play: 12,
   sync_purchases: 6,
   register_push_token: 6,
+  set_age_bracket: 6,
+  upload_card_art: 10,
+  get_card_art: 30,
+  report_card_art: 5,
+  club_list: 20,
+  club_create: 3,
+  club_join: 6,
+  club_kick: 10,
+  send_gift: 20,
+  claim_gifts: 10,
+  friends_playing: 20,
+  watch_friend: 10,
   /** Charged per user named in an AddFriends request, not per request. */
   add_friends: 20,
 };

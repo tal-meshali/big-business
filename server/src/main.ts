@@ -1,19 +1,17 @@
 /**
  * Nakama runtime entry point. Registers the Big Business match handler, the
  * room-code, profile, moderation, social, account-link, quest, cosmetic,
- * shop, push-token, Remote Config and analytics RPCs.
+ * shop, push-token, Remote Config, analytics and Designer (custom card art)
+ * RPCs, and clubs with their weekly league.
  *
  * Every RPC goes through `guardRpc` (only messages raised with `reject`
  * reach the client) and reads its payload through the validators in
  * match/input.ts: the client is untrusted.
  */
 import { matchInit, matchJoin, matchJoinAttempt, matchLeave, matchLoop, matchSignal, matchTerminate } from './match/handler';
-import { guarded } from './match/input';
-import { SEASON_LEADERBOARD } from './match/progression';
+import { createLeaderboards } from './match/boards';
 import { MATCH_MODULE } from './match/protocol';
-import { beforeAddFriends, beforeDeleteStorageObjects, beforeWriteStorageObjects, rpcReportPlayer } from './match/reports';
-import { rpcCreateRoom, rpcJoinRoom, rpcQuickPlay } from './match/rooms';
-import { rpcClaimDaily, rpcGetProfile } from './match/rpc_profile';
+import { beforeAddFriends, beforeDeleteStorageObjects, beforeWriteStorageObjects } from './match/reports';
 import {
   guardedAnalyticsReport,
   guardedGetRemoteConfig,
@@ -24,33 +22,41 @@ import {
   guardedSyncPurchases,
   guardedUnregisterPushToken,
 } from './match/guarded_services';
-import { rpcClaimQuest, rpcEquipCosmetic } from './match/rpc_quests';
-import { rpcAccountLinks, rpcFindPlayer, rpcInviteFriend } from './match/social';
-
-// Nakama resolves registerRpc arguments to named function literals in this
-// module (it refuses wrappers such as guardRpc(fn)), so each guarded RPC is a
-// named arrow here. See `guarded` in match/input.ts.
-const guardedCreateRoom: nkruntime.RpcFunction = (ctx, logger, nk, payload) => guarded(rpcCreateRoom, ctx, logger, nk, payload);
-const guardedJoinRoom: nkruntime.RpcFunction = (ctx, logger, nk, payload) => guarded(rpcJoinRoom, ctx, logger, nk, payload);
-const guardedQuickPlay: nkruntime.RpcFunction = (ctx, logger, nk, payload) => guarded(rpcQuickPlay, ctx, logger, nk, payload);
-const guardedGetProfile: nkruntime.RpcFunction = (ctx, logger, nk, payload) => guarded(rpcGetProfile, ctx, logger, nk, payload);
-const guardedClaimDaily: nkruntime.RpcFunction = (ctx, logger, nk, payload) => guarded(rpcClaimDaily, ctx, logger, nk, payload);
-const guardedClaimQuest: nkruntime.RpcFunction = (ctx, logger, nk, payload) => guarded(rpcClaimQuest, ctx, logger, nk, payload);
-const guardedEquipCosmetic: nkruntime.RpcFunction = (ctx, logger, nk, payload) => guarded(rpcEquipCosmetic, ctx, logger, nk, payload);
-const guardedReportPlayer: nkruntime.RpcFunction = (ctx, logger, nk, payload) => guarded(rpcReportPlayer, ctx, logger, nk, payload);
-const guardedFindPlayer: nkruntime.RpcFunction = (ctx, logger, nk, payload) => guarded(rpcFindPlayer, ctx, logger, nk, payload);
-const guardedInviteFriend: nkruntime.RpcFunction = (ctx, logger, nk, payload) => guarded(rpcInviteFriend, ctx, logger, nk, payload);
-const guardedAccountLinks: nkruntime.RpcFunction = (ctx, logger, nk, payload) => guarded(rpcAccountLinks, ctx, logger, nk, payload);
+import {
+  guardedCreateRoom,
+  guardedJoinRoom,
+  guardedQuickPlay,
+  guardedGetProfile,
+  guardedClaimDaily,
+  guardedClaimQuest,
+  guardedEquipCosmetic,
+  guardedReportPlayer,
+  guardedFindPlayer,
+  guardedInviteFriend,
+  guardedAccountLinks,
+} from './match/guarded_core';
+import {
+  guardedClearDeckPart,
+  guardedDesignerState,
+  guardedGetCardArt,
+  guardedModerateCardArt,
+  guardedModerationQueue,
+  guardedReportCardArt,
+  guardedGetStats,
+  guardedSelectDeck,
+  guardedSetPublicDeck,
+  guardedSetAgeBracket,
+  guardedUploadCardArt,
+} from './match/guarded_designer';
+// WHY a namespace import: esbuild turns `social.x` back into the plain
+// function name in the bundle (which Nakama needs), while the graph sees one
+// dependency instead of one per RPC, keeping main.ts under the god-node limit.
+import * as social from './match/guarded_social';
+import { beforeChannelJoin, beforeGroupChange } from './match/rpc_clubs';
 
 function InitModule(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, initializer: nkruntime.Initializer): void {
   void ctx;
-  // Monthly season: authoritative, descending, points accumulate, resets on the 1st.
-  try {
-    // nkruntime is types only at runtime, so pass the enum string values.
-    nk.leaderboardCreate(SEASON_LEADERBOARD, true, 'descending' as nkruntime.SortOrder, 'increment' as nkruntime.Operator, '0 0 1 * *');
-  } catch (e) {
-    logger.warn('leaderboard create: %s', String(e));
-  }
+  createLeaderboards(nk, logger);
   initializer.registerMatch(MATCH_MODULE, {
     matchInit,
     matchJoinAttempt,
@@ -76,13 +82,40 @@ function InitModule(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkrunt
   initializer.registerRpc('get_remote_config', guardedGetRemoteConfig);
   initializer.registerRpc('register_push_token', guardedRegisterPushToken);
   initializer.registerRpc('unregister_push_token', guardedUnregisterPushToken);
+  initializer.registerRpc('designer_state', guardedDesignerState);
+  initializer.registerRpc('set_age_bracket', guardedSetAgeBracket);
+  initializer.registerRpc('upload_card_art', guardedUploadCardArt);
+  initializer.registerRpc('clear_deck_part', guardedClearDeckPart);
+  initializer.registerRpc('select_deck', guardedSelectDeck);
+  initializer.registerRpc('set_public_deck', guardedSetPublicDeck);
+  initializer.registerRpc('get_card_art', guardedGetCardArt);
+  initializer.registerRpc('report_card_art', guardedReportCardArt);
+  initializer.registerRpc('get_stats', guardedGetStats);
+  initializer.registerRpc('club_state', social.guardedClubState);
+  initializer.registerRpc('club_list', social.guardedClubList);
+  initializer.registerRpc('club_create', social.guardedClubCreate);
+  initializer.registerRpc('club_join', social.guardedClubJoin);
+  initializer.registerRpc('club_leave', social.guardedClubLeave);
+  initializer.registerRpc('club_kick', social.guardedClubKick);
+  initializer.registerRpc('gift_state', social.guardedGiftState);
+  initializer.registerRpc('send_gift', social.guardedSendGift);
+  initializer.registerRpc('claim_gifts', social.guardedClaimGifts);
+  initializer.registerRpc('friends_playing', social.guardedFriendsPlaying);
+  initializer.registerRpc('watch_friend', social.guardedWatchFriend);
   // Server-to-server only (runtime http_key; they refuse player sessions).
   initializer.registerRpc('revenuecat_webhook', guardedRevenueCatWebhook);
   initializer.registerRpc('set_remote_config', guardedSetRemoteConfig);
   initializer.registerRpc('analytics_report', guardedAnalyticsReport);
+  initializer.registerRpc('moderation_queue', guardedModerationQueue);
+  initializer.registerRpc('moderate_card_art', guardedModerateCardArt);
   initializer.registerBeforeAddFriends(beforeAddFriends);
   initializer.registerBeforeWriteStorageObjects(beforeWriteStorageObjects);
   initializer.registerBeforeDeleteStorageObjects(beforeDeleteStorageObjects);
+  initializer.registerBeforeCreateGroup(beforeGroupChange);
+  initializer.registerBeforeUpdateGroup(beforeGroupChange);
+  initializer.registerBeforeJoinGroup(beforeGroupChange);
+  initializer.registerBeforeAddGroupUsers(beforeGroupChange);
+  initializer.registerRtBefore('ChannelJoin', beforeChannelJoin);
   logger.info('Big Business runtime loaded');
 }
 

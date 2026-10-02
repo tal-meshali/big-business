@@ -115,6 +115,10 @@ func _run() -> void:
 	failures += await _quests_checks()
 	failures += await _account_checks()
 	failures += await _shop_checks()
+	failures += await _designer_checks()
+	failures += await _plus_checks()
+	failures += await _club_checks()
+	failures += await _watch_checks()
 
 	if failures == 0:
 		print("SMOKE OK")
@@ -973,9 +977,23 @@ func _friends_checks() -> int:
 	if panel._list.get_child(2).get_child(2).text != "Pending":
 		push_error("a sent request should read Pending")
 		failures += 1
-	if bo_row.get_child(3).text != "Remove":
-		push_error("each friend row needs a Remove button")
+	if bo_row.get_child(bo_row.get_child_count() - 1).text != "Remove" or bo_row.get_child(3).text != "Gift":
+		push_error("a friend row has Gift, then Remove")
 		failures += 1
+	if panel._list.get_child(1).get_child(3).text != "Remove":
+		push_error("a request row has no Gift")
+		failures += 1
+	var bo_id := String(panel._friends[0].get("userId", ""))
+	panel.set_extras({"waiting": 2, "names": ["Cara", "Dev"], "claimLeft": 5, "sentToday": [bo_id], "sendLeft": 9, "points": 5}, [bo_id])
+	await process_frame
+	bo_row = panel._list.get_child(0)
+	if bo_row.get_child(3).text != "Watch" or bo_row.get_child(4).text != "Sent" or not bo_row.get_child(4).disabled:
+		push_error("a friend in a game offers Watch; a gift sent today reads Sent")
+		failures += 1
+	if not panel._gift_row.visible or panel._gift_label.text != "2 gifts from Cara, Dev (+5 track points each)" or panel._collect_button.custom_minimum_size.y < 48:
+		push_error("waiting gifts show with Collect, got '%s'" % panel._gift_label.text)
+		failures += 1
+	panel.set_extras({}, [])
 
 	panel.room_code = "ABC234"
 	await process_frame
@@ -1348,4 +1366,302 @@ func _shop_checks() -> int:
 	main.queue_free()
 	RemoteConfig.reset()
 	Cosmetics.reset()
+	return failures
+
+
+## Designer: framing and rendering pictures to the templates, the room deck
+## on cards, and the panel showing the step that is missing.
+func _designer_checks() -> int:
+	var failures := 0
+	var back_rect := CardArt.crop_rect(Vector2i(1000, 1000), "back", 1.0, Vector2(0.5, 0.5))
+	if back_rect.size != Vector2i(714, 1000) or back_rect.position != Vector2i(143, 0):
+		push_error("back crop should be the largest 5:7 box, centred (got %s)" % back_rect)
+		failures += 1
+	var win_rect := CardArt.crop_rect(Vector2i(1000, 1000), "c0", 2.0, Vector2(1.0, 0.0))
+	if win_rect.size != Vector2i(500, 352) or win_rect.end.x != 1000 or win_rect.position.y != 0:
+		push_error("a zoomed window crop should stay inside the picture (got %s)" % win_rect)
+		failures += 1
+	var picture := Image.create(900, 600, false, Image.FORMAT_RGBA8)
+	picture.fill(Color(0.2, 0.5, 0.8))
+	picture.fill_rect(Rect2i(300, 200, 300, 200), Color(0.9, 0.7, 0.1))
+	for part in ["back", "c4"]:
+		var img := CardArt.render(picture, part, 1.5, Vector2(0.4, 0.5))
+		var bytes := CardArt.encode(img)
+		if img.get_size() != CardArt.template_size(part) or img.get_format() != Image.FORMAT_RGB8:
+			push_error("%s should render at its template size without alpha" % part)
+			failures += 1
+		if bytes.is_empty() or bytes.size() > CardArt.MAX_BYTES or CardArt.webp_size(bytes) != CardArt.template_size(part):
+			push_error("%s should encode as a lossy WebP the server accepts (%d bytes, %s)" % [part, bytes.size(), CardArt.webp_size(bytes)])
+			failures += 1
+
+	# A room deck puts its pictures on the cards; the setting hides them.
+	var hash := "f".repeat(64)
+	var webp := CardArt.encode(CardArt.render(picture, "back"))
+	if not CardArt.add_art(hash, Marshalls.raw_to_base64(webp)) or CardArt.texture(hash) == null:
+		push_error("fetched art should be cached by hash")
+		failures += 1
+	CardArt.set_room_deck({"owner": "u1", "back": hash, "art": [null, null, hash, null, null, null]})
+	if CardArt.back_texture() == null or CardArt.company_texture(2) == null or CardArt.company_texture(0) != null:
+		push_error("the room deck should give the back and company 2 a picture, others none")
+		failures += 1
+	if CardArt.deck_hashes() != [hash] or CardArt.missing_hashes().size() != 0 or CardArt.deck_owner() != "u1":
+		push_error("deck hashes should be listed once and found in the cache")
+		failures += 1
+	var card := CardView.new()
+	card.size = Vector2(CardView.W, CardView.H)
+	root.add_child(card)
+	card.setup(1, 2, 0, true)
+	await process_frame
+	card.setup(1, 2, 0, false)
+	await process_frame
+	card.queue_free()
+	CardArt.show_custom = false
+	if CardArt.back_texture() != null:
+		push_error("turning custom decks off should show the standard back")
+		failures += 1
+	CardArt.show_custom = true
+	CardArt.clear_room_deck()
+	if CardArt.back_texture() != null:
+		push_error("leaving the room clears its deck")
+		failures += 1
+	DirAccess.remove_absolute("%s/%s.webp" % [CardArt.CACHE_DIR, hash])
+
+	if load("res://scripts/net/designer_api.gd").clean_error("Error: Designer is not unlocked at reject (index.js:866:13(3))") != "Designer is not unlocked":
+		push_error("server refusals should read as their message only")
+		failures += 1
+
+	# Loaded by path: these scripts use the Net autoload, which a --script run
+	# only has once the tree is up.
+	var panel = load("res://scripts/ui/designer_panel.gd").new()
+	panel.size = Vector2(672, 1100)
+	root.add_child(panel)
+	await process_frame
+	panel.apply_state({"enabled": true, "owned": false, "slots": 0, "blocker": "not_owned", "decks": [], "active": -1})
+	if not panel._unlock_box.visible or panel._deck_box.visible or panel._age_box.visible:
+		push_error("without the unlock the panel offers it and nothing else")
+		failures += 1
+	panel.apply_state({"enabled": true, "owned": true, "slots": 3, "blocker": "age_unknown", "decks": [], "active": -1})
+	if not panel._age_box.visible or panel._unlock_box.visible or panel._deck_box.visible:
+		push_error("with the unlock and no age the panel asks the age")
+		failures += 1
+	panel.apply_state({"enabled": true, "owned": true, "slots": 3, "blocker": "too_young", "decks": [], "active": -1})
+	if not panel._blocked_label.visible or panel._deck_box.visible:
+		push_error("too young to upload: say so, no decks")
+		failures += 1
+	var empty_deck := {"back": null, "backStatus": null, "art": [null, null, null, null, null, null], "artStatus": [null, null, null, null, null, null]}
+	var deck0 := {"back": hash, "backStatus": "pending", "art": [null, null, null, null, null, null], "artStatus": [null, null, null, null, null, null]}
+	panel.apply_state({"enabled": true, "owned": true, "slots": 3, "blocker": "", "decks": [deck0, empty_deck, empty_deck], "active": 0})
+	await process_frame
+	if not panel._deck_box.visible or panel._parts_list.get_child_count() != 7 or not panel._use_toggle.button_pressed:
+		push_error("an unlocked adult sees 7 part rows for the active deck")
+		failures += 1
+	var first_row: Label = panel._parts_list.get_child(0).get_child(0)
+	if not first_row.text.contains("Card back") or not first_row.text.contains("Waiting for review"):
+		push_error("the back row should show its review status, got '%s'" % first_row.text)
+		failures += 1
+	failures += _check_button_sizes(panel, "designer")
+	panel.open_editor(picture, "c1")
+	await process_frame
+	if not panel._editor.visible or panel._deck_box.visible or panel._preview.preview_art == null:
+		push_error("picking a picture opens the framing editor with a live preview")
+		failures += 1
+	if panel.rendered().get_size() != CardArt.WINDOW_SIZE:
+		push_error("the editor renders at the art-window template")
+		failures += 1
+	panel.close_editor()
+	if panel._editor.visible or not panel._deck_box.visible or panel._preview.preview_art != null:
+		push_error("cancel returns to the deck")
+		failures += 1
+	panel.queue_free()
+
+	var shop = load("res://scripts/ui/shop_panel.gd").new()
+	root.add_child(shop)
+	await process_frame
+	if not shop._designer_button.visible:
+		push_error("the shop offers Designer by default")
+		failures += 1
+	await shop._on_open_designer()
+	if not shop.designer_panel.visible or shop._deed_panel.visible:
+		push_error("Designer opens over the shop")
+		failures += 1
+	if shop.designer_panel._status.text != "Connect to use Designer.":
+		push_error("offline the Designer panel says to connect, got '%s'" % shop.designer_panel._status.text)
+		failures += 1
+	shop.queue_free()
+	RemoteConfig.apply({"designerEnabled": false})
+	if RemoteConfig.designer_enabled:
+		push_error("Remote Config can switch Designer off")
+		failures += 1
+	RemoteConfig.reset()
+	return failures
+
+
+## Plus: the subscription row, host skins on the table, the Plus skin, the
+## stats text and the larger Designer.
+func _plus_checks() -> int:
+	var failures := 0
+	Cosmetics.reset()
+	RemoteConfig.reset()
+	if not Cosmetics.is_plus("back_ticker") or not Cosmetics.is_plus("table_slate") or Cosmetics.is_paid("back_ticker"):
+		push_error("Plus skins are flagged plus, not paid")
+		failures += 1
+	Cosmetics.set_room_skins("back_ticker", "table_walnut")
+	if Cosmetics.shown_card_back() != "back_ticker" or Cosmetics.table_bg_color() != Cosmetics.swatch_color("table_walnut") or Cosmetics.card_back != "back_classic":
+		push_error("a Plus host's skins show on the table without changing your own")
+		failures += 1
+	var card := CardView.new()
+	card.size = Vector2(CardView.W, CardView.H)
+	root.add_child(card)
+	card.setup(1, 0, 0, false)
+	await process_frame
+	card.queue_free()
+	Cosmetics.set_room_skins("", "")
+	if Cosmetics.shown_card_back() != "back_classic" or Cosmetics.shown_table() != "table_green":
+		push_error("leaving the room restores your own skins")
+		failures += 1
+
+	var stats_script = load("res://scripts/ui/stats_panel.gd")
+	var locked: String = stats_script.describe({"plus": false, "games": 4, "wins": 1})
+	var full: String = stats_script.describe({"plus": true, "games": 4, "wins": 1, "winRate": 25, "averageScore": 12.5, "bestScore": 20, "podiums": 3, "peopleGames": 2,
+		"majorities": [0, 2, 0, 0, 1, 0], "recent": [{"rank": 2}, {"rank": 1}]})
+	if not locked.begins_with("4 games, 1 wins") or not locked.contains("Plus shows"):
+		push_error("without Plus the stats show games and wins and what Plus adds, got '%s'" % locked)
+		failures += 1
+	if not full.contains("(25%)") or not full.contains("Foods 2") or not full.contains("#2 #1"):
+		push_error("Plus stats should show the breakdown, got '%s'" % full)
+		failures += 1
+
+	var shop = load("res://scripts/ui/shop_panel.gd").new()
+	root.add_child(shop)
+	await process_frame
+	var catalog := {"configured": true, "owned": [], "skins": [], "unlocks": [
+		{"id": "designer", "name": "Designer", "productId": "bb_designer", "owned": false},
+		{"id": "plus", "name": "Plus", "productId": "bb_plus_monthly", "owned": false}]}
+	shop.apply_catalog(catalog)
+	if shop._plus_box.visible:
+		push_error("Plus stays hidden while Remote Config does not offer it")
+		failures += 1
+	RemoteConfig.apply({"plusEnabled": true})
+	shop.apply_catalog(catalog)
+	await process_frame
+	if not shop._plus_box.visible or shop._plus_button.text != "Subscribe" or not shop._plus_button.disabled:
+		push_error("offered Plus shows Subscribe, disabled without the store plugin")
+		failures += 1
+	failures += _check_button_sizes(shop, "shop with Plus")
+	RemoteConfig.reset()
+	catalog["owned"] = ["plus"]
+	catalog["unlocks"][1]["owned"] = true
+	shop.apply_catalog(catalog)
+	if not shop._plus_box.visible or shop._plus_button.text != "Plus active":
+		push_error("a member always sees Plus as active")
+		failures += 1
+	shop.queue_free()
+
+	var panel = load("res://scripts/ui/designer_panel.gd").new()
+	panel.size = Vector2(672, 1100)
+	root.add_child(panel)
+	await process_frame
+	var empty := {"back": null, "backStatus": null, "art": [null, null, null, null, null, null], "artStatus": [null, null, null, null, null, null]}
+	var decks := []
+	for i in 10:
+		decks.append(empty)
+	panel.apply_state({"enabled": true, "owned": true, "plus": true, "publicDeck": true, "slots": 10, "blocker": "", "decks": decks, "active": 0})
+	await process_frame
+	var shown: int = panel._slot_buttons.filter(func(b): return b.visible).size()
+	if shown != 10 or not panel._public_toggle.visible or not panel._public_toggle.button_pressed:
+		push_error("Plus shows ten decks and the quick play switch (got %d decks)" % shown)
+		failures += 1
+	failures += _check_button_sizes(panel, "designer with Plus")
+	panel.apply_state({"enabled": true, "owned": true, "plus": false, "slots": 3, "blocker": "", "decks": [empty, empty, empty], "active": -1})
+	if panel._public_toggle.visible:
+		push_error("the quick play switch is Plus only")
+		failures += 1
+	panel.queue_free()
+	Cosmetics.reset()
+	return failures
+
+
+func _club_checks() -> int:
+	var failures := 0
+	var api = load("res://scripts/net/clubs_api.gd")
+	if api.ADJECTIVES.size() != 16 or api.NOUNS.size() != 16:
+		push_error("club word lists must match the server's 16 + 16 words")
+		failures += 1
+	var panel_script = load("res://scripts/ui/clubs_panel.gd")
+	var panel = panel_script.new()
+	panel.size = Vector2(672, 1100)
+	root.add_child(panel)
+	panel.apply_state({"club": null, "league": [], "max": 30}, {"clubs": [{"id": "c1", "name": "Bold Ventures 7", "count": 3, "max": 30}]})
+	await process_frame
+	var texts := _texts(panel)
+	if not texts.has("Start club") or not texts.has("Join") or not texts.has("Bold Ventures 7  3/30"):
+		push_error("without a club the panel offers start and join, got %s" % [texts])
+		failures += 1
+	failures += _small_buttons(panel, "clubs (no club)")
+	panel.apply_state({"club": {"id": "c1", "name": "Bold Ventures 7", "role": "owner", "rank": 2, "score": 40,
+		"members": [{"userId": "u2", "name": "bob", "role": "member", "week": 25}, {"userId": "u1", "name": "alice", "role": "owner", "week": 15}]},
+		"league": [{"id": "c9", "name": "Grand Guild 3", "score": 60, "rank": 1}, {"id": "c1", "name": "Bold Ventures 7", "score": 40, "rank": 2}], "max": 30})
+	await process_frame
+	texts = _texts(panel)
+	if not texts.has("40 points this week, place 2 in the league. 2 of 30 members.") or not texts.has("Remove") or not texts.has("2. Bold Ventures 7  40") or not texts.has("Leave club"):
+		push_error("in a club the panel shows members, points and the league, got %s" % [texts])
+		failures += 1
+	failures += _small_buttons(panel, "clubs (member)")
+	if panel_script._may_remove("admin", "admin") or not panel_script._may_remove("owner", "admin"):
+		push_error("club remove rules should match the server")
+		failures += 1
+	panel.queue_free()
+	return failures
+
+
+## Every label and button text under a node.
+func _texts(node: Node) -> Array[String]:
+	var out: Array[String] = []
+	for c in node.find_children("*", "", true, false):
+		if c is Label or c is Button:
+			out.append(String(c.text))
+	return out
+
+
+## Visible buttons shorter than the 48 px touch target.
+func _small_buttons(node: Node, what: String) -> int:
+	var bad := 0
+	for c in node.find_children("*", "BaseButton", true, false):
+		if c.is_visible_in_tree() and c.size.y < 48:
+			push_error("%s: button '%s' is %d px tall" % [what, String(c.get("text")), int(c.size.y)])
+			bad += 1
+	return bad
+
+
+## A watcher's view (no seat): the table shows every seat as an opponent,
+## no hand and no move buttons.
+func _watch_checks() -> int:
+	var failures := 0
+	var table = load("res://scenes/table.tscn").instantiate()
+	root.add_child(table)
+	await process_frame
+	var v := {
+		"you": null,
+		"seats": [
+			{"id": "a", "name": "Ana", "isBot": false, "connected": true, "handCount": 3, "portfolio": [], "bronze": 10, "gold": 0, "tokens": []},
+			{"id": "b", "name": "Broker Bo", "isBot": true, "connected": true, "handCount": 3, "portfolio": [], "bronze": 10, "gold": 0, "tokens": []},
+		],
+		"market": [], "supplyCount": 31, "removedCount": 5, "active": 0, "phase": "take", "turn": 1,
+		"tookCompany": null, "tokens": [null, null, null, null, null, null], "seq": 0, "deadline": 0,
+		"drawCost": null, "legal": [], "result": null,
+	}
+	table._on_view(v)
+	await process_frame
+	if table._me_view.visible:
+		push_error("a watcher has no seat of their own")
+		failures += 1
+	for b in table.find_children("*", "Button", true, false):
+		if b is CardView and b.is_visible_in_tree() and b.face_up and b.selectable:
+			push_error("a watcher must have no playable cards")
+			failures += 1
+			break
+	if not String(table._prompt.text).begins_with("Watching."):
+		push_error("a watcher's prompt says they are watching, got '%s'" % table._prompt.text)
+		failures += 1
+	table.queue_free()
 	return failures

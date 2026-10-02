@@ -4,7 +4,8 @@ extends Button
 ## solid colour band with the share count and company, the company's art
 ## in a tinted window, and the share count in words at the foot.
 ## Drawn in code so no art assets are needed yet. Portrait 5:7. The back
-## follows the card back selected in Cosmetics.
+## follows the card back selected in Cosmetics. In a private room with a
+## custom deck (CardArt), its pictures fill the art window and the back.
 ## Press and hold for HOLD_SECONDS to look at a card closely: that emits
 ## card_held (and card_released on letting go) instead of card_pressed.
 
@@ -67,6 +68,9 @@ var _press_pos := Vector2.ZERO
 ## Bumped on every press and release so a stale hold timer does nothing.
 var _press_serial: int = 0
 var _swallow_press: bool = false
+## Designer preview: pictures shown instead of the room's (null: use the room's).
+var preview_back: Texture2D
+var preview_art: Texture2D
 
 
 func _init() -> void:
@@ -74,6 +78,13 @@ func _init() -> void:
 	flat = true
 	focus_mode = Control.FOCUS_NONE
 	pressed.connect(_on_pressed)
+
+
+func _ready() -> void:
+	# WHY by path: tests compile CardView before autoloads exist.
+	var net := get_node_or_null("/root/Net")
+	if net != null:
+		net.custom_deck_changed.connect(queue_redraw)
 
 
 func _on_pressed() -> void:
@@ -192,14 +203,19 @@ func _draw() -> void:
 	art_box.set_border_width_all(1)
 	art_box.set_corner_radius_all(4)
 	draw_style_box(art_box, art)
-	if coins == 0:
+	var custom := preview_art if preview_art != null else CardArt.company_texture(company)
+	if custom != null:
+		draw_texture_rect(custom, art.grow(-1), false)
+		draw_rect(art, Companies.INK, false, 1.0)
+	elif coins == 0:
 		_draw_icon(art.get_center(), minf(art.size.x, art.size.y) * 0.8, color)
 	var foot_y := size.y - INSET - FOOT_H
 	draw_line(Vector2(INSET, foot_y + 3), Vector2(size.x - INSET, foot_y + 3), Companies.INK, 1.2)
 	_draw_centered_text("%d shares issued" % int(comp["shares"]), Vector2(size.x / 2.0, foot_y + 12), 10, Companies.INK, text)
 
 	if coins > 0:
-		_draw_icon(art.get_center() - Vector2(0, art.size.y * 0.12), minf(art.size.x, art.size.y) * 0.55, color)
+		if custom == null:
+			_draw_icon(art.get_center() - Vector2(0, art.size.y * 0.12), minf(art.size.x, art.size.y) * 0.55, color)
 		_draw_coin_badge(coins, art.get_center() + Vector2(0, art.size.y * 0.16))
 	if blocked:
 		_draw_blocked_stripes(rect)
@@ -207,7 +223,12 @@ func _draw() -> void:
 
 func _draw_back() -> void:
 	var inner := Rect2(INSET, INSET, size.x - INSET * 2, size.y - INSET * 2)
-	match Cosmetics.card_back:
+	var custom := preview_back if preview_back != null else CardArt.back_texture()
+	if custom != null:
+		draw_texture_rect(custom, inner, false)
+		draw_rect(inner, Companies.INK, false, 1.5)
+		return
+	match Cosmetics.shown_card_back():
 		"back_midnight":
 			_draw_back_midnight(inner)
 		"back_sunrise":
@@ -218,6 +239,8 @@ func _draw_back() -> void:
 			_draw_back_gilded(inner)
 		"back_blueprint":
 			_draw_back_blueprint(inner)
+		"back_ticker":
+			_draw_back_ticker(inner)
 		_:
 			_draw_back_classic(inner)
 
@@ -309,6 +332,23 @@ func _draw_back_blueprint(inner: Rect2) -> void:
 		y += 10.0
 	draw_rect(inner, line, false, 1.5)
 	_draw_monogram(line)
+
+
+## Plus skin: a dark trading screen with a rising green price line.
+## Placeholder drawing until the commissioned art (TODO-local F).
+func _draw_back_ticker(inner: Rect2) -> void:
+	var entry := Cosmetics.card_back_entry("back_ticker")
+	var green: Color = entry["ink"]
+	draw_rect(inner, entry["accent"], true)
+	var pts := PackedVector2Array()
+	var steps := 9
+	for i in steps + 1:
+		var t := float(i) / steps
+		var wobble := 10.0 * sin(i * 2.1)
+		pts.append(Vector2(inner.position.x + 6 + t * (inner.size.x - 12), inner.end.y - 24 - t * (inner.size.y * 0.45) + wobble))
+	draw_polyline(pts, Color(green, 0.55), 2.0, true)
+	draw_rect(inner, green, false, 1.5)
+	_draw_monogram(green)
 
 
 func _draw_monogram(color: Color) -> void:

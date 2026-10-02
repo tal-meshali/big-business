@@ -23,6 +23,13 @@ export interface RemoteConfig {
   tutorialAutoRoute: boolean;
   /** Seconds a new quick-play lobby waits for people before bots fill it. */
   quickPlayWaitSeconds: number;
+  /** Designer unlock: uploads and custom decks in private rooms (kill switch). */
+  designerEnabled: boolean;
+  /**
+   * Offer the Plus subscription in the shop. Off by default: decision D5
+   * launches without a subscription. Members keep their benefits either way.
+   */
+  plusEnabled: boolean;
 }
 
 export const DEFAULT_CONFIG: RemoteConfig = {
@@ -31,6 +38,8 @@ export const DEFAULT_CONFIG: RemoteConfig = {
   pushCooldownMinutes: 10,
   tutorialAutoRoute: false,
   quickPlayWaitSeconds: 20,
+  designerEnabled: true,
+  plusEnabled: false,
 };
 
 /** Integer keys and their allowed range; values outside are clamped. */

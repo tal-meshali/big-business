@@ -43,6 +43,7 @@ services:
         --runtime.env "FCM_PROJECT_ID=${FCM_PROJECT_ID}"
         --runtime.env "FCM_CLIENT_EMAIL=${FCM_CLIENT_EMAIL}"
         --runtime.env "FCM_PRIVATE_KEY=${FCM_PRIVATE_KEY}"
+        --runtime.env "GOOGLE_VISION_API_KEY=${GOOGLE_VISION_API_KEY}"
         --logger.level INFO
     depends_on:
       postgres:

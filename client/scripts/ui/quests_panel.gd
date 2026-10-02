@@ -276,10 +276,12 @@ func _refresh_pick_button(b: Button, id: String, current: String) -> void:
 	b.disabled = not is_unlocked
 	b.set_pressed_no_signal(id == current)
 	var pts := _unlock_points(id)
-	if is_unlocked or (pts == 0 and not Cosmetics.is_paid(id)):
+	if is_unlocked or (pts == 0 and not Cosmetics.is_paid(id) and not Cosmetics.is_plus(id)):
 		b.text = Cosmetics.name_of(id)
 	elif Cosmetics.is_paid(id):
 		b.text = "%s  (shop)" % Cosmetics.name_of(id)
+	elif Cosmetics.is_plus(id):
+		b.text = "%s  (Plus)" % Cosmetics.name_of(id)
 	else:
 		b.text = "%s  (%d pts)" % [Cosmetics.name_of(id), pts]
 

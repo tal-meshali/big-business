@@ -85,7 +85,8 @@ export const rpcJoinRoom: nkruntime.RpcFunction = (ctx, logger, nk, payload) => 
 /**
  * RPC quick_play: finds an open public lobby with room or creates one.
  * Simpler than the matchmaker for a turn-based game with bot fill.
- * With {"tutorial": true} it creates a solo tutorial match instead.
+ * With {"tutorial": true} it creates a solo tutorial match instead, and with
+ * {"bots": true} a game against bots that starts as soon as the caller joins.
  */
 export const rpcQuickPlay: nkruntime.RpcFunction = (ctx, logger, nk, payload) => {
   const userId = requireUser(ctx);
@@ -93,10 +94,16 @@ export const rpcQuickPlay: nkruntime.RpcFunction = (ctx, logger, nk, payload) =>
   // that ticks until it empties; without a budget one account could start
   // thousands.
   checkRate(nk, userId, 'quick_play', Date.now());
-  if (readBool(parseBody(payload), 'tutorial')) {
+  const body = parseBody(payload);
+  if (readBool(body, 'tutorial')) {
     const tutorialId = nk.matchCreate(MATCH_MODULE, { tutorial: true, seed: TUTORIAL_SEED });
     logger.info('tutorial created %s', tutorialId);
     return JSON.stringify({ matchId: tutorialId, tutorial: true });
+  }
+  if (readBool(body, 'bots')) {
+    const botsId = nk.matchCreate(MATCH_MODULE, { solo: true, hostId: userId });
+    logger.info('bot game created %s', botsId);
+    return JSON.stringify({ matchId: botsId, bots: true });
   }
   const query = '+label.mode:public +label.open:yes';
   const matches = nk.matchList(10, true, null, 0, DEFAULT_PARAMS.maxSeats - 1, query);

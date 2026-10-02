@@ -90,3 +90,8 @@ Decisions made by the project owner on 2026-09-27, after the research in `docs/r
 - **Why:** the research's "gift free currency" does not fit D5 (real money only, no virtual currency), so the gift is the one free thing players already earn. Small daily caps keep a ring of spare accounts from buying the track. Friends only matches the invite rule (D4): a stranger cannot find a child's game, and watching shows nothing a seat at the table would not.
 - **Implies:** gifts and the `playing` rows are server-only storage. Nobody can be watched by a stranger, but friends can watch without asking; if players ask for it, add a setting to turn watching off. A watcher sees emotes but cannot send one.
 
+## D15. "Play vs bots" instead of waiting, on the server (2026-10-02)
+
+- **Decision:** the lobby offers "Play vs bots now" (a one-player game with two bots and the normal timer that starts as soon as you join) and, while waiting in a lobby, "Start now with bots" (bots fill the empty seats at once). In a public lobby anyone waiting may start it; in a private room only the host may. These are real games: they count for XP, quests and stats like a quick play game that bots filled.
+- **Why:** waiting 20 seconds for players who are not there is the worst part of a quiet server. The rules engine runs only on the server (TypeScript in `server/src/engine`), so a truly offline game would need a second engine in GDScript; the bot game reuses the server's bots and anti-cheat for free.
+- **Implies:** a bot game is labelled `solo`, so quick play never lists it, and only its creator may join it. Playing with no network at all still needs a client-side engine; the browser table (web/) is that for now.

@@ -7,12 +7,12 @@
  * actions and decoding client messages live in actions.ts and emotes.ts.
  */
 import { autoAction, botAction, createGame, type SeatDef } from '../engine';
-import { BOT_NAMES, clampStepSeconds, DEFAULT_PARAMS, OP_ACTION, OP_ERROR, OP_LOBBY, OP_READY, type MatchParams } from './protocol';
+import { BOT_NAMES, clampStepSeconds, DEFAULT_PARAMS, OP_ACTION, OP_ERROR, OP_LOBBY, OP_READY, OP_START_NOW, type MatchParams } from './protocol';
 import { apply, handleActions } from './actions';
 import { awardProgress } from './awards';
 import { handleEmotes } from './emotes';
 import { handleForfeits } from './forfeit';
-import { botThinkMs, GET_READY_MS, label, lobbyJoinError, lobbyMessage, nowMs, send, type MatchState } from './state';
+import { botThinkMs, GET_READY_MS, label, lobbyJoinError, lobbyMessage, mayStartNow, nowMs, send, type MatchState } from './state';
 import { chooseRoomDeck, sendDeck } from './room_deck';
 import { pushTurnIfAway } from './turn_push';
 import { sendViews } from './views';
@@ -69,6 +69,7 @@ export const matchInit: nkruntime.MatchInitFunction<MatchState> = (ctx, logger, 
     stepSeconds: clampStepSeconds(params['stepSeconds']),
     lobbyWaitSeconds: Number(params['lobbyWaitSeconds']) || DEFAULT_PARAMS.lobbyWaitSeconds,
     tutorial: params['tutorial'] === true || params['tutorial'] === 'true',
+    solo: params['solo'] === true || params['solo'] === 'true',
     seed: Number(params['seed']) || 0,
     hostId: typeof params['hostId'] === 'string' ? (params['hostId'] as string) : undefined,
   };
@@ -78,6 +79,12 @@ export const matchInit: nkruntime.MatchInitFunction<MatchState> = (ctx, logger, 
     p.maxSeats = 1;
     p.stepSeconds = 0;
     p.lobbyWaitSeconds = 0;
+  }
+  if (p.solo && !p.tutorial) {
+    // One human against bots with the normal timer; it starts when they join.
+    p.isPrivate = false;
+    p.minSeats = DEFAULT_PARAMS.minSeats;
+    p.maxSeats = 1;
   }
   const state: MatchState = {
     params: p,
@@ -208,9 +215,12 @@ export const matchLoop: nkruntime.MatchLoopFunction<MatchState> = (ctx, logger, 
 
   // ---- Lobby -------------------------------------------------------------
   if (!state.game) {
+    let startNow = false;
     for (const m of messages) {
       if (m.opCode === OP_READY) {
         for (const l of state.lobby) if (l.userId === m.sender.userId) l.ready = true;
+      } else if (m.opCode === OP_START_NOW && mayStartNow(state, m.sender.userId)) {
+        startNow = true;
       }
     }
     const humans = state.lobby.length;
@@ -222,7 +232,7 @@ export const matchLoop: nkruntime.MatchLoopFunction<MatchState> = (ctx, logger, 
     // (bots fill the rest). Private: everyone ready starts it.
     const publicStart = !state.params.isPrivate && (full || timedOut);
     const privateStart = state.params.isPrivate && allReady && (enough || humans >= 2);
-    if (publicStart || privateStart) {
+    if (publicStart || privateStart || startNow) {
       startGame(state, nk, logger, dispatcher, ctx.matchId || '');
     } else if (humans === 0 && now - state.lastActivity > 5 * 60_000) {
       return null; // empty room expired

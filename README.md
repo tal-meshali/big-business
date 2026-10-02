@@ -65,6 +65,8 @@ Phase 3 Designer unlock, server and client code: a one-time unlock for custom ca
 
 Phase 3 Plus, built and switched off (decision D12): a monthly subscription with ten Designer decks, the deck in quick play for players who opt in, a Plus skin each month, full lifetime stats, and the host's card back and felt on every seat of their private rooms. The operator turns it on with Remote Config `plusEnabled`.
 
+Phase 3 clubs (decision D13): start or join a club from the lobby; names come from word lists and there is no chat, so clubs are open to every age. Season points from games with people also count for the player's club in a weekly league.
+
 Code conventions (acyclic, layered dependency graph checked with graphify on every push and in CI) are in `docs/conventions.md`.
 
 What still needs a real machine (phone builds, playtesting, store accounts, art) is listed in `docs/TODO-local.md`.

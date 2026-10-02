@@ -117,6 +117,7 @@ func _run() -> void:
 	failures += await _shop_checks()
 	failures += await _designer_checks()
 	failures += await _plus_checks()
+	failures += await _club_checks()
 
 	if failures == 0:
 		print("SMOKE OK")
@@ -1563,3 +1564,55 @@ func _plus_checks() -> int:
 	panel.queue_free()
 	Cosmetics.reset()
 	return failures
+
+
+func _club_checks() -> int:
+	var failures := 0
+	var api = load("res://scripts/net/clubs_api.gd")
+	if api.ADJECTIVES.size() != 16 or api.NOUNS.size() != 16:
+		push_error("club word lists must match the server's 16 + 16 words")
+		failures += 1
+	var panel_script = load("res://scripts/ui/clubs_panel.gd")
+	var panel = panel_script.new()
+	panel.size = Vector2(672, 1100)
+	root.add_child(panel)
+	panel.apply_state({"club": null, "league": [], "max": 30}, {"clubs": [{"id": "c1", "name": "Bold Ventures 7", "count": 3, "max": 30}]})
+	await process_frame
+	var texts := _texts(panel)
+	if not texts.has("Start club") or not texts.has("Join") or not texts.has("Bold Ventures 7  3/30"):
+		push_error("without a club the panel offers start and join, got %s" % [texts])
+		failures += 1
+	failures += _small_buttons(panel, "clubs (no club)")
+	panel.apply_state({"club": {"id": "c1", "name": "Bold Ventures 7", "role": "owner", "rank": 2, "score": 40,
+		"members": [{"userId": "u2", "name": "bob", "role": "member", "week": 25}, {"userId": "u1", "name": "alice", "role": "owner", "week": 15}]},
+		"league": [{"id": "c9", "name": "Grand Guild 3", "score": 60, "rank": 1}, {"id": "c1", "name": "Bold Ventures 7", "score": 40, "rank": 2}], "max": 30})
+	await process_frame
+	texts = _texts(panel)
+	if not texts.has("40 points this week, place 2 in the league. 2 of 30 members.") or not texts.has("Remove") or not texts.has("2. Bold Ventures 7  40") or not texts.has("Leave club"):
+		push_error("in a club the panel shows members, points and the league, got %s" % [texts])
+		failures += 1
+	failures += _small_buttons(panel, "clubs (member)")
+	if panel_script._may_remove("admin", "admin") or not panel_script._may_remove("owner", "admin"):
+		push_error("club remove rules should match the server")
+		failures += 1
+	panel.queue_free()
+	return failures
+
+
+## Every label and button text under a node.
+func _texts(node: Node) -> Array[String]:
+	var out: Array[String] = []
+	for c in node.find_children("*", "", true, false):
+		if c is Label or c is Button:
+			out.append(String(c.text))
+	return out
+
+
+## Visible buttons shorter than the 48 px touch target.
+func _small_buttons(node: Node, what: String) -> int:
+	var bad := 0
+	for c in node.find_children("*", "BaseButton", true, false):
+		if c.is_visible_in_tree() and c.size.y < 48:
+			push_error("%s: button '%s' is %d px tall" % [what, String(c.get("text")), int(c.size.y)])
+			bad += 1
+	return bad

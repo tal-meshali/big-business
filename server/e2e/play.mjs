@@ -682,6 +682,53 @@ async function testPlus() {
   for (const p of [host, guest]) p.socket.disconnect(true);
 }
 
+async function testClubs() {
+  log('--- Clubs: create, join, closed group API and chat, league points from a game');
+  const owner = await makePlayer('ClubOwner');
+  const member = await makePlayer('ClubMember');
+  const club = await rpc(owner, 'club_create', { adjective: 4, noun: 2, crest: 3 });
+  if (!/^Golden Partners \d+$/.test(club.name)) fail(`club_create: ${JSON.stringify(club)}`);
+  await rpcRejected(owner, 'club_create', { adjective: 0, noun: 0, crest: 0 }, 'a second club');
+  const listed = await rpc(member, 'club_list');
+  if (!listed.clubs.some((c) => c.id === club.id)) fail('the new club should be listed');
+  await rpcRejected(member, 'club_create', { adjective: 99, noun: 0, crest: 0 }, 'a name outside the word lists');
+  let apiBlocked = false;
+  try { await member.client.createGroup(member.session, { name: 'typed name', open: true }); } catch (e) { apiBlocked = true; }
+  let joinBlocked = false;
+  try { await member.client.joinGroup(member.session, club.id); } catch (e) { joinBlocked = true; }
+  if (!apiBlocked || !joinBlocked) fail('the client group API must be closed');
+  await rpc(member, 'club_join', { clubId: club.id });
+  let chatBlocked = false;
+  try { await member.socket.joinChat(club.id, 3, true, false); } catch (e) { chatBlocked = true; }
+  if (!chatBlocked) fail('club chat must be closed');
+  log('clubs: word-list names, one club each, group API and chat closed');
+
+  const created = await rpc(owner, 'create_room', { stepSeconds: 5, maxSeats: 2 });
+  await join(owner, created.matchId, created.code);
+  await join(member, created.matchId, created.code);
+  await waitFor(() => owner.lobby && owner.lobby.seats.length === 2, 5000, 'both club members seated');
+  send(owner, OP_READY);
+  send(member, OP_READY);
+  await playOut([owner, member], { maxMs: 120000 });
+  let st = null;
+  for (let i = 0; i < 25; i++) {
+    st = await rpc(member, 'club_state');
+    if (st.club && st.club.score > 0) break;
+    await sleep(200);
+  }
+  const sum = st.club.members.reduce((n, m) => n + m.week, 0);
+  if (!st.club || st.club.score <= 0 || st.club.rank < 1 || sum !== st.club.score || !st.league.some((c) => c.id === club.id && c.score === st.club.score)) fail(`club_state after a game: ${JSON.stringify(st)}`);
+  log(`league: the game added ${st.club.score} points, ranked ${st.club.rank}`);
+
+  await rpcRejected(member, 'club_kick', { userId: owner.userId }, 'a member removing the owner');
+  await rpc(owner, 'club_kick', { userId: member.userId });
+  if ((await rpc(member, 'club_state')).club !== null) fail('a removed member should have no club');
+  await rpc(owner, 'club_leave');
+  if ((await rpc(member, 'club_list')).clubs.some((c) => c.id === club.id)) fail('the last member out closes the club');
+  log('clubs: owner removes a member; the last one out closes the club');
+  for (const p of [owner, member]) p.socket.disconnect(true);
+}
+
 try {
   await testPrivateRoom();
   await testForfeit();
@@ -692,6 +739,7 @@ try {
   await testServices();
   await testDesigner();
   await testPlus();
+  await testClubs();
   log('E2E OK');
   process.exit(0);
 } catch (e) {

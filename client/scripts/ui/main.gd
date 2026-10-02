@@ -30,6 +30,7 @@ var _quests_button: Button
 var _quests_panel: QuestsPanel
 var _shop_button: Button
 var _shop_panel: ShopPanel
+var _clubs_panel: ClubsPanel
 ## Games on the profile; -1 until the profile has loaded.
 var _games_played := -1
 ## The little table on top; its `color` is the picked felt.
@@ -198,6 +199,15 @@ func _build() -> void:
 			_refresh_profile())
 	add_child(_shop_panel)
 
+	_clubs_panel = ClubsPanel.new()
+	_clubs_panel.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_clubs_panel.offset_left = 24
+	_clubs_panel.offset_right = -24
+	_clubs_panel.offset_top = 60
+	_clubs_panel.offset_bottom = -40
+	_clubs_panel.visible = false
+	add_child(_clubs_panel)
+
 
 ## "BIG BUSINESS" on a red band, with the tagline under it.
 func _title_card() -> Control:
@@ -352,6 +362,11 @@ func _build_more(box: VBoxContainer) -> void:
 	rules.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	rules.pressed.connect(_on_help)
 	row2.add_child(rules)
+	var row3 := _row(box)
+	var clubs_button := UiTheme.button("Clubs", _px(14), _px(44))
+	clubs_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	clubs_button.pressed.connect(_on_open_clubs)
+	row3.add_child(clubs_button)
 
 	_friends_panel = FriendsPanel.new()
 	_friends_panel.visible = false
@@ -543,6 +558,12 @@ func _float_xp(amount: int) -> void:
 
 func _on_toggle_quests() -> void:
 	_quests_panel.visible = not _quests_panel.visible
+
+
+func _on_open_clubs() -> void:
+	_quests_panel.visible = false
+	_shop_panel.visible = false
+	await _clubs_panel.open()
 
 
 func _on_open_shop() -> void:

@@ -2,14 +2,14 @@
  * Nakama runtime entry point. Registers the Big Business match handler, the
  * room-code, profile, moderation, social, account-link, quest, cosmetic,
  * shop, push-token, Remote Config, analytics and Designer (custom card art)
- * RPCs.
+ * RPCs, and clubs with their weekly league.
  *
  * Every RPC goes through `guardRpc` (only messages raised with `reject`
  * reach the client) and reads its payload through the validators in
  * match/input.ts: the client is untrusted.
  */
 import { matchInit, matchJoin, matchJoinAttempt, matchLeave, matchLoop, matchSignal, matchTerminate } from './match/handler';
-import { SEASON_LEADERBOARD } from './match/progression';
+import { createLeaderboards } from './match/boards';
 import { MATCH_MODULE } from './match/protocol';
 import { beforeAddFriends, beforeDeleteStorageObjects, beforeWriteStorageObjects } from './match/reports';
 import {
@@ -48,16 +48,12 @@ import {
   guardedSetAgeBracket,
   guardedUploadCardArt,
 } from './match/guarded_designer';
+import { guardedClubCreate, guardedClubJoin, guardedClubKick, guardedClubLeave, guardedClubList, guardedClubState } from './match/guarded_social';
+import { beforeChannelJoin, beforeGroupChange } from './match/rpc_clubs';
 
 function InitModule(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, initializer: nkruntime.Initializer): void {
   void ctx;
-  // Monthly season: authoritative, descending, points accumulate, resets on the 1st.
-  try {
-    // nkruntime is types only at runtime, so pass the enum string values.
-    nk.leaderboardCreate(SEASON_LEADERBOARD, true, 'descending' as nkruntime.SortOrder, 'increment' as nkruntime.Operator, '0 0 1 * *');
-  } catch (e) {
-    logger.warn('leaderboard create: %s', String(e));
-  }
+  createLeaderboards(nk, logger);
   initializer.registerMatch(MATCH_MODULE, {
     matchInit,
     matchJoinAttempt,
@@ -92,6 +88,12 @@ function InitModule(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkrunt
   initializer.registerRpc('get_card_art', guardedGetCardArt);
   initializer.registerRpc('report_card_art', guardedReportCardArt);
   initializer.registerRpc('get_stats', guardedGetStats);
+  initializer.registerRpc('club_state', guardedClubState);
+  initializer.registerRpc('club_list', guardedClubList);
+  initializer.registerRpc('club_create', guardedClubCreate);
+  initializer.registerRpc('club_join', guardedClubJoin);
+  initializer.registerRpc('club_leave', guardedClubLeave);
+  initializer.registerRpc('club_kick', guardedClubKick);
   // Server-to-server only (runtime http_key; they refuse player sessions).
   initializer.registerRpc('revenuecat_webhook', guardedRevenueCatWebhook);
   initializer.registerRpc('set_remote_config', guardedSetRemoteConfig);
@@ -101,6 +103,11 @@ function InitModule(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkrunt
   initializer.registerBeforeAddFriends(beforeAddFriends);
   initializer.registerBeforeWriteStorageObjects(beforeWriteStorageObjects);
   initializer.registerBeforeDeleteStorageObjects(beforeDeleteStorageObjects);
+  initializer.registerBeforeCreateGroup(beforeGroupChange);
+  initializer.registerBeforeUpdateGroup(beforeGroupChange);
+  initializer.registerBeforeJoinGroup(beforeGroupChange);
+  initializer.registerBeforeAddGroupUsers(beforeGroupChange);
+  initializer.registerRtBefore('ChannelJoin', beforeChannelJoin);
   logger.info('Big Business runtime loaded');
 }
 

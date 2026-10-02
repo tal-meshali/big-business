@@ -3,6 +3,7 @@ import { trackActive, trackMilestone } from './metrics';
 import { loadProfile, saveProfile } from './profile';
 import { applyForfeit, applyGameResult, SEASON_LEADERBOARD, seasonPointsForGame } from './progression';
 import { applyGameToQuests, gameStats } from './quests';
+import { creditClub } from './rpc_clubs';
 import { recordStats } from './rpc_stats';
 import type { MatchState } from './state';
 
@@ -38,6 +39,11 @@ export function awardProgress(s: MatchState, nk: nkruntime.Nakama, logger: nkrun
       const points = seasonPointsForGame(score.rank, seatCount, humans);
       if (points > 0) {
         nk.leaderboardRecordWrite(SEASON_LEADERBOARD, seat.id, seat.name, points, score.rank === 1 ? 1 : 0);
+        try {
+          creditClub(nk, seat.id, seat.name, points);
+        } catch (e) {
+          logger.warn('club credit failed for %s: %s', seat.id, String(e));
+        }
       }
       trackGame(nk, logger, seat.id, s.params.tutorial, humans, now);
       if (!s.params.tutorial) {

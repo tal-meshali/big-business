@@ -28,6 +28,10 @@ export const RATE_LIMITS = {
   upload_card_art: 10,
   get_card_art: 30,
   report_card_art: 5,
+  club_list: 20,
+  club_create: 3,
+  club_join: 6,
+  club_kick: 10,
   /** Charged per user named in an AddFriends request, not per request. */
   add_friends: 20,
 };

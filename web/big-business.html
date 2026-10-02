@@ -1,40 +1,52 @@
 <title>Big Business</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Open+Sans:wght@500;600;700;800&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Nunito+Sans:wght@700;800&display=swap">
 <style>
-/* Layout: two screens in one portrait column (the app's 720-wide design scaled
-   to the phone). The lobby: title deed, the game you left, dealing a new table,
-   your record. The table: status, opponents on the rim, the Market strip, your
-   prompt, your seat, your hand. */
+/* Layout: the app's "3D table" design (docs/design/theme.md, D10) in one
+   portrait column. The start page: a fan of shares over a little felt, the
+   title card, your portfolio and the deal. The table: a top bar, opponents
+   on plates, the felt tilted 32 degrees with the supply, the Market and your
+   portfolio printed on it, your hand at the near edge and a cream bar with
+   your strip, the prompt and one big action. */
 :root {
-  /* The app's own palette (docs/design/theme.md): one board-green world, light only. */
-  --table: #C7DFC9;
+  /* client/scripts/ui/ui_theme.gd and companies.gd */
+  --room: #173524;
+  --room-deep: #0D2116;
+  --felt: #C7DFC9;
+  --felt-light: #DCEDDC;
   --rim: #9BBE9F;
+  --rim-deep: #6E9673;
   --card: #FFFDF6;
   --panel: #FFFFFF;
+  --cream: #FBF6E9;
   --ink: #1C1C1C;
   --ink-soft: #5A5A5A;
+  --on-room: #F3EEDD;
   --bronze: #B8722E;
   --gold: #E2B23A;
+  --primary: #F2C230;
+  --ring: #F7941D;
   --alert: #D6262C;
   --alert-deep: #A91E23;
-  --chest: #4FA3D8;
-  --chance: #F7941D;
+  --chest: #2E6FD8;
+  --xp: #3F9E4F;
   --highlight: #FFF1B8;
-  --disabled: #EDEDED;
+  --disabled: #E4E1D6;
   --on-band: #FFFFFF;
-  --scrim: rgba(28, 28, 28, 0.45);
-  --font: "Open Sans", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --scrim: rgba(10, 20, 14, 0.62);
+  --display: "Archivo Black", "Arial Black", Impact, sans-serif;
+  --font: "Nunito Sans", "Segoe UI", Helvetica, Arial, sans-serif;
   color-scheme: light;
 }
 html, body { height: 100%; }
 [hidden] { display: none !important; }
+html { background: radial-gradient(120% 900px at 50% 140px, #2C5A3C 0%, var(--room) 55%, var(--room-deep) 100%) no-repeat var(--room-deep); }
 body {
-  background: var(--table);
+  background: transparent;
   color: var(--ink);
   font-family: var(--font);
-  font-weight: 600;
+  font-weight: 700;
   font-size: 15px;
   -webkit-tap-highlight-color: transparent;
 }
@@ -42,71 +54,74 @@ body {
   max-width: 480px;
   margin: 0 auto;
   padding-inline: 16px;
-  padding-block: 12px 28px;
+  padding-block: 12px 24px;
   display: flex;
   flex-direction: column;
   gap: 12px;
   min-height: 100%;
   box-sizing: border-box;
-  border-inline: 6px solid var(--rim);
 }
 button { font-family: inherit; }
+/* Buttons: white with a hard ink drop shadow; primary is the design's yellow. */
 .btn {
-  font: 700 15px/1.1 var(--font);
+  font: 800 15px/1.1 var(--font);
   color: var(--ink);
   background: var(--panel);
   border: 2px solid var(--ink);
-  border-radius: 6px;
+  border-bottom-width: 5px;
+  border-radius: 12px;
   min-height: 48px;
   padding: 0 14px;
   cursor: pointer;
 }
 .btn:hover:not(:disabled) { background: var(--highlight); }
-.btn:active:not(:disabled) { background: var(--gold); }
-.btn:disabled { background: var(--disabled); color: var(--ink-soft); border-color: var(--ink-soft); cursor: default; }
-.btn.primary { background: var(--gold); }
+.btn:active:not(:disabled) { border-bottom-width: 2px; translate: 0 3px; }
+.btn:disabled { background: var(--disabled); color: var(--ink-soft); border-color: #8C8A82; cursor: default; }
+.btn.primary { background: var(--primary); }
+.btn.primary:hover:not(:disabled) { background: #F6CF55; }
 .btn.primary:disabled { background: var(--disabled); }
+.btn.big { min-height: 60px; font: 400 22px/1 var(--display); letter-spacing: 0.02em; display: flex; align-items: center; justify-content: center; gap: 12px; }
+.btn.big svg { width: 18px; height: 18px; fill: currentColor; }
 .btn.small { min-height: 48px; min-width: 48px; font-size: 14px; padding: 0 10px; white-space: nowrap; }
 .btn.emoji { font-size: 22px; padding: 0; }
-:focus-visible { outline: 3px solid var(--chest); outline-offset: 2px; }
+.btn.ghost { background: rgba(255, 255, 255, 0.12); color: var(--on-room); border-color: rgba(243, 238, 221, 0.7); }
+.btn.ghost:hover:not(:disabled) { background: rgba(255, 255, 255, 0.22); }
+:focus-visible { outline: 3px solid var(--ring); outline-offset: 2px; }
 
 /* Top bar */
 .top { display: flex; align-items: center; gap: 8px; }
-.plate {
+.brand {
   background: var(--alert);
   color: var(--on-band);
   border: 2px solid var(--ink);
-  border-radius: 6px;
-  font-weight: 800;
-  letter-spacing: 0.06em;
-  font-size: 14px;
-  padding: 6px 10px;
+  border-bottom-width: 4px;
+  border-radius: 10px;
+  font: 400 14px/1 var(--display);
+  letter-spacing: 0.04em;
+  padding: 8px 10px;
   white-space: nowrap;
 }
 .top .spacer { flex: 1; }
-/* At the table the brand plate gives way to the Lobby button on phones. */
-@media (max-width: 459px) { .top .plate { display: none; } }
-/* Narrow phones: the plate and three buttons must fit without a sideways scroll. */
+@media (max-width: 459px) { .top .brand { display: none; } }
 @media (max-width: 380px) {
   .top { gap: 6px; }
-  .plate { font-size: 13px; letter-spacing: 0.03em; padding: 6px 8px; }
   .top .btn.small { padding: 0 8px; min-width: 44px; }
 }
 @media (max-width: 340px) {
   .top { gap: 4px; }
-  .plate { font-size: 12px; letter-spacing: 0; padding: 5px 6px; }
   .top .btn.small { padding: 0 6px; font-size: 13px; }
 }
-.status-row { display: flex; align-items: center; gap: 10px; }
-.status { margin: 0; flex: 1; min-width: 0; font-size: 20px; font-weight: 800; text-wrap: balance; min-height: 1.4em; }
-.timer { font-size: 22px; font-weight: 800; color: var(--alert); font-variant-numeric: tabular-nums; }
-.meta { margin: -8px 0 0; font-size: 13px; color: var(--ink-soft); font-variant-numeric: tabular-nums; }
+.status-row { display: flex; align-items: center; gap: 10px; color: var(--on-room); }
+.status { margin: 0; flex: 1; min-width: 0; font: 400 20px/1.2 var(--display); text-wrap: balance; min-height: 1.2em; }
+.timer { font: 400 22px/1 var(--display); color: #FF8A80; font-variant-numeric: tabular-nums; }
+.meta { margin: -8px 0 0; font-size: 13px; color: rgba(243, 238, 221, 0.75); font-variant-numeric: tabular-nums; }
 
 /* Emote strip: preset emotes and phrases only (the all-ages decision). */
 .emotes {
-  background: var(--panel);
+  background: var(--cream);
   border: 2px solid var(--ink);
-  border-radius: 8px;
+  border-bottom-width: 5px;
+  border-radius: 14px;
   padding: 8px;
   display: flex; flex-direction: column; gap: 6px;
 }
@@ -116,83 +131,126 @@ button { font-family: inherit; }
 .emotes .btn { padding: 0 4px; font-size: 13px; }
 .emotes .pics .btn { font-size: 24px; }
 
-/* Seats */
-.opponents { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+/* Opponents sit on plates along the far side of the table. */
+.opponents { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.opponents.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.opponents.three .coins .minihand { display: none; }
 .seat {
+  position: relative;
   background: var(--panel);
-  border: 1.5px solid var(--ink);
-  border-radius: 10px;
+  border: 2px solid var(--ink);
+  border-bottom-width: 5px;
+  border-radius: 14px;
   padding: 8px 10px;
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
-  gap: 2px 8px;
+  gap: 4px 8px;
   align-items: center;
-  box-shadow: 0 2px 4px rgba(28, 28, 28, 0.15);
-  transition: background 0.2s, box-shadow 0.2s;
+  transition: translate 0.2s, box-shadow 0.2s;
 }
-.seat.active { background: var(--highlight); border-width: 3px; padding: 6.5px 8.5px; }
+.seat.active { translate: 0 -3px; box-shadow: 0 0 0 3px var(--primary); }
 .avatar {
   grid-row: span 3;
   width: 38px; height: 38px;
   border-radius: 50%;
   border: 2px solid var(--ink);
   display: grid; place-items: center;
-  color: var(--on-band);
-  font-weight: 800;
-  font-size: 17px;
+  color: var(--ink);
+  font: 400 17px/1 var(--display);
 }
-.seat.active .avatar { box-shadow: 0 0 0 3px var(--gold); }
-.name { font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.seat.active .avatar { box-shadow: 0 0 0 3px var(--ring); }
+.name { font-size: 14px; font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bot { font-size: 10px; font-weight: 800; border: 1.5px solid var(--ink); border-radius: 999px; padding: 0 5px; margin-left: 4px; vertical-align: 1px; }
 .coins { display: flex; align-items: center; gap: 10px; font-size: 13px; font-variant-numeric: tabular-nums; }
 .coin { display: inline-flex; align-items: center; gap: 4px; }
 .coin i { width: 12px; height: 12px; border-radius: 50%; border: 1.5px solid var(--ink); display: inline-block; }
 .coin.b i { background: var(--bronze); }
 .coin.g i { background: var(--gold); }
 .minihand { display: inline-flex; gap: 2px; margin-left: auto; }
-.minihand i { width: 7px; height: 11px; background: var(--card); border: 1px solid var(--ink); display: inline-block; }
-.pips { display: flex; gap: 4px; flex-wrap: wrap; min-height: 22px; }
+.minihand i { width: 7px; height: 11px; background: var(--card); border: 1px solid var(--ink); border-radius: 2px; display: inline-block; }
+.pips { display: flex; gap: 5px; flex-wrap: wrap; min-height: 22px; }
 .pip {
   position: relative;
   min-width: 20px; height: 22px;
   background: var(--c);
   color: var(--bt);
-  border: 1px solid var(--ink);
+  border: 1.5px solid var(--ink);
+  border-radius: 5px;
   font-size: 12px; font-weight: 800;
   display: grid; place-items: center;
   font-variant-numeric: tabular-nums;
 }
+.pip.sealed { margin-right: 8px; }
+/* The regulator token: a gold seal on the company's pip (D9). */
 .pip .r {
-  position: absolute; right: -6px; top: -7px;
-  width: 13px; height: 13px; border-radius: 50%;
-  background: var(--panel); color: var(--ink);
+  position: absolute; right: -10px; top: -5px;
+  width: 15px; height: 15px; border-radius: 50%;
+  background: var(--gold); color: var(--ink);
   border: 1.5px solid var(--ink);
-  font-size: 8px; line-height: 10px; text-align: center; font-weight: 800;
+  font: 400 9px/13px var(--display); text-align: center;
 }
-.mine-wrap { position: relative; }
-.bubble {
-  position: absolute; right: 12px; top: -26px;
-  background: var(--panel);
+.seat .note { color: var(--ink-soft); font-size: 12px; }
+
+/* The felt: a stadium tilted away from you, printed with three zones. */
+/* The tilt leaves an empty band above the felt's far edge; pull it up under the plates. */
+.table3d { perspective: 900px; perspective-origin: 50% 0%; margin-top: -58px; }
+.felt {
+  position: relative;
+  transform: rotateX(32deg);
+  transform-origin: 50% 100%;
+  border-radius: 200px 200px 48px 48px;
+  border: 3px solid var(--ink);
+  background: var(--rim);
+  padding: 14px;
+  box-shadow: 0 10px 0 var(--rim-deep), 0 13px 0 var(--ink), 0 30px 40px rgba(0, 0, 0, 0.45);
+}
+.felt-in {
+  border-radius: 186px 186px 36px 36px;
   border: 2px solid var(--ink);
-  border-radius: 12px;
-  padding: 4px 10px;
-  font-size: 16px;
-  box-shadow: 0 2px 6px rgba(28, 28, 28, 0.2);
-  animation: pop 2.6s ease-out forwards;
-  pointer-events: none;
+  background: radial-gradient(90% 70% at 50% 35%, var(--felt-light), var(--felt) 70%);
+  padding: 26px 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
-.bubble.pic { font-size: 28px; padding: 2px 10px; }
-@keyframes pop { 0% { opacity: 0; translate: 0 6px; } 8% { opacity: 1; translate: 0 0; } 85% { opacity: 1; } 100% { opacity: 0; } }
+.zone-label { font: 400 12px/1 var(--display); letter-spacing: 0.18em; color: rgba(28, 28, 28, 0.55); text-transform: uppercase; }
+.supply-zone { display: flex; align-items: center; justify-content: center; gap: 14px; }
+.supply-zone .zone-label { letter-spacing: 0.12em; }
+.supply-stack { position: relative; padding: 4px 6px 0 0; }
+.supply-stack::before, .supply-stack::after {
+  content: ""; position: absolute; inset: 4px 6px 0 0;
+  background: var(--card); border: 2px solid var(--ink); border-radius: 10px;
+}
+.supply-stack::before { translate: 6px -4px; }
+.supply-stack::after { translate: 3px -2px; }
+.supply-stack .card { z-index: 1; }
+.zone {
+  border: 2.5px dashed rgba(28, 28, 28, 0.32);
+  border-radius: 18px;
+  padding: 8px 8px 10px;
+  display: flex; flex-direction: column; gap: 6px;
+  transition: border-color 0.2s, box-shadow 0.2s, background 0.2s;
+}
+.zone.glow-zone { border-style: solid; border-color: var(--ring); background: rgba(247, 148, 29, 0.08); box-shadow: 0 0 0 3px rgba(247, 148, 29, 0.25); }
+.market { display: flex; gap: 6px; overflow-x: auto; padding: 4px 2px 6px; min-width: 0; min-height: calc(var(--mw) * 1.4 + 10px); }
+.market-empty { font-size: 13px; color: var(--ink-soft); align-self: center; margin-inline: auto; }
+.portfolio { display: flex; gap: 12px; flex-wrap: wrap; min-height: calc(var(--pw) * 1.4 + 6px); align-items: flex-start; padding: 8px 0 0 8px; }
+.portfolio .empty { font-size: 13px; color: var(--ink-soft); align-self: center; margin-inline: auto; }
+.stack { position: relative; }
+.stack .count {
+  position: absolute; right: -8px; top: -8px; z-index: 2;
+  min-width: 22px; height: 22px; border-radius: 999px;
+  background: var(--ink); color: var(--on-band);
+  font: 400 12px/22px var(--display); text-align: center; padding: 0 4px; box-sizing: border-box;
+}
+.stack .r {
+  position: absolute; left: -8px; top: -8px; z-index: 2;
+  width: 22px; height: 22px; border-radius: 50%;
+  background: var(--gold); border: 1.5px solid var(--ink);
+  font: 400 11px/19px var(--display); text-align: center; box-sizing: border-box;
+}
 
-/* Market */
-.label { font-size: 13px; color: var(--ink-soft); letter-spacing: 0.04em; text-transform: uppercase; }
-.market-row { display: flex; gap: 10px; align-items: flex-start; }
-.supply-box { display: flex; flex-direction: column; align-items: center; gap: 4px; flex: none; }
-.supply-box small { font-size: 12px; font-variant-numeric: tabular-nums; }
-.divider { width: 2px; align-self: stretch; background: var(--rim); flex: none; }
-.market { display: flex; gap: 6px; overflow-x: auto; padding: 4px 2px 8px; min-width: 0; flex: 1; min-height: calc(var(--mw) * 1.4 + 12px); }
-.market-empty { font-size: 13px; color: var(--ink-soft); align-self: center; }
-
-/* Share cards, drawn like title deeds */
+/* Share cards, drawn like title deeds (client/scripts/ui/card_view.gd). */
 .card {
   --w: 88px;
   position: relative;
@@ -204,82 +262,115 @@ button { font-family: inherit; }
   background: var(--card);
   color: var(--ink);
   border: 2px solid var(--ink);
-  border-radius: 0.7em;
+  border-radius: 0.95em;
   padding: 0.45em;
   display: flex; flex-direction: column; gap: 0.3em;
   text-align: center;
   cursor: pointer;
   transition: transform 0.18s ease-out, box-shadow 0.18s, filter 0.18s;
-  box-shadow: 0 2px 5px rgba(28, 28, 28, 0.18);
-  /* Press and hold shows a close-up, so no text selection or phone callout. */
+  box-shadow: 0 0.35em 0 rgba(28, 28, 28, 0.85);
   -webkit-user-select: none;
   user-select: none;
   -webkit-touch-callout: none;
 }
-.card:disabled, .card[aria-disabled="true"] { cursor: default; filter: saturate(0.55) brightness(0.9); }
-.card.passive:disabled, .card.passive[aria-disabled="true"] { filter: none; }
+/* Takeable shares wear the orange ring; ones you can't take stay plain. */
+.card.takeable { box-shadow: 0 0 0 0.3em var(--ring), 0 0.35em 0 rgba(28, 28, 28, 0.85); }
+.card[aria-disabled="true"] { cursor: default; }
+/* A Market share your own token blocks is hatched over (D10). */
+.card.blocked::after {
+  content: ""; position: absolute; inset: 0; border-radius: inherit;
+  background: repeating-linear-gradient(135deg, rgba(28, 28, 28, 0.32) 0 0.25em, transparent 0.25em 0.8em);
+}
 .band {
   position: relative;
   background: var(--c);
   color: var(--bt);
   border: 1.5px solid var(--ink);
-  height: 3.9em;
+  border-radius: 0.5em;
+  height: 3.6em;
   flex: none;
-  display: flex; flex-direction: column; justify-content: flex-end; align-items: center;
-  padding-bottom: 0.35em;
+  display: flex; flex-direction: column; justify-content: flex-end; align-items: flex-end;
+  padding: 0 0.4em 0.3em;
 }
-.band .n { position: absolute; left: 0.3em; top: 0.1em; font-size: 1.6em; font-weight: 800; line-height: 1.1; }
-.band .of { font-size: 0.55em; letter-spacing: 0.08em; opacity: 0.85; }
-.band .nm { font-size: 1.05em; font-weight: 800; letter-spacing: 0.02em; line-height: 1.1; }
-.band svg { position: absolute; right: 0.35em; top: 0.35em; width: 1.2em; height: 1.2em; fill: currentColor; }
-.full { font-size: 0.72em; line-height: 1.2; border-bottom: 1px solid var(--ink-soft); padding-bottom: 0.3em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.art { flex: 1; background: var(--tint); border: 1px solid var(--ink-soft); display: grid; place-items: center; min-height: 0; }
-.art svg { width: 2.4em; height: 2.4em; fill: var(--c); }
+.band .n { position: absolute; left: 0.3em; top: 0.15em; font: 400 1.9em/1.1 var(--display); }
+.band .of { font-size: 0.55em; letter-spacing: 0.08em; opacity: 0.9; font-weight: 800; }
+.band .nm { font: 400 0.95em/1.1 var(--display); letter-spacing: 0.02em; }
+.full { font-size: 0.72em; line-height: 1.2; font-weight: 800; border-bottom: 1px solid var(--ink-soft); padding-bottom: 0.3em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.art { flex: 1; background: var(--tint); border: 1.5px solid var(--ink); border-radius: 0.4em; display: grid; place-items: center; min-height: 0; }
+.art svg { width: 2.6em; height: 2.6em; }
 .issued { font-size: 0.64em; border-top: 1px solid var(--ink-soft); padding-top: 0.3em; white-space: nowrap; }
 .card.mini .full, .card.mini .issued { display: none; }
 .coin-badge {
-  position: absolute; left: 50%; top: 62%;
+  position: absolute; left: 50%; top: 64%;
   transform: translate(-50%, -50%);
   width: 2.9em; height: 2.9em; border-radius: 50%;
   background: var(--bronze); color: var(--on-band);
   border: 0.25em solid var(--ink);
   display: grid; place-items: center;
-  font-size: 1.2em; font-weight: 800;
+  font: 400 1.2em/1 var(--display);
 }
-.card.back { cursor: pointer; justify-content: space-between; align-items: stretch; }
-.stripes { display: grid; grid-template-columns: repeat(6, 1fr); gap: 0.15em; height: 0.9em; }
-.stripes i { display: block; }
-.back-title { font-weight: 800; line-height: 1.05; font-size: 1.25em; }
-.back-title span { display: block; font-size: 0.75em; letter-spacing: 0.04em; }
+.card.back { justify-content: space-between; align-items: stretch; padding: 0.55em; }
+.card.back .rule { height: 0.18em; background: var(--ink); border-radius: 1em; }
+.stripes { display: grid; grid-template-columns: repeat(6, 1fr); gap: 0.15em; height: 0.8em; }
+.stripes i { display: block; border-radius: 0.15em; }
+.back-title { font: 400 1.15em/1.05 var(--display); }
+.back-title span { display: block; font-size: 0.78em; letter-spacing: 0.02em; }
 
-/* Prompt and actions */
-.actions { display: flex; flex-direction: column; gap: 8px; align-items: center; }
+/* Your hand stands at the near edge of the table. */
+.hand { display: flex; justify-content: center; padding-top: 18px; margin-top: -6px; min-height: calc(var(--hw) * 1.4 + 26px); }
+.hand .card { --w: var(--hw); margin-inline: -6px; transform-origin: 50% 100%; }
+.hand .card.playable { box-shadow: 0 0 0 0.3em var(--ring), 0 0.35em 0 rgba(28, 28, 28, 0.85); }
+.hand .card.selected { z-index: 2; box-shadow: 0 0 0 0.35em var(--primary), 0 0.6em 1em rgba(0, 0, 0, 0.4); }
+.card.held { z-index: 3; box-shadow: 0 0 0 0.3em var(--chest), 0 0.6em 1em rgba(0, 0, 0, 0.4); }
+
+/* The cream bar: your strip, the prompt and the big action. */
+.bar {
+  background: var(--cream);
+  border: 2px solid var(--ink);
+  border-bottom-width: 6px;
+  border-radius: 22px;
+  padding: 10px 12px 12px;
+  display: flex; flex-direction: column; gap: 10px;
+  position: relative;
+}
+.me-row { display: flex; align-items: center; gap: 10px; }
+.me-row .avatar { grid-row: auto; width: 40px; height: 40px; flex: none; }
+.me-row .avatar.on { box-shadow: 0 0 0 3px var(--ring); }
+.me-info { display: flex; flex-direction: column; gap: 3px; min-width: 0; flex: 1; }
+.me-info .name { font-size: 15px; }
+.me-row .pips { min-height: 0; }
 .prompt { margin: 0; text-align: center; font-size: 15px; text-wrap: balance; min-height: 2.6em; display: grid; place-items: center; white-space: pre-line; }
 .buttons { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; min-height: 48px; }
+.buttons .btn { flex: 1 1 auto; }
+.buttons .btn.primary { flex-basis: 100%; min-height: 56px; font: 400 18px/1 var(--display); }
 .btn.danger { background: var(--alert); color: var(--on-band); }
-/* Forfeit in the top bar: outlined in red so it reads as leaving, not a new deal. */
 .btn.quit { color: var(--alert); border-color: var(--alert); }
 .btn.danger:hover:not(:disabled), .btn.danger:active:not(:disabled) { background: var(--alert-deep); }
+.bubble {
+  position: absolute; right: 16px; top: -30px;
+  background: var(--panel);
+  border: 2px solid var(--ink);
+  border-radius: 12px;
+  padding: 4px 10px;
+  font-size: 16px;
+  box-shadow: 0 3px 0 var(--ink);
+  animation: pop 2.6s ease-out forwards;
+  pointer-events: none;
+}
+.bubble.pic { font-size: 28px; padding: 2px 10px; }
+@keyframes pop { 0% { opacity: 0; translate: 0 6px; } 8% { opacity: 1; translate: 0 0; } 85% { opacity: 1; } 100% { opacity: 0; } }
 
-/* Hand */
-.hand { display: flex; justify-content: center; padding-top: 18px; min-height: calc(var(--hw) * 1.4 + 26px); }
-.hand .card { --w: var(--hw); margin-inline: -3px; transform-origin: 50% 100%; }
-.hand .card.selected { z-index: 2; border-color: var(--gold); border-width: 3px; box-shadow: 0 0 0 3px var(--gold), 0 8px 14px rgba(28, 28, 28, 0.25); }
-/* The card you are holding stays marked under its close-up. */
-.card.held { z-index: 3; box-shadow: 0 0 0 3px var(--chest), 0 8px 14px rgba(28, 28, 28, 0.25); }
-
-/* Close-up: press and hold any hand or Market card. It sits above everything
-   and ignores the pointer, so letting go always lands on the card underneath. */
+/* Close-up: press and hold any hand or Market card. */
 .peek { position: fixed; left: 0; top: 0; z-index: 30; pointer-events: none; animation: peek-in 0.14s ease-out; }
-.peek .card { --w: min(56vw, 220px); cursor: default; box-shadow: 0 0 0 3px var(--chest), 0 14px 30px rgba(28, 28, 28, 0.35); }
+.peek .card { --w: min(56vw, 220px); cursor: default; box-shadow: 0 0 0 3px var(--chest), 0 14px 30px rgba(0, 0, 0, 0.45); }
 @keyframes peek-in { from { opacity: 0; scale: 0.85; } to { opacity: 1; scale: 1; } }
 
+/* Cards hop in along a little arc. */
 .arrive { animation: arrive 0.45s ease-out; }
 .bump { animation: bump 0.5s ease-out; }
-@keyframes arrive { from { opacity: 0; translate: 0 -24px; scale: 0.85; } to { opacity: 1; translate: 0 0; scale: 1; } }
+@keyframes arrive { 0% { opacity: 0; translate: 0 -28px; scale: 0.8; } 60% { opacity: 1; translate: 0 4px; scale: 1.04; } 100% { translate: 0 0; scale: 1; } }
 @keyframes bump { 0% { scale: 1; } 40% { scale: 1.3; } 100% { scale: 1; } }
 
-/* Urgency rim: pulses red while your own step runs out. */
 .glow {
   position: fixed; inset: 0;
   border: 12px solid var(--alert);
@@ -290,11 +381,14 @@ button { font-family: inherit; }
 @keyframes pulse { from { opacity: 0.3; } to { opacity: 0.9; } }
 
 /* Log */
-.log ol { list-style: none; margin: 6px 0 0; padding: 0; display: flex; flex-direction: column; gap: 4px; font-size: 13px; font-weight: 500; }
+.log { color: var(--on-room); }
+.log .label { font: 400 12px/1 var(--display); letter-spacing: 0.14em; color: rgba(243, 238, 221, 0.7); text-transform: uppercase; }
+.log ol { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
 .log li { display: flex; gap: 6px; align-items: baseline; }
-.log li b { font-weight: 700; }
-.log li .t { color: var(--ink-soft); font-variant-numeric: tabular-nums; min-width: 2.2em; font-size: 12px; }
-.note { font-size: 12px; font-weight: 500; color: var(--ink-soft); margin: 0; }
+.log li b { font-weight: 800; color: #FFFFFF; }
+.log li .t { color: rgba(243, 238, 221, 0.6); font-variant-numeric: tabular-nums; min-width: 2.2em; font-size: 12px; }
+.note { font-size: 12px; color: var(--ink-soft); margin: 0; }
+.room-note { font-size: 13px; color: rgba(243, 238, 221, 0.8); margin: 0; text-align: center; text-wrap: balance; }
 
 /* Overlays */
 .overlay {
@@ -305,16 +399,16 @@ button { font-family: inherit; }
   z-index: 10;
   overflow-y: auto;
 }
-.overlay.coach { z-index: 20; }
 .deed {
   width: min(440px, 100%);
   max-height: calc(100vh - 32px);
   display: flex; flex-direction: column;
   background: var(--panel);
   border: 2px solid var(--ink);
-  border-radius: 10px;
-  box-shadow: 0 6px 16px rgba(28, 28, 28, 0.3);
+  border-bottom-width: 6px;
+  border-radius: 18px;
   overflow: hidden;
+  box-sizing: border-box;
 }
 .deed > h2 {
   margin: 0;
@@ -322,69 +416,99 @@ button { font-family: inherit; }
   color: var(--band-ink, var(--on-band));
   border-bottom: 2px solid var(--ink);
   text-align: center;
-  font-size: 22px; font-weight: 800;
-  padding: 12px;
+  font: 400 21px/1.15 var(--display);
+  padding: 13px 12px;
   text-wrap: balance;
 }
 .deed .body { padding: 16px 18px 18px; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; }
-.deed h3 { margin: 4px 0 0; font-size: 17px; font-weight: 800; }
-.deed p { margin: 0; font-weight: 500; line-height: 1.45; max-width: 65ch; }
-.deed .tag { font-size: 12px; letter-spacing: 0.08em; color: var(--ink-soft); font-weight: 700; }
-.coach-text { white-space: pre-line; font-size: 17px; }
+.deed h3 { margin: 4px 0 0; font: 400 16px/1.2 var(--display); }
+.deed p { margin: 0; line-height: 1.45; max-width: 65ch; }
+.deed .tag { font: 400 11px/1 var(--display); letter-spacing: 0.14em; color: var(--ink-soft); }
 .choice { display: flex; gap: 6px; flex-wrap: wrap; }
-.choice .btn[aria-pressed="true"] { background: var(--gold); }
+.choice .btn { flex: 1 1 0; padding: 0 8px; }
+.choice .btn[aria-pressed="true"] { background: var(--primary); }
 .row-end { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
-.row-split { display: flex; gap: 8px; justify-content: space-between; flex-wrap: wrap; }
-.divs { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 0; list-style: none; font-weight: 500; }
+.divs { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 0; list-style: none; }
 .divs li { display: flex; gap: 8px; align-items: center; }
-.chip { width: 14px; height: 14px; border: 1px solid var(--ink); background: var(--c); flex: none; }
+.chip { width: 14px; height: 14px; border: 1.5px solid var(--ink); border-radius: 4px; background: var(--c); flex: none; }
 .scores { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
-.scores td, .scores th { padding: 6px 4px; border-bottom: 1px solid var(--rim); text-align: left; font-size: 14px; }
-.scores th { font-size: 12px; color: var(--ink-soft); font-weight: 700; }
+.scores td, .scores th { padding: 6px 4px; border-bottom: 1px solid #E4E1D6; text-align: left; font-size: 14px; }
+.scores th { font-size: 12px; color: var(--ink-soft); }
 .scores td.num, .scores th.num { text-align: right; }
 .scores tr.you td { background: var(--highlight); }
-.rank { display: inline-grid; place-items: center; width: 26px; height: 26px; border-radius: 50%; border: 1.5px solid var(--ink); font-size: 12px; font-weight: 800; }
+.rank { display: inline-grid; place-items: center; width: 26px; height: 26px; border-radius: 50%; border: 1.5px solid var(--ink); font: 400 12px/1 var(--display); }
 .rank.r1 { background: var(--gold); }
-.co-list { margin: 0; padding: 0; list-style: none; display: grid; gap: 4px; font-weight: 500; }
+.co-list { margin: 0; padding: 0; list-style: none; display: grid; gap: 4px; }
 .co-list li { display: flex; gap: 8px; align-items: center; }
 .toggles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 
-/* Lobby */
-.lobby .deed { width: 100%; max-height: none; box-sizing: border-box; }
-.hero-band {
-  margin: 0;
-  background: var(--alert);
-  color: var(--on-band);
-  border-bottom: 2px solid var(--ink);
-  text-align: center;
-  font-size: clamp(30px, 9vw, 40px);
-  font-weight: 800;
-  letter-spacing: 0.06em;
-  line-height: 1.1;
-  padding: 16px 12px 14px;
+/* Tutorial coach: the table dims except the area the step is about. */
+.coach-layer { position: fixed; inset: 0; z-index: 20; }
+.coach-layer.plain { background: var(--scrim); }
+.spot {
+  position: fixed;
+  border-radius: 20px;
+  box-shadow: 0 0 0 4px var(--ring), 0 0 0 9999px var(--scrim);
+  pointer-events: none;
+  transition: left 0.25s, top 0.25s, width 0.25s, height 0.25s;
 }
-.hero-body { align-items: center; text-align: center; gap: 8px; }
-.tagline { font-size: 16px; font-weight: 600; text-wrap: balance; }
-.facts { font-size: 12px; font-weight: 700; letter-spacing: 0.08em; color: var(--ink-soft); text-transform: uppercase; }
-/* All six companies fanned like a hand of title deeds. */
-.fan { --fw: clamp(54px, 16vw, 72px); position: relative; width: 100%; height: calc(var(--fw) * 1.4 + 18px); }
-.fan .card { --w: var(--fw); position: absolute; top: 10px; left: calc(50% - var(--fw) / 2); transform-origin: 50% 120%; cursor: default; animation: fan-in 0.5s ease-out backwards; }
-@keyframes fan-in { from { transform: translateY(14px) rotate(0deg); opacity: 0; } }
-.continue-line { font-weight: 600; }
+.coach-card {
+  position: fixed;
+  left: 16px; right: 16px;
+  max-width: 440px;
+  margin-inline: auto;
+  animation: coach-pop 0.22s ease-out;
+}
+.coach-card .deed { width: 100%; max-height: none; }
+.coach-meta { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.dots { display: flex; gap: 4px; }
+.dots i { width: 7px; height: 7px; border-radius: 50%; border: 1.5px solid var(--ink); display: block; }
+.dots i.on { background: var(--ring); }
+.coach-text { white-space: pre-line; font-size: 16px; }
+@keyframes coach-pop { from { opacity: 0; scale: 0.94; } to { opacity: 1; scale: 1; } }
+
+/* Start page */
+.start { gap: 14px; }
+.stage { position: relative; height: 236px; margin-bottom: -40px; }
+.stage .felt-oval {
+  position: absolute; left: 50%; bottom: 30px; translate: -50% 0;
+  width: 86%; height: 84px; border-radius: 50%;
+  background: radial-gradient(60% 60% at 50% 40%, var(--felt-light), var(--felt));
+  border: 2px solid var(--ink);
+  box-shadow: 0 0 0 9px var(--rim), 0 0 0 11px var(--ink), 0 10px 0 9px var(--rim-deep), 0 13px 0 11px var(--ink), 0 28px 30px 10px rgba(0, 0, 0, 0.4);
+}
+.coinstack { position: absolute; width: 30px; }
+.coinstack i { display: block; height: 9px; margin-top: -3px; border-radius: 50%; border: 2px solid var(--ink); background: var(--bronze); }
+.coinstack.gold i { background: var(--gold); }
+.fan { --fw: clamp(68px, 19vw, 86px); position: absolute; inset: 0; }
+.fan .card { --w: var(--fw); position: absolute; bottom: 64px; left: calc(50% - var(--fw) / 2); transform-origin: 50% 160%; animation: fan-in 0.5s ease-out backwards; }
+.fan .card.flipped .band, .fan .card.flipped .full, .fan .card.flipped .art, .fan .card.flipped .issued { visibility: hidden; }
+@keyframes fan-in { from { translate: 0 18px; opacity: 0; } }
+.fan { animation: sway 7s ease-in-out infinite; transform-origin: 50% 90%; }
+@keyframes sway { 0%, 100% { rotate: -2deg; } 50% { rotate: 2deg; } }
+.title-card { position: relative; z-index: 1; }
+.title-card h1 { margin: 0; background: var(--alert); color: var(--on-band); border-bottom: 2px solid var(--ink); text-align: center; font: 400 clamp(30px, 9vw, 40px)/1.1 var(--display); letter-spacing: 0.04em; padding: 14px 12px 12px; }
+.title-card .body { align-items: center; text-align: center; gap: 6px; padding: 12px 16px 14px; }
+.tagline { font-size: 16px; text-wrap: balance; }
+.facts { font: 400 11px/1 var(--display); letter-spacing: 0.12em; color: var(--ink-soft); text-transform: uppercase; }
+.continue-line { font-weight: 800; }
 .continue-seats { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
 .continue-seats li { display: flex; align-items: center; gap: 8px; font-size: 14px; }
 .continue-seats .avatar { grid-row: auto; width: 26px; height: 26px; font-size: 12px; flex: none; border-width: 1.5px; }
 .continue-seats .who { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .continue-seats .num { font-size: 13px; color: var(--ink-soft); font-variant-numeric: tabular-nums; white-space: nowrap; }
-.now { font-size: 11px; font-weight: 800; letter-spacing: 0.06em; background: var(--highlight); border: 1.5px solid var(--ink); border-radius: 999px; padding: 1px 7px; }
+.now { font: 400 10px/1 var(--display); letter-spacing: 0.06em; background: var(--primary); border: 1.5px solid var(--ink); border-radius: 999px; padding: 3px 7px; }
 .deed p.hint { font-size: 13px; color: var(--ink-soft); }
 .btn.wide { width: 100%; }
 .lobby-links { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
-.stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 6px 0 0; }
-.stats div { background: var(--panel); border: 1.5px solid var(--ink); border-radius: 8px; padding: 8px 10px; min-width: 0; }
-.stats dt { font-size: 11px; font-weight: 700; color: var(--ink-soft); letter-spacing: 0.06em; text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.stats dd { margin: 0; font-size: 22px; font-weight: 800; font-variant-numeric: tabular-nums; }
-.record .note { margin-top: 6px; }
+.stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 0; }
+.stats div { background: var(--cream); border: 1.5px solid var(--ink); border-radius: 10px; padding: 8px 10px; min-width: 0; }
+.stats dt { font: 400 10px/1.2 var(--display); color: var(--ink-soft); letter-spacing: 0.06em; text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.stats dd { margin: 0; font: 400 22px/1.2 var(--display); font-variant-numeric: tabular-nums; }
+.app-only { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.app-only li { display: flex; gap: 10px; align-items: flex-start; font-size: 14px; line-height: 1.35; }
+.app-only li b { display: block; font-weight: 800; }
+.app-only .dot { width: 12px; height: 12px; margin-top: 4px; border-radius: 50%; border: 1.5px solid var(--ink); flex: none; }
 
 /* Get ready: turn order, who starts, then a 4-3-2-1 count. */
 .order { margin: 0; padding: 0; list-style: none; display: grid; gap: 6px; counter-reset: seat; }
@@ -394,8 +518,8 @@ button { font-family: inherit; }
 .order .who { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .order .tag { font-size: 11px; }
 .order li.first { font-weight: 800; }
-.first-line { margin: 0; text-align: center; font-size: 20px; font-weight: 800; }
-.count { margin: 0; text-align: center; font-size: 72px; line-height: 1; font-weight: 800; font-variant-numeric: tabular-nums; color: var(--alert); min-height: 1em; }
+.first-line { margin: 0; text-align: center; font: 400 20px/1.2 var(--display); }
+.count { margin: 0; text-align: center; font: 400 72px/1 var(--display); font-variant-numeric: tabular-nums; color: var(--alert); min-height: 1em; }
 .count.go { color: var(--ink); }
 .count.tick { animation: bump 0.4s ease-out; }
 .fade-out { animation: fade-out 0.25s ease-in forwards; }
@@ -407,17 +531,24 @@ button { font-family: inherit; }
 }
 </style>
 
-<main class="app lobby" id="lobby" hidden>
-  <section class="deed hero" aria-labelledby="heroTitle">
-    <h1 class="hero-band" id="heroTitle">BIG BUSINESS</h1>
-    <div class="body hero-body">
-      <div class="fan" id="heroFan" aria-hidden="true"></div>
+<main class="app start" id="lobby" hidden>
+  <div class="stage" aria-hidden="true">
+    <div class="felt-oval"></div>
+    <span class="coinstack" style="left: 12%; bottom: 64px"><i></i><i></i><i></i><i></i></span>
+    <span class="coinstack gold" style="left: 24%; bottom: 40px"><i></i><i></i></span>
+    <span class="coinstack" style="right: 12%; bottom: 58px"><i></i><i></i><i></i></span>
+    <div class="fan" id="heroFan"></div>
+  </div>
+
+  <section class="deed title-card" aria-labelledby="heroTitle" style="width: 100%">
+    <h1 id="heroTitle">BIG BUSINESS</h1>
+    <div class="body">
       <p class="tagline">Collect shares. Corner the market. Cash in on dividend day.</p>
       <p class="facts">6 companies · 45 shares · 3 to 7 investors</p>
     </div>
   </section>
 
-  <section class="deed" id="continueCard" hidden aria-labelledby="continueTitle" style="--band: var(--gold); --band-ink: var(--ink);">
+  <section class="deed" id="continueCard" hidden aria-labelledby="continueTitle" style="width: 100%; --band: var(--primary); --band-ink: var(--ink);">
     <h2 id="continueTitle">Game in progress</h2>
     <div class="body">
       <p class="continue-line" id="continueLine"></p>
@@ -429,7 +560,7 @@ button { font-family: inherit; }
     </div>
   </section>
 
-  <section class="deed" id="welcomeCard" hidden aria-labelledby="welcomeTitle" style="--band: var(--chance);">
+  <section class="deed" id="welcomeCard" hidden aria-labelledby="welcomeTitle" style="width: 100%; --band: var(--ring);">
     <h2 id="welcomeTitle">New to Big Business?</h2>
     <div class="body">
       <p>The tutorial deals a practice hand against two slow bots and explains each rule the first time it matters. There is no timer, so take your time.</p>
@@ -437,8 +568,8 @@ button { font-family: inherit; }
     </div>
   </section>
 
-  <section class="deed" aria-labelledby="dealTitle">
-    <h2 id="dealTitle">Deal a table</h2>
+  <section class="deed" aria-labelledby="dealTitle" style="width: 100%">
+    <h2 id="dealTitle">Your table</h2>
     <div class="body">
       <h3>Investors at the table</h3>
       <div class="choice" id="seatChoice"></div>
@@ -448,28 +579,43 @@ button { font-family: inherit; }
       <p class="hint">Quick play in the app uses 30 seconds a step. When time runs out the table plays a simple move for you.</p>
       <h3>Bot speed</h3>
       <div class="choice" id="speedChoice"></div>
-      <button class="btn primary wide" id="dealBtn" type="button">Deal the shares</button>
     </div>
   </section>
+
+  <button class="btn primary big wide" id="dealBtn" type="button"><svg viewBox="0 0 10 12" aria-hidden="true"><path d="M0 0 L10 6 L0 12 Z"/></svg><span id="dealLabel">Play now</span></button>
 
   <div class="lobby-links">
     <button class="btn" id="lobbyTutorial" type="button">How to play</button>
     <button class="btn" id="lobbyRules" type="button">Rules and settings</button>
   </div>
 
-  <section class="record" aria-labelledby="recordTitle">
-    <div class="label" id="recordTitle">Your record in this browser</div>
-    <dl class="stats" id="recordStats" hidden></dl>
-    <p class="note" id="recordEmpty">No games yet. Every real game you finish or forfeit is counted here.</p>
+  <section class="deed" aria-labelledby="recordTitle" style="width: 100%; --band: var(--chest);">
+    <h2 id="recordTitle">Your record in this browser</h2>
+    <div class="body">
+      <dl class="stats" id="recordStats" hidden></dl>
+      <p class="note" id="recordEmpty">No games yet. Every real game you finish or forfeit is counted here.</p>
+    </div>
   </section>
 
-  <p class="note">You play against the game's own bots, running its real rules engine in your browser. Online play, other players' emotes, progression and the season board need the app.</p>
+  <section class="deed" aria-labelledby="appTitle" style="width: 100%; --band: #7B4FC6;">
+    <h2 id="appTitle">Only in the app</h2>
+    <div class="body">
+      <ul class="app-only">
+        <li><span class="dot" style="background: #3F9E4F"></span><span><b>Clubs</b>Join a club with a picked name and climb its weekly league with the season points you earn.</span></li>
+        <li><span class="dot" style="background: #F2C230"></span><span><b>Friends, gifts and watching</b>Send a friend a daily gift of track points, or watch their game from the rail.</span></li>
+        <li><span class="dot" style="background: #2E6FD8"></span><span><b>Designer</b>Put your own pictures on the card backs and art windows for private rooms, checked before anyone else sees them.</span></li>
+        <li><span class="dot" style="background: #D6262C"></span><span><b>Online tables</b>Quick play, private rooms, emotes from other players, quests and the season board.</span></li>
+      </ul>
+    </div>
+  </section>
+
+  <p class="room-note">Here you play the game's own bots, running its real rules engine in your browser.</p>
 </main>
 
-<div class="app" id="app" hidden style="--mw: 72px; --hw: clamp(76px, 21.5vw, 100px);">
+<div class="app" id="app" hidden style="--mw: 64px; --pw: 46px; --hw: clamp(80px, 23vw, 104px);">
   <header class="top">
-    <button class="btn small" id="lobbyBtn" type="button" aria-label="Back to the lobby">‹ Lobby</button>
-    <div class="plate">BIG BUSINESS</div>
+    <button class="btn small ghost" id="lobbyBtn" type="button" aria-label="Back to the start page">‹ Lobby</button>
+    <div class="brand">BIG BUSINESS</div>
     <span class="spacer"></span>
     <button class="btn small emoji" id="emoteBtn" type="button" aria-label="Emotes" aria-expanded="false">😊</button>
     <button class="btn small" id="rulesBtn" type="button" aria-label="Rules and settings">?</button>
@@ -485,22 +631,36 @@ button { font-family: inherit; }
   </div>
   <p class="meta" id="meta"></p>
   <section class="opponents" id="opponents" aria-label="Other investors"></section>
-  <section aria-label="The Market">
-    <div class="label">The Market</div>
-    <div class="market-row">
-      <div class="supply-box">
-        <button class="card back mini passive" id="supply" type="button" style="--w: var(--mw)" aria-label="Share supply">
-          <span class="stripes" id="stripesTop"></span>
-          <span class="back-title">BIG<span>BUSINESS</span></span>
-          <span class="stripes" id="stripesBottom"></span>
-        </button>
-        <small id="supplyCount"></small>
+  <div class="table3d">
+    <div class="felt" id="felt">
+      <div class="felt-in">
+        <div class="supply-zone" id="supplyZone">
+          <div class="supply-stack">
+            <button class="card back mini" id="supply" type="button" style="--w: var(--mw)" aria-label="Share supply">
+              <span class="stripes" id="stripesTop"></span>
+              <span class="rule"></span>
+              <span class="back-title">BIG<span>BUSINESS</span></span>
+              <span class="rule"></span>
+              <span class="stripes" id="stripesBottom"></span>
+            </button>
+          </div>
+          <span class="zone-label" id="supplyCount"></span>
+        </div>
+        <section class="zone" id="marketZone" aria-label="The Market">
+          <div class="zone-label">The Market</div>
+          <div class="market" id="market"></div>
+        </section>
+        <section class="zone" id="portfolioZone" aria-label="Your portfolio">
+          <div class="zone-label">Your portfolio</div>
+          <div class="portfolio" id="portfolio"></div>
+        </section>
       </div>
-      <div class="divider"></div>
-      <div class="market" id="market"></div>
     </div>
-  </section>
-  <section class="actions">
+  </div>
+  <section class="hand" id="hand" aria-label="Your hand"></section>
+  <section class="bar" id="bar" aria-label="Your seat">
+    <div class="bubble" id="bubble" hidden></div>
+    <div id="mine"></div>
     <p class="prompt" id="prompt"></p>
     <div class="buttons">
       <button class="btn primary" id="drawBtn" type="button" hidden>Draw from supply</button>
@@ -509,11 +669,6 @@ button { font-family: inherit; }
       <button class="btn" id="cancelBtn" type="button" hidden>Cancel</button>
     </div>
   </section>
-  <section class="mine-wrap" aria-label="Your seat">
-    <div id="mine"></div>
-    <div class="bubble" id="bubble" hidden></div>
-  </section>
-  <section class="hand" id="hand" aria-label="Your hand"></section>
   <section class="log" aria-label="Latest moves">
     <div class="label">Latest moves</div>
     <ol id="log"></ol>
@@ -524,7 +679,7 @@ button { font-family: inherit; }
 <div class="peek" id="peek" hidden aria-hidden="true"></div>
 
 <div class="overlay" id="readyPanel" hidden>
-  <div class="deed" role="dialog" aria-modal="true" aria-labelledby="readyTitle">
+  <div class="deed" role="dialog" aria-modal="true" aria-labelledby="readyTitle" style="--band: var(--primary); --band-ink: var(--ink);">
     <h2 id="readyTitle">Get ready</h2>
     <div class="body">
       <span class="tag">TURN ORDER</span>
@@ -571,7 +726,7 @@ button { font-family: inherit; }
 </div>
 
 <div class="overlay" id="endPanel" hidden>
-  <div class="deed" role="dialog" aria-modal="true" aria-labelledby="endTitle" style="--band: var(--gold); --band-ink: var(--ink);">
+  <div class="deed" role="dialog" aria-modal="true" aria-labelledby="endTitle" style="--band: var(--primary); --band-ink: var(--ink);">
     <h2 id="endTitle">Dividend day</h2>
     <div class="body">
       <ul class="divs" id="endDivs"></ul>
@@ -588,15 +743,18 @@ button { font-family: inherit; }
   </div>
 </div>
 
-<div class="overlay coach" id="coachPanel" hidden>
-  <div class="deed" role="dialog" aria-modal="true" aria-labelledby="coachTitle" style="--band: var(--chance);">
-    <h2 id="coachTitle"></h2>
-    <div class="body">
-      <span class="tag">TUTORIAL</span>
-      <p class="coach-text" id="coachBody"></p>
-      <div class="row-end">
-        <button class="btn" id="coachSkip" type="button">Skip tutorial</button>
-        <button class="btn primary" id="coachGot" type="button">Got it</button>
+<div class="coach-layer" id="coachPanel" hidden>
+  <div class="spot" id="coachSpot" hidden></div>
+  <div class="coach-card" id="coachCard">
+    <div class="deed" role="dialog" aria-modal="true" aria-labelledby="coachTitle" style="--band: var(--ring); --band-ink: var(--ink);">
+      <h2 id="coachTitle"></h2>
+      <div class="body">
+        <div class="coach-meta"><span class="tag" id="coachStep">TUTORIAL</span><span class="dots" id="coachDots"></span></div>
+        <p class="coach-text" id="coachBody"></p>
+        <div class="row-end">
+          <button class="btn" id="coachSkip" type="button">Skip tutorial</button>
+          <button class="btn primary" id="coachGot" type="button">Got it</button>
+        </div>
       </div>
     </div>
   </div>
@@ -664,6 +822,13 @@ button { font-family: inherit; }
     dividend: ["Dividend day", "For each company, the sole majority holder collects 1 coin per share from every other holder. Coins received flip to gold and are worth 3.\n\nTies pay nothing. You now know every rule: press Play again for a real game."],
   };
   const FORCED_TURNS = 2;
+  // Where each coach card points (coach.gd's "spot"): the table dims except there.
+  const SPOTS = {
+    first_take: "supplyZone", first_play: "handArea", first_sell: "handArea",
+    bot_paid: "marketZone", take_with_coins: "marketZone", token_blocks: "marketZone",
+    token_first: "opponents", endgame_near: "supplyZone",
+  };
+  const STEP_COUNT = Object.keys(STEPS).length;
 
   const $ = (id) => document.getElementById(id);
   const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
@@ -802,15 +967,19 @@ button { font-family: inherit; }
     return `rgb(${mixc(n >> 16)}, ${mixc((n >> 8) & 255)}, ${mixc(n & 255)})`;
   }
 
+  // The art window's icon per company, drawn in code like card_view.gd
+  // (sun, pine, anchor, gear, cloud, bolt) until the commissioned art lands.
+  const ART = [
+    (c) => { let rays = ""; for (let i = 0; i < 8; i++) { const a = (Math.PI * i) / 4; rays += `<line x1="${(Math.cos(a) * 6).toFixed(2)}" y1="${(Math.sin(a) * 6).toFixed(2)}" x2="${(Math.cos(a) * 9).toFixed(2)}" y2="${(Math.sin(a) * 9).toFixed(2)}"/>`; } return `<g stroke="#1C1C1C" stroke-width="1.6" stroke-linecap="round">${rays}</g><circle r="4.4" fill="${c}" stroke="#1C1C1C" stroke-width="1.4"/>`; },
+    (c) => `<path d="M0 -9 L5 -2 L2.5 -2 L7 4 L-7 4 L-2.5 -2 L-5 -2 Z" fill="${c}" stroke="#1C1C1C" stroke-width="1.4" stroke-linejoin="round"/><rect x="-1.4" y="4" width="2.8" height="4.5" fill="#8A5A2B" stroke="#1C1C1C" stroke-width="1.2"/>`,
+    () => `<g fill="none" stroke="#1C1C1C" stroke-width="1.8" stroke-linecap="round"><circle cy="-6.5" r="2"/><line y1="-4.5" y2="8"/><line x1="-4" y1="-1.5" x2="4" y2="-1.5"/><path d="M-7 3 Q-6 8 0 8 Q6 8 7 3"/></g>`,
+    (c) => { let teeth = ""; for (let i = 0; i < 8; i++) teeth += `<rect x="-1.6" y="-9" width="3.2" height="3.6" rx="0.6" transform="rotate(${i * 45})"/>`; return `<g fill="${c}" stroke="#1C1C1C" stroke-width="1.2">${teeth}<circle r="6.4"/></g><circle r="2.4" fill="#FFFDF6" stroke="#1C1C1C" stroke-width="1.2"/>`; },
+    (c) => `<path d="M-7 4 A3.4 3.4 0 0 1 -6 -2.2 A4.6 4.6 0 0 1 2.4 -4.4 A3.8 3.8 0 0 1 7.4 0.4 A3.4 3.4 0 0 1 6 4 Z" fill="#FFFFFF" stroke="#1C1C1C" stroke-width="1.4" stroke-linejoin="round"/><path d="M-4.5 6.5 L4.5 6.5" stroke="${c}" stroke-width="1.6" stroke-linecap="round"/>`,
+    (c) => `<circle r="8" fill="none" stroke="${c}" stroke-width="2.6"/><circle r="8" fill="none" stroke="#1C1C1C" stroke-width="0.8"/><path d="M1.2 -5.5 L-3 0.8 L-0.2 0.8 L-1.2 5.5 L3 -0.8 L0.2 -0.8 Z" fill="#1C1C1C"/>`,
+  ];
+
   function icon(company) {
-    const sides = LOOK[company].sides;
-    if (sides === 0) return '<svg viewBox="-10 -10 20 20" aria-hidden="true"><circle r="8"/></svg>';
-    const pts = [];
-    for (let i = 0; i < sides; i++) {
-      const a = (Math.PI * 2 * i) / sides - Math.PI / 2;
-      pts.push(`${(Math.cos(a) * 8.6).toFixed(2)},${(Math.sin(a) * 8.6).toFixed(2)}`);
-    }
-    return `<svg viewBox="-10 -10 20 20" aria-hidden="true"><polygon points="${pts.join(" ")}"/></svg>`;
+    return `<svg viewBox="-10 -10 20 20" aria-hidden="true">${ART[company](LOOK[company].color)}</svg>`;
   }
 
   function companyVars(company) {
@@ -825,7 +994,7 @@ button { font-family: inherit; }
     // and render() empties them, so a later redraw (selecting a card,
     // cancelling) never replays the arrival animation.
     const moving = !opts.still;
-    const cls = ["card", opts.mini ? "mini" : "", opts.passive ? "passive" : "", moving && fresh.has(card.id) ? "arrive" : "", opts.selected ? "selected" : ""].join(" ");
+    const cls = ["card", opts.mini ? "mini" : "", opts.passive ? "passive" : "", moving && fresh.has(card.id) ? "arrive" : "", opts.selected ? "selected" : "", opts.takeable ? "takeable" : "", opts.blocked ? "blocked" : "", opts.playable ? "playable" : ""].join(" ").replace(/ +/g, " ").trim();
     const tag = opts.still ? "div" : "button";
     const coins = opts.coins || 0;
     const label = `${info.name} share${coins ? `, ${coins} coin${coins === 1 ? "" : "s"} on it` : ""}`;
@@ -834,7 +1003,7 @@ button { font-family: inherit; }
     // events, and any card can be held for a close-up.
     const attrs = opts.still ? 'role="img"' : `type="button" data-id="${card.id}" aria-disabled="${opts.disabled ? "true" : "false"}"`;
     return `<${tag} ${attrs} class="${cls}" style="${style}" aria-label="${esc(label)}">
-      <span class="band"><span class="n">${info.shares}</span><span class="of">SHARE OF</span><span class="nm">${look.short.toUpperCase()}</span>${icon(card.company)}</span>
+      <span class="band"><span class="n">${info.shares}</span><span class="of">SHARE OF</span><span class="nm">${look.short.toUpperCase()}</span></span>
       <span class="full">${esc(info.name)}</span>
       <span class="art">${icon(card.company)}</span>
       <span class="issued">${info.shares} shares issued</span>
@@ -845,27 +1014,65 @@ button { font-family: inherit; }
   function avatarColor(name) {
     let h = 0;
     for (const ch of name) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
-    return `hsl(${h % 360}, 45%, 45%)`;
+    return `hsl(${h % 360}, 70%, 80%)`;
   }
 
-  function seatHTML(sv, idx, view, isMe) {
-    const active = view.phase !== "ended" && view.active === idx;
+  function pipsHTML(sv) {
     const counts = [0, 0, 0, 0, 0, 0];
     for (const c of sv.portfolio) counts[c.company]++;
     let pips = "";
     for (let c = 0; c < 6; c++) {
       if (!counts[c]) continue;
-      const token = sv.tokens.indexOf(c) >= 0 ? '<span class="r" title="Regulator token">R</span>' : "";
-      pips += `<span class="pip" style="${companyVars(c)}" title="${esc(BB.COMPANIES[c].name)}: ${counts[c]}">${counts[c]}${token}</span>`;
+      const sealed = sv.tokens.indexOf(c) >= 0;
+      const token = sealed ? '<span class="r" title="Regulator token">R</span>' : "";
+      pips += `<span class="pip${sealed ? " sealed" : ""}" style="${companyVars(c)}" title="${esc(BB.COMPANIES[c].name)}: ${counts[c]}">${counts[c]}${token}</span>`;
     }
-    const hand = isMe ? "" : `<span class="minihand" aria-label="${sv.handCount} shares in hand">${"<i></i>".repeat(sv.handCount)}</span>`;
-    const name = isMe ? "Your portfolio" : esc(sv.name);
-    return `<div class="seat${active ? " active" : ""}${isMe ? " me" : ""}">
+    return pips;
+  }
+
+  function coinsHTML(sv) {
+    return `<span class="coin b" title="Bronze coins, worth 1"><i></i>${sv.bronze}</span>${sv.gold ? `<span class="coin g" title="Gold coins, worth 3"><i></i>${sv.gold}</span>` : ""}`;
+  }
+
+  /** An opponent's plate on the far side of the table. */
+  function seatHTML(sv, idx, view) {
+    const active = view.phase !== "ended" && view.active === idx;
+    const hand = `<span class="minihand" aria-label="${sv.handCount} shares in hand">${"<i></i>".repeat(sv.handCount)}</span>`;
+    const short = sv.isBot ? sv.name.split(" ").pop() : sv.name;
+    return `<div class="seat${active ? " active" : ""}" data-seat="${idx}">
       <div class="avatar" style="background:${avatarColor(sv.name)}">${esc(sv.name.charAt(0))}</div>
-      <div class="name">${name}</div>
-      <div class="coins"><span class="coin b" title="Bronze coins, worth 1"><i></i>${sv.bronze}</span>${sv.gold ? `<span class="coin g" title="Gold coins, worth 3"><i></i>${sv.gold}</span>` : ""}${hand}</div>
-      <div class="pips">${pips || '<span class="note">No shares kept yet</span>'}</div>
+      <div class="name" title="${esc(sv.name)}">${esc(short)}${sv.isBot ? '<span class="bot">bot</span>' : ""}</div>
+      <div class="coins">${coinsHTML(sv)}${hand}</div>
+      <div class="pips">${pipsHTML(sv) || '<span class="note">No shares yet</span>'}</div>
     </div>`;
+  }
+
+  /** Your strip in the cream bar. */
+  function meHTML(sv, view) {
+    const on = view.phase !== "ended" && view.active === view.you;
+    return `<div class="me-row">
+      <div class="avatar${on ? " on" : ""}" style="background:${avatarColor("You")}">Y</div>
+      <div class="me-info"><div class="name">You</div><div class="coins">${coinsHTML(sv)}</div></div>
+      <div class="pips">${pipsHTML(sv)}</div>
+    </div>`;
+  }
+
+  /** Your portfolio on the felt: one stack per company, with the count and your token seal. */
+  function portfolioHTML(sv) {
+    const byCo = new Map();
+    for (const c of sv.portfolio) {
+      if (!byCo.has(c.company)) byCo.set(c.company, []);
+      byCo.get(c.company).push(c);
+    }
+    if (byCo.size === 0) return '<span class="empty">Shares you keep land here.</span>';
+    return Array.from(byCo.keys()).sort((a, b) => a - b).map((co) => {
+      const cards = byCo.get(co);
+      const top = cards[cards.length - 1];
+      const seal = sv.tokens.indexOf(co) >= 0 ? '<span class="r" title="Regulator token">R</span>' : "";
+      const count = cards.length > 1 ? `<span class="count">${cards.length}</span>` : "";
+      const isFresh = cards.some((c) => fresh.has(c.id));
+      return `<span class="stack${isFresh ? " arrive" : ""}">${seal}${count}${cardHTML(top, { mini: true, still: true, style: "--w: var(--pw)" })}</span>`;
+    }).join("");
   }
 
   // ---------------------------------------------------------------------------
@@ -886,7 +1093,7 @@ button { font-family: inherit; }
     coach.seen[id] = true;
     let body = STEPS[id][1];
     for (const a of args || []) body = body.replace("%s", a);
-    coach.queue.push({ title: STEPS[id][0], body });
+    coach.queue.push({ title: STEPS[id][0], body, spot: SPOTS[id] || "", n: Object.keys(coach.seen).length });
     coachShowNext();
   }
 
@@ -896,8 +1103,48 @@ button { font-family: inherit; }
     coach.showing = true;
     $("coachTitle").textContent = item.title;
     $("coachBody").textContent = item.body;
+    const n = Math.min(item.n, STEP_COUNT);
+    $("coachStep").textContent = `TUTORIAL · ${n} OF ${STEP_COUNT}`;
+    $("coachDots").innerHTML = Array.from({ length: STEP_COUNT }, (_, i) => `<i class="${i < n ? "on" : ""}"></i>`).join("");
+    coach.spot = item.spot;
     $("coachPanel").hidden = false;
-    $("coachGot").focus();
+    placeCoach();
+    $("coachGot").focus({ preventScroll: true });
+  }
+
+  /** The element a coach card points at, or null to dim the whole table. */
+  function coachTarget(key) {
+    if (!key || screen !== "table") return null;
+    if (key === "handArea") return $("hand").children.length ? $("hand") : $("bar");
+    const el = $(key);
+    return el && el.offsetParent !== null ? el : null;
+  }
+
+  /** Cut the spotlight around the step's area and set the card above or below it. */
+  function placeCoach() {
+    const layer = $("coachPanel"), spot = $("coachSpot"), card = $("coachCard");
+    if (layer.hidden) return;
+    const target = coachTarget(coach.spot);
+    if (!target) {
+      layer.classList.add("plain");
+      spot.hidden = true;
+      card.style.top = `${Math.max(16, (window.innerHeight - card.offsetHeight) / 2)}px`;
+      return;
+    }
+    layer.classList.remove("plain");
+    target.scrollIntoView({ block: "center" });
+    const r = target.getBoundingClientRect();
+    const pad = 8;
+    spot.hidden = false;
+    spot.style.left = `${r.left - pad}px`;
+    spot.style.top = `${r.top - pad}px`;
+    spot.style.width = `${r.width + pad * 2}px`;
+    spot.style.height = `${r.height + pad * 2}px`;
+    const h = card.offsetHeight, vh = window.innerHeight;
+    let y = r.bottom + pad + 14;
+    if (y + h > vh - 12) y = r.top - pad - 14 - h;
+    if (y < 12) y = Math.max(12, vh - h - 12);
+    card.style.top = `${Math.round(y)}px`;
   }
 
   function coachGotIt() {
@@ -1115,7 +1362,7 @@ button { font-family: inherit; }
         .join("");
     }
     $("welcomeCard").hidden = live || record.games > 0 || record.tutorial;
-    $("dealBtn").textContent = live ? "Deal a new table" : "Deal the shares";
+    $("dealLabel").textContent = live ? "Deal a new table" : "Play now";
     renderChoices();
     const played = record.games > 0;
     $("recordStats").hidden = !played;
@@ -1127,9 +1374,29 @@ button { font-family: inherit; }
   function renderFan() {
     $("heroFan").innerHTML = BB.COMPANIES.map((c, k) => {
       const off = k - 2.5;
-      const style = `transform: translateX(calc(var(--fw) * ${(off * 0.5).toFixed(2)})) rotate(${(off * 7).toFixed(1)}deg); animation-delay: ${k * 60}ms`;
+      const style = `transform: translateX(calc(var(--fw) * ${(off * 0.42).toFixed(2)})) translateY(${(Math.abs(off) * 4).toFixed(0)}px) rotate(${(off * 11).toFixed(1)}deg); animation-delay: ${k * 60}ms`;
       return cardHTML({ id: -1 - c.id, company: c.id }, { still: true, style });
     }).join("");
+  }
+
+  /** Turn a start-page share over: the face swaps for the classic back and back again. */
+  function flipFan(ev) {
+    const el = ev.target.closest(".card");
+    if (!el) return;
+    if (el.dataset.face) {
+      el.innerHTML = el.dataset.face;
+      delete el.dataset.face;
+      el.classList.remove("back");
+    } else {
+      el.dataset.face = el.innerHTML;
+      el.innerHTML = backHTML();
+      el.classList.add("back");
+    }
+    el.animate([{ scale: "0 1" }, { scale: "1 1" }], { duration: 220, easing: "ease-out" });
+  }
+
+  function backHTML() {
+    return `<span class="stripes">${stripes()}</span><span class="rule"></span><span class="back-title">BIG<span>BUSINESS</span></span><span class="rule"></span><span class="stripes">${stripes()}</span>`;
   }
 
   function loadRecord() {
@@ -1299,28 +1566,33 @@ button { font-family: inherit; }
     let opp = "";
     for (let k = 1; k < seats.length; k++) {
       const idx = (me + k) % seats.length;
-      opp += seatHTML(seats[idx], idx, view, false);
+      opp += seatHTML(seats[idx], idx, view);
     }
     $("opponents").innerHTML = opp;
-    $("mine").innerHTML = seatHTML(seats[me], me, view, true);
+    $("opponents").classList.toggle("three", [3, 5, 6].indexOf(seats.length - 1) >= 0);
+    $("mine").innerHTML = meHTML(seats[me], view);
+    $("portfolio").innerHTML = portfolioHTML(seats[me]);
 
     // Supply and Market.
     const canDraw = live && view.phase === "take" && allowed(view, "take_supply");
     $("supply").disabled = !canDraw;
+    $("supply").classList.toggle("takeable", canDraw);
     $("supply").style.opacity = view.supplyCount > 0 ? "1" : "0.35";
-    $("supplyCount").textContent = `${view.supplyCount} left`;
+    $("supplyCount").textContent = `Supply · ${view.supplyCount}`;
     const slots = view.market.map((m) => {
       const takeable = live && view.phase === "take" && allowed(view, "take_market", m.card.id);
-      return { m, takeable, passive: !live || view.phase !== "take" };
+      const blocked = view.seats[me].tokens.indexOf(m.card.company) >= 0;
+      return { m, takeable, blocked, passive: !live || view.phase !== "take" };
     });
+    $("marketZone").classList.toggle("glow-zone", slots.some((x) => x.takeable));
     // Redraw the Market only when something in it changed, so a redraw for
     // your own selection does not restart an arriving card or coin.
-    const marketKey = JSON.stringify(slots.map((x) => [x.m.card.id, x.m.coins, x.takeable, x.passive]));
+    const marketKey = JSON.stringify(slots.map((x) => [x.m.card.id, x.m.coins, x.takeable, x.blocked, x.passive]));
     if (marketKey !== lastMarketKey) {
       lastMarketKey = marketKey;
       $("market").innerHTML = slots.length === 0
         ? '<span class="market-empty">Empty. Sold shares land here.</span>'
-        : slots.map((x) => cardHTML(x.m.card, { mini: true, coins: x.m.coins, disabled: !x.takeable, passive: x.passive, style: "--w: var(--mw)" })).join("");
+        : slots.map((x) => cardHTML(x.m.card, { mini: true, coins: x.m.coins, disabled: !x.takeable, passive: x.passive, takeable: x.takeable, blocked: x.blocked, style: "--w: var(--mw)" })).join("");
     }
 
     // Hand.
@@ -1330,6 +1602,7 @@ button { font-family: inherit; }
     // Prompt and buttons.
     const draw = $("drawBtn"), keep = $("keepBtn"), sell = $("sellBtn"), cancel = $("cancelBtn");
     draw.hidden = keep.hidden = sell.hidden = cancel.hidden = true;
+    $("portfolioZone").classList.remove("glow-zone");
     let prompt = "";
     if (forfeited) {
       prompt = "You forfeited this game. Play again, or head back to the lobby.";
@@ -1338,12 +1611,12 @@ button { font-family: inherit; }
     } else if (view.phase === "ended") {
       prompt = "Every hand has joined its portfolio.";
     } else if (!mine) {
-      prompt = "Watch the table: every move shows up in the list below.";
+      prompt = "Watch the table: every move shows up under Latest moves.";
     } else if (view.phase === "take") {
       const cost = view.drawCost || 0;
       draw.hidden = false;
       draw.disabled = !canDraw;
-      draw.textContent = `Draw from supply (${cost === 0 ? "free" : `${cost} coin${cost === 1 ? "" : "s"}`})`;
+      draw.textContent = `Draw from supply · ${cost === 0 ? "free" : `${cost} coin${cost === 1 ? "" : "s"}`}`;
       prompt = hinted(hasLegal(view, "take_supply")
         ? view.market.length
           ? "Tap a Market share to take it with its coins, or draw from the supply."
@@ -1354,6 +1627,7 @@ button { font-family: inherit; }
     } else {
       const card = hand.find((c) => c.id === selected);
       keep.hidden = sell.hidden = cancel.hidden = false;
+      $("portfolioZone").classList.add("glow-zone");
       keep.disabled = !allowed(view, "play_portfolio", selected);
       sell.disabled = !allowed(view, "play_market", selected);
       const blocked = !hasLegal(view, "play_market", selected) ? " You can't sell the company you just took." : "";
@@ -1394,14 +1668,15 @@ button { font-family: inherit; }
         disabled: !(playStep && cardPlayable(view, c.id)),
         passive: !playStep,
         selected: c.id === selected,
-        transform: `translateY(${lift}px) rotate(${(t * 10).toFixed(1)}deg)`,
+        playable: playStep && selected < 0 && cardPlayable(view, c.id),
+        transform: `translateY(${lift}px) rotate(${(t * 14).toFixed(1)}deg)`,
       };
     });
     const shown = Array.from(box.children, (el) => el.dataset.id);
     const same = shown.length === n && hand.every((c, i) => shown[i] === String(c.id));
     if (!same) {
       box.innerHTML = specs
-        .map((x) => cardHTML(x.card, { disabled: x.disabled, passive: x.passive, selected: x.selected, style: `transform: ${x.transform}` }))
+        .map((x) => cardHTML(x.card, { disabled: x.disabled, passive: x.passive, selected: x.selected, playable: x.playable, style: `transform: ${x.transform}` }))
         .join("");
     }
     specs.forEach((x, i) => {
@@ -1410,6 +1685,7 @@ button { font-family: inherit; }
       el.setAttribute("aria-pressed", String(x.selected));
       el.classList.toggle("passive", x.passive);
       el.classList.toggle("selected", x.selected);
+      el.classList.toggle("playable", x.playable);
       el.style.transform = x.transform;
     });
   }
@@ -1858,6 +2134,8 @@ button { font-family: inherit; }
     $("endLook").addEventListener("click", () => { $("endPanel").hidden = true; });
     $("coachGot").addEventListener("click", coachGotIt);
     $("coachSkip").addEventListener("click", coachSkip);
+    $("heroFan").addEventListener("click", flipFan);
+    window.addEventListener("resize", placeCoach);
     document.addEventListener("keydown", (e) => {
       if (e.key !== "Escape") return;
       for (const id of ["rulesPanel", "endPanel", "forfeitPanel", "forfeitDone"]) $(id).hidden = true;

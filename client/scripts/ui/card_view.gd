@@ -174,6 +174,10 @@ func _draw_back() -> void:
 			_draw_back_sunrise(inner)
 		"back_pinstripe":
 			_draw_back_pinstripe(inner)
+		"back_gilded":
+			_draw_back_gilded(inner)
+		"back_blueprint":
+			_draw_back_blueprint(inner)
 		_:
 			_draw_back_classic(inner)
 
@@ -231,6 +235,36 @@ func _draw_back_pinstripe(inner: Rect2) -> void:
 	draw_rect(plate, Companies.CARD_FACE, true)
 	draw_rect(plate, Companies.INK, false, 1.0)
 	_draw_monogram(Companies.INK)
+
+
+## Shop skin: deep green face, gold double frame and gold monogram.
+## Placeholder drawing until the commissioned art (TODO-local F).
+func _draw_back_gilded(inner: Rect2) -> void:
+	var entry := Cosmetics.card_back_entry("back_gilded")
+	var gold: Color = entry["ink"]
+	draw_rect(inner, entry["accent"], true)
+	draw_rect(inner, gold, false, 2.5)
+	draw_rect(inner.grow(-6), gold, false, 1.0)
+	for corner in [inner.position + Vector2(10, 10), Vector2(inner.end.x - 10, inner.position.y + 10), Vector2(inner.position.x + 10, inner.end.y - 10), inner.end - Vector2(10, 10)]:
+		draw_colored_polygon(PackedVector2Array([corner + Vector2(0, -4), corner + Vector2(4, 0), corner + Vector2(0, 4), corner + Vector2(-4, 0)]), gold)
+	_draw_monogram(gold)
+
+
+## Shop skin: drafting-blue face with a light grid, like a company's floor plan.
+func _draw_back_blueprint(inner: Rect2) -> void:
+	var entry := Cosmetics.card_back_entry("back_blueprint")
+	var line: Color = entry["ink"]
+	draw_rect(inner, entry["accent"], true)
+	var x := inner.position.x + 8.0
+	while x < inner.end.x - 2.0:
+		draw_line(Vector2(x, inner.position.y + 2), Vector2(x, inner.end.y - 2), Color(line, 0.25), 1.0)
+		x += 10.0
+	var y := inner.position.y + 8.0
+	while y < inner.end.y - 2.0:
+		draw_line(Vector2(inner.position.x + 2, y), Vector2(inner.end.x - 2, y), Color(line, 0.25), 1.0)
+		y += 10.0
+	draw_rect(inner, line, false, 1.5)
+	_draw_monogram(line)
 
 
 func _draw_monogram(color: Color) -> void:

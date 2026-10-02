@@ -10,6 +10,8 @@
  *   5. friends: mutual add, room invite notification, join by code, refusals
  *   5b. bad RPC payloads and the report rate limit are rejected cleanly
  *   6. quick play: 1 human, lobby wait, bots fill, game completes
+ *   7. shop, Remote Config, push tokens and the analytics report (store and
+ *      FCM keys are not set, so the shop answers "not configured")
  * Exit code 0 on success.
  */
 import WebSocket from 'ws';
@@ -20,6 +22,7 @@ globalThis.WebSocket = WebSocket;
 const HOST = process.env.NAKAMA_HOST || '127.0.0.1';
 const PORT = process.env.NAKAMA_PORT || '7350';
 const KEY = process.env.NAKAMA_KEY || 'defaultkey';
+const HTTP_KEY = process.env.NAKAMA_HTTP_KEY || 'defaulthttpkey';
 
 const OP_ACTION = 1, OP_READY = 2, OP_EMOTE = 3, OP_FORFEIT = 4, OP_VIEW = 10, OP_EVENTS = 11, OP_LOBBY = 12, OP_ERROR = 13, OP_EMOTE_SHOWN = 14, OP_FORFEITED = 15;
 const INVITE_CODE = 100; // notification code, see src/match/protocol.ts
@@ -479,6 +482,76 @@ async function testFriendsAndInvites() {
   for (const p of [host, guest, stranger]) p.socket.disconnect(true);
 }
 
+/** Server-to-server RPC with the runtime http_key, as the operator or a webhook calls it. */
+async function serverRpc(id, body, headers = {}) {
+  const res = await fetch(`http://${HOST}:${PORT}/v2/rpc/${id}?http_key=${encodeURIComponent(HTTP_KEY)}&unwrap`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...headers },
+    body: JSON.stringify(body),
+  });
+  return { status: res.status, body: await res.json().catch(() => null) };
+}
+
+async function testServices() {
+  log('--- shop, Remote Config, push tokens, analytics');
+  const p = await makePlayer('Shopper');
+  await rpc(p, 'get_profile');
+  const cat = await rpc(p, 'store_catalog');
+  if (cat.configured !== false || cat.skins.length !== 3 || cat.owned.length !== 0) fail(`store_catalog: ${JSON.stringify(cat)}`);
+  const synced = await rpc(p, 'sync_purchases');
+  if (synced.configured !== false || synced.owned.length !== 0) fail(`sync_purchases without a key: ${JSON.stringify(synced)}`);
+  const eq = await rpc(p, 'equip_cosmetic', { slot: 'cardBack', id: 'back_gilded' });
+  if (eq.ok) fail('a paid skin that was never bought must not equip');
+  let ownedSeedRefused = false;
+  try {
+    await p.client.writeStorageObjects(p.session, [{ collection: 'purchases', key: 'owned', value: { owned: ['back_gilded'] }, permission_read: 1, permission_write: 0 }]);
+  } catch (e) { ownedSeedRefused = true; }
+  if (!ownedSeedRefused) fail('a client write to the purchases collection must be refused');
+  log('shop: catalog listed, purchases not configured, unbought skin refused, purchase row server-only');
+
+  // Webhook: refused without the shared secret; with it, a sync per named user.
+  const noAuth = await serverRpc('revenuecat_webhook', { event: { app_user_id: p.userId } });
+  if (noAuth.status === 200) fail('webhook without Authorization must be refused');
+  const hook = await serverRpc('revenuecat_webhook', { event: { type: 'CANCELLATION', app_user_id: p.userId } }, { Authorization: 'local-webhook-secret' });
+  if (hook.status !== 200 || !hook.body || hook.body.synced !== 1) fail(`webhook with the secret: ${JSON.stringify(hook)}`);
+  log('webhook: refused without the secret, synced with it');
+
+  const cfg = await rpc(p, 'get_remote_config');
+  if (cfg.shopEnabled !== true || cfg.pushEnabled !== true || typeof cfg.quickPlayWaitSeconds !== 'number') fail(`get_remote_config: ${JSON.stringify(cfg)}`);
+  await rpcRejected(p, 'set_remote_config', { shopEnabled: false }, 'set_remote_config from a player');
+  await rpcRejected(p, 'analytics_report', {}, 'analytics_report from a player');
+  const set = await serverRpc('set_remote_config', { tutorialAutoRoute: true, quickPlayWaitSeconds: 999, junk: 1 });
+  if (set.status !== 200 || set.body.tutorialAutoRoute !== true || set.body.quickPlayWaitSeconds !== 60 || 'junk' in set.body) fail(`set_remote_config: ${JSON.stringify(set)}`);
+  const cfg2 = await rpc(p, 'get_remote_config');
+  if (cfg2.tutorialAutoRoute !== true) fail('players should see the new config');
+  await serverRpc('set_remote_config', { tutorialAutoRoute: cfg.tutorialAutoRoute, quickPlayWaitSeconds: cfg.quickPlayWaitSeconds });
+  log('remote config: players read it, only the server writes it, values clamped');
+
+  const token = 'e2eToken_' + 'x'.repeat(40) + ':APA91b';
+  const reg = await rpc(p, 'register_push_token', { token, platform: 'android' });
+  if (!reg.ok) fail('register_push_token should accept an FCM-shaped token');
+  await rpcRejected(p, 'register_push_token', { token: 'short', platform: 'android' }, 'a malformed push token');
+  await rpcRejected(p, 'register_push_token', { token, platform: 'windows' }, 'an unknown push platform');
+  const unreg = await rpc(p, 'unregister_push_token', { token });
+  if (!unreg.ok) fail('unregister_push_token should succeed');
+  log('push tokens: registered, malformed refused, unregistered');
+
+  // The games above ran through awards: today's cohort has installs and every
+  // funnel step but purchase. Awards land a tick after the game ends, so poll.
+  const steps = ['installs', 'tutorial', 'firstGame', 'peopleGame'];
+  let today = null;
+  for (let i = 0; i < 25; i++) {
+    const report = await serverRpc('analytics_report', { days: 2 });
+    today = report.body && report.body.cohorts && report.body.cohorts[0];
+    if (report.status !== 200 || !today || today.day !== new Date().toISOString().slice(0, 10)) fail(`analytics_report: ${JSON.stringify(report)}`);
+    if (steps.every((k) => today[k] >= 1)) break;
+    await sleep(200);
+  }
+  for (const k of steps) if (!(today[k] >= 1)) fail(`analytics cohort ${k} should be counted: ${JSON.stringify(today)}`);
+  log('analytics today:', JSON.stringify(today));
+  p.socket.disconnect(true);
+}
+
 try {
   await testPrivateRoom();
   await testForfeit();
@@ -486,6 +559,7 @@ try {
   await testRejections();
   await testQuickPlay();
   await testTutorial();
+  await testServices();
   log('E2E OK');
   process.exit(0);
 } catch (e) {

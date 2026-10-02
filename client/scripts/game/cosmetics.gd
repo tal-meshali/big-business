@@ -1,13 +1,17 @@
 class_name Cosmetics
-## Free cosmetic track catalog: card backs and table felts. Ids must match
-## server/src/match/cosmetics.ts. The current selections are static so
-## CardView, the table and the lobby read them without any wiring.
+## Cosmetic catalog: card backs and table felts. Most come from the free
+## quest track; entries with "paid": true are curated skins sold in the shop
+## (server/src/match/store.ts). Ids must match server/src/match/cosmetics.ts.
+## The current selections are static so CardView, the table and the lobby
+## read them without any wiring.
 
 const CARD_BACKS := [
 	{"id": "back_classic", "name": "Classic", "ink": Color("#1C1C1C"), "accent": Color("#FFFDF6")},
 	{"id": "back_midnight", "name": "Midnight", "ink": Color("#EAE6DA"), "accent": Color("#1E2233")},
 	{"id": "back_sunrise", "name": "Sunrise", "ink": Color("#1C1C1C"), "accent": Color("#F2C230")},
 	{"id": "back_pinstripe", "name": "Pinstripe", "ink": Color("#1C1C1C"), "accent": Color("#2E6FD8")},
+	{"id": "back_gilded", "name": "Gilded", "ink": Color("#D9B44A"), "accent": Color("#1F3A2E"), "paid": true},
+	{"id": "back_blueprint", "name": "Blueprint", "ink": Color("#F4F8FF"), "accent": Color("#1D4E89"), "paid": true},
 ]
 
 ## WHY: the felts stay pale tints (not true navy or burgundy) because every
@@ -17,6 +21,7 @@ const TABLES := [
 	{"id": "table_green", "name": "Board green", "bg": Color("#C7DFC9"), "edge": Color("#9BBE9F")},
 	{"id": "table_navy", "name": "Navy felt", "bg": Color("#C3D1E6"), "edge": Color("#8AA0C2")},
 	{"id": "table_burgundy", "name": "Burgundy felt", "bg": Color("#E6C7CB"), "edge": Color("#BD8F96")},
+	{"id": "table_walnut", "name": "Walnut", "bg": Color("#E3D2BE"), "edge": Color("#A9845F"), "paid": true},
 ]
 
 const DEFAULT_CARD_BACK := "back_classic"
@@ -42,6 +47,13 @@ static func card_back_entry(id: String = card_back) -> Dictionary:
 	return CARD_BACKS[0]
 
 
+## One colour that stands for a cosmetic in a list: a card back's face, a felt's cloth.
+static func swatch_color(id: String) -> Color:
+	if is_card_back(id):
+		return card_back_entry(id)["accent"]
+	return _table_entry(id)["bg"]
+
+
 static func _table_entry(id: String) -> Dictionary:
 	for e in TABLES:
 		if e["id"] == id:
@@ -57,6 +69,14 @@ static func name_of(id: String) -> String:
 		if e["id"] == id:
 			return e["name"]
 	return id
+
+
+## True for the curated skins sold in the shop (never on the quest track).
+static func is_paid(id: String) -> bool:
+	for e in CARD_BACKS + TABLES:
+		if e["id"] == id:
+			return bool(e.get("paid", false))
+	return false
 
 
 static func is_card_back(id: String) -> bool:

@@ -1,9 +1,10 @@
 /** Room-code RPCs: create_room, join_room, quick_play. Registered by main.ts. */
 import { normalizeCode, parseBody, readBool, readInt, reject, requireUser } from './input';
-import { clampStepSeconds, DEFAULT_PARAMS, MATCH_MODULE, TUTORIAL_SEED } from './protocol';
+import { clampStepSeconds, DEFAULT_PARAMS, MATCH_MODULE, SYSTEM_USER, TUTORIAL_SEED } from './protocol';
 import { checkRate } from './ratelimit';
+import { readRemoteConfig } from './rpc_config';
 
-export const SYSTEM_USER = '00000000-0000-0000-0000-000000000000';
+export { SYSTEM_USER } from './protocol';
 
 export const ROOM_COLLECTION = 'rooms';
 const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no 0/O/1/I; keep in sync with ROOM_CODE_RE
@@ -101,7 +102,7 @@ export const rpcQuickPlay: nkruntime.RpcFunction = (ctx, logger, nk, payload) =>
   const matches = nk.matchList(10, true, null, 0, DEFAULT_PARAMS.maxSeats - 1, query);
   const open = matches[0];
   if (open) return JSON.stringify({ matchId: open.matchId });
-  const matchId = nk.matchCreate(MATCH_MODULE, { isPrivate: false });
+  const matchId = nk.matchCreate(MATCH_MODULE, { isPrivate: false, lobbyWaitSeconds: readRemoteConfig(nk).quickPlayWaitSeconds });
   logger.info('quick play created %s', matchId);
   return JSON.stringify({ matchId });
 };

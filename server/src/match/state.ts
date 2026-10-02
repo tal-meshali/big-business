@@ -43,6 +43,12 @@ export interface MatchState {
   lastEmoteAt: { [userId: string]: number };
   /** Append-only log of accepted actions for replay / reconnection. `coins` is what a Market share paid (quest stats). */
   log: Array<{ seq: number; seat: number; action: Action; source: string; coins?: number }>;
+  /** "turn:active" of the last turn checked for a push (turn_push.ts). */
+  pushTurnKey: string;
+  /** Epoch ms of the last "your turn" push per user id. */
+  pushSentAt: { [userId: string]: number };
+  /** Failed push sends; at PUSH_MAX_FAILURES the match stops trying. */
+  pushFailures: number;
 }
 
 export function nowMs(): number {

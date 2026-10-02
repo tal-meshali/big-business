@@ -20,6 +20,8 @@ signal invite_received(from_name: String, code: String)
 ## Linking a provider found it already belongs to another account (a
 ## reinstall), so we signed in to that account instead.
 signal account_switched(provider_name: String)
+## The server's Remote Config arrived and `RemoteConfig` now reflects it.
+signal remote_config_updated
 
 const SETTINGS_PATH := "user://net.cfg"
 const DEFAULT_PORT := 7350
@@ -63,6 +65,7 @@ var _reconnecting: bool = false
 func _ready() -> void:
 	_load_settings()
 	connected.connect(_on_connected_social)
+	connected.connect(_on_connected_services)
 
 
 func _load_settings() -> void:
@@ -778,3 +781,71 @@ func connect_preferred() -> bool:
 			return await _open_socket()
 		push_warning("%s sign-in failed, using the device id: %s" % [provider, found.get_exception().message])
 	return await connect_to_server()
+
+
+# --- Shop, Remote Config and push ----------------------------------------------
+# WHY the server decides: purchases are read from RevenueCat on the server
+# (decision D5), Remote Config lives in Nakama storage, and push tokens are
+# server-only rows. The device-side plugins are stubs until TODO-local G.
+
+## After every sign-in: switches, the purchase plugin's user, the push token.
+func _on_connected_services() -> void:
+	Purchases.configure(user_id)
+	await get_remote_config()
+	await register_push_token()
+
+
+## Applies and returns the server switches; {} when offline or on failure.
+func get_remote_config() -> Dictionary:
+	if client == null or session == null:
+		return {}
+	var rpc: NakamaAPI.ApiRpc = await client.rpc_async(session, "get_remote_config", "{}")
+	if rpc.is_exception():
+		return {}
+	var data = JSON.parse_string(rpc.payload)
+	if not data is Dictionary:
+		return {}
+	RemoteConfig.apply(data)
+	remote_config_updated.emit()
+	return data
+
+
+## Skins on sale: {configured, skins: [{id, slot, name, productId, owned}],
+## owned}, or {} when offline or on failure.
+func store_catalog() -> Dictionary:
+	if client == null or session == null:
+		return {}
+	var rpc: NakamaAPI.ApiRpc = await client.rpc_async(session, "store_catalog", "{}")
+	if rpc.is_exception():
+		return {}
+	var data = JSON.parse_string(rpc.payload)
+	return data if data is Dictionary else {}
+
+
+## Asks the server to re-read this account's purchases from RevenueCat:
+## {configured, owned, equipped, unlocked}, or {} on failure. Applies the
+## equipped cosmetics (a refunded skin falls back to the default).
+func sync_purchases() -> Dictionary:
+	if client == null or session == null:
+		return {}
+	var rpc: NakamaAPI.ApiRpc = await client.rpc_async(session, "sync_purchases", "{}")
+	if rpc.is_exception():
+		return {}
+	var data = JSON.parse_string(rpc.payload)
+	if not data is Dictionary:
+		return {}
+	Cosmetics.apply_equipped(data.get("equipped", {}))
+	return data
+
+
+## Sends this device's FCM token to the server when there is one. True when
+## a token was registered.
+func register_push_token() -> bool:
+	if client == null or session == null:
+		return false
+	var token := PushTokens.request_token()
+	if token.is_empty():
+		return false
+	var payload := JSON.stringify({"token": token, "platform": PushTokens.platform()})
+	var rpc: NakamaAPI.ApiRpc = await client.rpc_async(session, "register_push_token", payload)
+	return not rpc.is_exception()

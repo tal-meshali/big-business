@@ -24,6 +24,18 @@ runtime:
   js_entrypoint: index.js
   # Freeze the JS globals between calls (Nakama's default; stated so nobody turns it off).
   js_read_only_globals: true
+  # Server-to-server RPCs (set_remote_config, analytics_report, revenuecat_webhook)
+  # are called with ?http_key=...; production sets its own (docs/deploy.md).
+  http_key: defaulthttpkey
+  # Runtime settings read through ctx.env. Empty store and FCM keys keep the
+  # shop in "not configured" mode and pushes off (docs/deploy.md "Shop, push
+  # and analytics"). The webhook secret here is for the local e2e only.
+  env:
+    - "REVENUECAT_API_KEY="
+    - "REVENUECAT_WEBHOOK_AUTH=local-webhook-secret"
+    - "FCM_PROJECT_ID="
+    - "FCM_CLIENT_EMAIL="
+    - "FCM_PRIVATE_KEY="
 
 match:
   input_queue_size: 128

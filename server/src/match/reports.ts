@@ -3,7 +3,11 @@ import { isClientError, isUserId, MATCH_ID_MAX, parseBody, readString, reject, R
 import { utcDate } from './progression';
 import { checkRate, RATE_COLLECTION, RATE_LIMITS } from './ratelimit';
 import { PROFILE_COLLECTION } from './progression';
+import { ANALYTICS_COLLECTION, COHORT_COLLECTION } from './analytics';
+import { PUSH_COLLECTION } from './push';
+import { CONFIG_COLLECTION } from './remote_config';
 import { ROOM_COLLECTION, SYSTEM_USER } from './rooms';
+import { PURCHASE_COLLECTION } from './store';
 
 export const REPORT_COLLECTION = 'reports';
 const REPORT_REASONS = ['name', 'behaviour', 'cheating', 'other'];
@@ -91,7 +95,17 @@ export const beforeAddFriends: nkruntime.BeforeHookFunction<nkruntime.AddFriends
 // module (it refuses wrappers such as guardRpc(fn)), so each guarded RPC is a
 
 /** Collections only the server writes; clients may never write or delete in them. */
-export const SERVER_COLLECTIONS = [PROFILE_COLLECTION, RATE_COLLECTION, ROOM_COLLECTION, REPORT_COLLECTION];
+export const SERVER_COLLECTIONS = [
+  PROFILE_COLLECTION,
+  RATE_COLLECTION,
+  ROOM_COLLECTION,
+  REPORT_COLLECTION,
+  PURCHASE_COLLECTION,
+  ANALYTICS_COLLECTION,
+  COHORT_COLLECTION,
+  CONFIG_COLLECTION,
+  PUSH_COLLECTION,
+];
 
 /** True when a client storage request touches a server-only collection. */
 export function touchesServerCollection(objects: ReadonlyArray<{ collection?: string }> | undefined | null): boolean {

@@ -7,7 +7,7 @@
  * selection).
  */
 import type { Action, GameState } from '../engine';
-import { TRACK, unlockedCosmetics } from './cosmetics';
+import { availableCosmetics, TRACK } from './cosmetics';
 import { emptyQuestState, utcDate, type Progress, type QuestProgress, type QuestState } from './progression';
 
 /** How a quest accumulates: `sum` adds each game's stat, `best` keeps the highest single game. */
@@ -277,8 +277,11 @@ export function claimQuest(p: Progress, id: string, nowMs: number): { ok: boolea
   return { ok: true, progress: { ...p, quests, trackPoints: p.trackPoints + def.points } };
 }
 
-/** The profile fields the quests panel needs, beyond the base progress. */
-export function questProfile(p: Progress, nowMs: number): {
+/**
+ * The profile fields the quests panel needs, beyond the base progress.
+ * `unlocked` covers the track and the paid skins in `owned`.
+ */
+export function questProfile(p: Progress, nowMs: number, owned: ReadonlyArray<string> = []): {
   quests: { daily: QuestRow[]; weekly: QuestRow[] };
   trackPoints: number;
   unlocked: string[];
@@ -288,7 +291,7 @@ export function questProfile(p: Progress, nowMs: number): {
   return {
     quests: questView(p.quests, nowMs),
     trackPoints: p.trackPoints,
-    unlocked: unlockedCosmetics(p.trackPoints),
+    unlocked: availableCosmetics(p.trackPoints, owned),
     equipped: p.equipped,
     track: TRACK.map((t) => ({ points: t.points, cosmeticId: t.cosmeticId })),
   };

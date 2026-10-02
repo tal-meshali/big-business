@@ -19,6 +19,9 @@ function lobbyState(isPrivate: boolean, maxSeats: number): MatchState {
     awarded: false,
     lastEmoteAt: {},
     log: [],
+    pushTurnKey: '',
+    pushSentAt: {},
+    pushFailures: 0,
   };
 }
 

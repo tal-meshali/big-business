@@ -19,6 +19,27 @@ Players start as guests: the first launch authenticates with a device id and not
 
 The token acquisition itself (the native Sign in with Apple sheet and the Google account picker) needs the platform plugins and store accounts; `docs/TODO-local.md` section E lists that step.
 
+## Shop, push and analytics
+
+All three run without any account: the shop says it "opens soon", no push is sent, and analytics count in Nakama storage from day one. Each piece switches on with `.env` values (passed to the runtime as `--runtime.env`, read through `ctx.env`):
+
+- **Skin shop (RevenueCat)**: in RevenueCat, create the app for both stores, the non-consumable products `bb_skin_back_gilded`, `bb_skin_back_blueprint` and `bb_skin_table_walnut`, and an entitlement `skin_<cosmetic id>` attached to each (`server/src/match/store.ts`). Put the *secret* API key in `REVENUECAT_API_KEY`. The client logs in to RevenueCat with its Nakama user id, buys through the store plugin, then calls `sync_purchases`; the server reads the entitlements back from RevenueCat and keeps them in a server-only `purchases` row. Restore Purchases runs the plugin's restore and the same sync. For refunds and purchases made on another device, add a webhook in RevenueCat: URL `https://<domain>/v2/rpc/revenuecat_webhook?http_key=<NAKAMA_HTTP_KEY>&unwrap`, Authorization header value `REVENUECAT_WEBHOOK_AUTH`. The webhook only triggers a re-read, so a forged event cannot grant anything.
+- **"Your turn" push (FCM)**: in the Firebase project, create a service account with the "Firebase Cloud Messaging API Admin" role and download its JSON key. Copy `project_id`, `client_email` and `private_key` (one line, `\n` escapes kept) into `FCM_PROJECT_ID`, `FCM_CLIENT_EMAIL` and `FCM_PRIVATE_KEY`. The server sends a push when a turn starts for a player who is away from the match, in untimed games or steps of 30 seconds or more, at most once per `pushCooldownMinutes` per player and match. The client side (plugin, permission prompt, token) is `client/scripts/net/push_tokens.gd`.
+- **Remote Config**: switches in Nakama storage (`server/src/match/remote_config.ts`): `shopEnabled`, `pushEnabled`, `pushCooldownMinutes`, `tutorialAutoRoute`, `quickPlayWaitSeconds`. Change them without a release:
+
+  ```
+  curl -X POST "https://<domain>/v2/rpc/set_remote_config?http_key=$NAKAMA_HTTP_KEY&unwrap" -d '{"tutorialAutoRoute": true}'
+  ```
+
+  Unknown keys are dropped and numbers clamped; the answer is the whole config. Players read it with `get_remote_config` on every sign-in.
+- **Analytics (D1 / D7 and the funnel)**: counted per install day, nothing personal and nothing sent to a third party (decision D4). Read the last two weeks with:
+
+  ```
+  curl -X POST "https://<domain>/v2/rpc/analytics_report?http_key=$NAKAMA_HTTP_KEY&unwrap" -d '{"days": 14}'
+  ```
+
+  Each row has `installs`, `d1` and `d7` (active on exactly day 1 / day 7, UTC days) with their rates, and the funnel steps `tutorial`, `firstGame`, `peopleGame` (a game with another person) and `purchase`. A day's D7 is final a week after it. Crashlytics needs the Firebase SDK on a device and is a local task.
+
 Backups: `docker exec <postgres container> pg_dump -U postgres nakama > backup.sql` on a cron job. Nakama's data is small at this stage.
 
 ## Security checklist
@@ -28,9 +49,10 @@ What the code and compose files already do, and what only the operator can do. T
 Done by the repository (verify, do not repeat):
 
 - Every RPC validates its payload (`server/src/match/input.ts`) and returns short errors; internal failures are logged and reported as `internal error`.
-- Storage: `profile` rows are server-owned (clients read their own, write nothing), `rooms` and `reports` and `ratelimit` are unreadable by clients, and before-hooks refuse every client write or delete in those four collections. The season leaderboard is authoritative.
+- Storage: `profile` and `purchases` rows are server-owned (clients read their own, write nothing); `rooms`, `reports`, `ratelimit`, `analytics`, `analytics_cohort`, `config` and `push` are unreadable by clients; before-hooks refuse every client write or delete in all of them. The season leaderboard is authoritative.
+- Server-to-server RPCs (`set_remote_config`, `analytics_report`, `revenuecat_webhook`) refuse any player session; they need the runtime http_key, and the webhook also its Authorization secret. Store entitlements are read from RevenueCat by the server, never taken from the client.
 - Private rooms: joining needs the room code, and match labels never carry it, so listing matches does not reveal a way in.
-- Per-user rate limits (`server/src/match/ratelimit.ts`): find_player 20/min, invite_friend 10/min, report_player 5/min, create_room 6/min, quick_play 12/min, and friend requests 20 players/min through a before-hook. Reports are one row per (day, reporter, reported) with a count and the first 10 reports' details, so the collection cannot be grown by a single account.
+- Per-user rate limits (`server/src/match/ratelimit.ts`): find_player 20/min, invite_friend 10/min, report_player 5/min, create_room 6/min, quick_play 12/min, sync_purchases 6/min, register_push_token 6/min, and friend requests 20 players/min through a before-hook. Reports are one row per (day, reporter, reported) with a count and the first 10 reports' details, so the collection cannot be grown by a single account.
 - Invite notifications carry the sender's server-side username (32 characters at most), never a client-supplied string.
 - The match handler drops oversized or malformed messages before parsing them and never lets a client message throw.
 - Production sessions last 2 hours with a 7 day refresh token (the defaults are 60 seconds and 1 hour, which the client does not refresh yet).
@@ -38,7 +60,7 @@ Done by the repository (verify, do not repeat):
 
 Operator actions:
 
-- [ ] `.env`: every value replaced (`openssl rand -hex 32` for the keys). `NAKAMA_SERVER_KEY` is embedded in the client and is not a secret, but must not be `defaultkey`; `NAKAMA_SESSION_KEY` and `NAKAMA_REFRESH_KEY` are secrets; rotating them logs every player out.
+- [ ] `.env`: every value replaced (`openssl rand -hex 32` for the keys). `NAKAMA_HTTP_KEY` and `REVENUECAT_WEBHOOK_AUTH` are secrets: anyone with the http key can change Remote Config and read the analytics report. `NAKAMA_SERVER_KEY` is embedded in the client and is not a secret, but must not be `defaultkey`; `NAKAMA_SESSION_KEY` and `NAKAMA_REFRESH_KEY` are secrets; rotating them logs every player out.
 - [ ] Console: only reachable over the SSH tunnel (the compose file binds it to `127.0.0.1:7351`). Confirm from outside: `curl -m 5 https://console.play.example.com` must fail and port 7351 must be closed on the VPS firewall. Use a long console password; the console has no lockout. The `console.` DNS record from step 1 is only needed if you enable the commented allow-list block in `Caddyfile`.
 - [ ] Firewall: only 22, 80 and 443 open. Postgres is not published (verify with `ss -ltn` on the VPS).
 - [ ] SSH: key-only login, no root password.

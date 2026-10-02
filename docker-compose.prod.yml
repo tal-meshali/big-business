@@ -37,6 +37,12 @@ services:
         --console.password ${NAKAMA_CONSOLE_PASSWORD}
         --console.signing_key ${NAKAMA_CONSOLE_SIGNING_KEY}
         --social.apple.bundle_id "${APPLE_BUNDLE_ID}"
+        --runtime.http_key ${NAKAMA_HTTP_KEY}
+        --runtime.env "REVENUECAT_API_KEY=${REVENUECAT_API_KEY}"
+        --runtime.env "REVENUECAT_WEBHOOK_AUTH=${REVENUECAT_WEBHOOK_AUTH}"
+        --runtime.env "FCM_PROJECT_ID=${FCM_PROJECT_ID}"
+        --runtime.env "FCM_CLIENT_EMAIL=${FCM_CLIENT_EMAIL}"
+        --runtime.env "FCM_PRIVATE_KEY=${FCM_PRIVATE_KEY}"
         --logger.level INFO
     depends_on:
       postgres:

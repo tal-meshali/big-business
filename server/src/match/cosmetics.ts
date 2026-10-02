@@ -1,8 +1,10 @@
 /**
- * Free cosmetic track: card backs and table felts unlocked by quest points.
- * Ids are shared with the client (client/scripts/game/cosmetics.gd). No
- * purchases here (decision D5: no virtual currency, no loot boxes); the
- * track is the free earnable path so any later paid skins feel optional.
+ * Cosmetics: card backs and table felts. Most are unlocked by quest points on
+ * the free track; a few curated skins are sold a la carte for real money
+ * through the stores (store.ts maps them to RevenueCat entitlements). Ids are
+ * shared with the client (client/scripts/game/cosmetics.gd). No virtual
+ * currency, no loot boxes (decision D5); the free track keeps paid skins
+ * optional.
  */
 
 export type CosmeticSlot = 'cardBack' | 'table';
@@ -11,6 +13,8 @@ export interface Cosmetic {
   id: string;
   slot: CosmeticSlot;
   name: string;
+  /** Sold in the shop; owned only through a purchase, never through the track. */
+  paid?: boolean;
 }
 
 export interface Equipped {
@@ -31,6 +35,9 @@ export const COSMETICS: ReadonlyArray<Cosmetic> = [
   { id: 'table_green', slot: 'table', name: 'Board green' },
   { id: 'table_navy', slot: 'table', name: 'Navy felt' },
   { id: 'table_burgundy', slot: 'table', name: 'Burgundy felt' },
+  { id: 'back_gilded', slot: 'cardBack', name: 'Gilded', paid: true },
+  { id: 'back_blueprint', slot: 'cardBack', name: 'Blueprint', paid: true },
+  { id: 'table_walnut', slot: 'table', name: 'Walnut', paid: true },
 ];
 
 /** Everyone owns the defaults. */
@@ -69,10 +76,25 @@ export function nextUnlock(trackPoints: number): TrackStep | null {
   return null;
 }
 
-/** Equips `id` into `slot` when it exists, fits the slot and is unlocked. */
-export function equipCosmetic(equipped: Equipped, trackPoints: number, slot: string, id: string): { ok: boolean; equipped: Equipped } {
+/**
+ * Everything the player may equip: the track unlocks plus the paid skins in
+ * `owned` (purchased ids from the server's purchase row). Ids in `owned`
+ * that are not paid skins are ignored, so a purchase row can never unlock a
+ * track item early.
+ */
+export function availableCosmetics(trackPoints: number, owned: ReadonlyArray<string>): string[] {
+  const out = unlockedCosmetics(trackPoints);
+  for (const id of owned) {
+    const c = cosmeticById(id);
+    if (c && c.paid && out.indexOf(id) < 0) out.push(id);
+  }
+  return out;
+}
+
+/** Equips `id` into `slot` when it exists, fits the slot and is unlocked or owned. */
+export function equipCosmetic(equipped: Equipped, trackPoints: number, slot: string, id: string, owned: ReadonlyArray<string> = []): { ok: boolean; equipped: Equipped } {
   const c = cosmeticById(id);
-  if (!c || c.slot !== slot || unlockedCosmetics(trackPoints).indexOf(id) < 0) return { ok: false, equipped };
+  if (!c || c.slot !== slot || availableCosmetics(trackPoints, owned).indexOf(id) < 0) return { ok: false, equipped };
   const next: Equipped = { cardBack: equipped.cardBack, table: equipped.table };
   next[c.slot] = id;
   return { ok: true, equipped: next };
@@ -82,5 +104,16 @@ export function equipCosmetic(equipped: Equipped, trackPoints: number, slot: str
 export function normalizeEquipped(e: Partial<Equipped> | undefined): Equipped {
   const cardBack = e && typeof e.cardBack === 'string' && cosmeticById(e.cardBack) ? e.cardBack : DEFAULT_EQUIPPED.cardBack;
   const table = e && typeof e.table === 'string' && cosmeticById(e.table) ? e.table : DEFAULT_EQUIPPED.table;
+  return { cardBack, table };
+}
+
+/**
+ * Puts a slot back to its default when its cosmetic is no longer available
+ * (a refunded or revoked purchase). Returns the same object when nothing changed.
+ */
+export function dropUnavailable(equipped: Equipped, available: ReadonlyArray<string>): Equipped {
+  const cardBack = available.indexOf(equipped.cardBack) >= 0 ? equipped.cardBack : DEFAULT_EQUIPPED.cardBack;
+  const table = available.indexOf(equipped.table) >= 0 ? equipped.table : DEFAULT_EQUIPPED.table;
+  if (cardBack === equipped.cardBack && table === equipped.table) return equipped;
   return { cardBack, table };
 }

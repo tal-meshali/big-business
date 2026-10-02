@@ -1,6 +1,7 @@
 /**
  * Nakama runtime entry point. Registers the Big Business match handler, the
- * room-code, profile, moderation, social, account-link, quest and cosmetic RPCs.
+ * room-code, profile, moderation, social, account-link, quest, cosmetic,
+ * shop, push-token, Remote Config and analytics RPCs.
  *
  * Every RPC goes through `guardRpc` (only messages raised with `reject`
  * reach the client) and reads its payload through the validators in
@@ -13,6 +14,16 @@ import { MATCH_MODULE } from './match/protocol';
 import { beforeAddFriends, beforeDeleteStorageObjects, beforeWriteStorageObjects, rpcReportPlayer } from './match/reports';
 import { rpcCreateRoom, rpcJoinRoom, rpcQuickPlay } from './match/rooms';
 import { rpcClaimDaily, rpcGetProfile } from './match/rpc_profile';
+import {
+  guardedAnalyticsReport,
+  guardedGetRemoteConfig,
+  guardedRegisterPushToken,
+  guardedRevenueCatWebhook,
+  guardedSetRemoteConfig,
+  guardedStoreCatalog,
+  guardedSyncPurchases,
+  guardedUnregisterPushToken,
+} from './match/guarded_services';
 import { rpcClaimQuest, rpcEquipCosmetic } from './match/rpc_quests';
 import { rpcAccountLinks, rpcFindPlayer, rpcInviteFriend } from './match/social';
 
@@ -60,6 +71,15 @@ function InitModule(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkrunt
   initializer.registerRpc('find_player', guardedFindPlayer);
   initializer.registerRpc('invite_friend', guardedInviteFriend);
   initializer.registerRpc('account_links', guardedAccountLinks);
+  initializer.registerRpc('store_catalog', guardedStoreCatalog);
+  initializer.registerRpc('sync_purchases', guardedSyncPurchases);
+  initializer.registerRpc('get_remote_config', guardedGetRemoteConfig);
+  initializer.registerRpc('register_push_token', guardedRegisterPushToken);
+  initializer.registerRpc('unregister_push_token', guardedUnregisterPushToken);
+  // Server-to-server only (runtime http_key; they refuse player sessions).
+  initializer.registerRpc('revenuecat_webhook', guardedRevenueCatWebhook);
+  initializer.registerRpc('set_remote_config', guardedSetRemoteConfig);
+  initializer.registerRpc('analytics_report', guardedAnalyticsReport);
   initializer.registerBeforeAddFriends(beforeAddFriends);
   initializer.registerBeforeWriteStorageObjects(beforeWriteStorageObjects);
   initializer.registerBeforeDeleteStorageObjects(beforeDeleteStorageObjects);

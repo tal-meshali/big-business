@@ -13,6 +13,7 @@ import { awardProgress } from './awards';
 import { handleEmotes } from './emotes';
 import { handleForfeits } from './forfeit';
 import { botThinkMs, GET_READY_MS, label, lobbyJoinError, lobbyMessage, nowMs, send, type MatchState } from './state';
+import { pushTurnIfAway } from './turn_push';
 import { sendViews } from './views';
 
 const TICK_RATE = 4; // ticks per second
@@ -87,6 +88,9 @@ export const matchInit: nkruntime.MatchInitFunction<MatchState> = (ctx, logger, 
     awarded: false,
     lastEmoteAt: {},
     log: [],
+    pushTurnKey: '',
+    pushSentAt: {},
+    pushFailures: 0,
   };
   logger.info('match init private=%s code=%s', String(p.isPrivate), p.roomCode || '-');
   void ctx;
@@ -185,7 +189,7 @@ export const matchLeave: nkruntime.MatchLeaveFunction<MatchState> = (ctx, logger
 };
 
 export const matchLoop: nkruntime.MatchLoopFunction<MatchState> = (ctx, logger, nk, dispatcher, tick, state, messages) => {
-  void ctx; void tick;
+  void tick;
   const now = nowMs();
 
   // ---- Lobby -------------------------------------------------------------
@@ -266,6 +270,13 @@ export const matchLoop: nkruntime.MatchLoopFunction<MatchState> = (ctx, logger, 
     } else if (!active.isBot && state.game.deadline > 0 && now >= state.game.deadline) {
       apply(state, dispatcher, logger, state.game.active, autoAction(state.game), 'timeout');
     }
+  }
+
+  // ---- "Your turn" push for a player who is away (never throws) ---------
+  try {
+    pushTurnIfAway(state, ctx, nk, logger, now);
+  } catch (e) {
+    logger.error('turn push failed: %s', String(e));
   }
   return { state };
 };

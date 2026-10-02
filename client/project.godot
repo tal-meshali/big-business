@@ -34,6 +34,10 @@ window/stretch/aspect="expand"
 
 theme/default_font_antialiasing=1
 
+[internationalization]
+
+rendering/root_node_layout_direction=1
+
 [input_devices]
 
 pointing/emulate_touch_from_mouse=true

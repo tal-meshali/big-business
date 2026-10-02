@@ -3,7 +3,11 @@ extends SceneTree
 ## Needs a display (use xvfb-run on Linux):
 ##   xvfb-run -a godot --rendering-driver opengl3 --path client --script res://tests/screenshot.gd -- out_dir
 ## Output: <out_dir>/lobby.png, help.png, table.png, play_step.png, dividend.png,
-## tutorial.png, emotes.png, get_ready.png, forfeit.png, peek.png
+## tutorial.png, emotes.png, get_ready.png, forfeit.png, peek.png, token.png,
+## then lobby_tall.png, lobby_more.png, table_tall.png and coach_tall.png at
+## 720x1560 (a 19.5:9 phone).
+## Add "he" after the folder to run under a Hebrew (right-to-left) locale:
+##   ... --script res://tests/screenshot.gd -- out_dir he
 
 
 func _init() -> void:
@@ -15,6 +19,8 @@ func _run() -> void:
 	var args := OS.get_cmdline_user_args()
 	if args.size() > 0:
 		out_dir = args[0]
+	if args.size() > 1:
+		TranslationServer.set_locale(args[1])
 	DirAccess.make_dir_recursive_absolute(out_dir)
 	root.get_window().size = Vector2i(720, 1280)
 	await process_frame
@@ -35,6 +41,10 @@ func _run() -> void:
 	table._on_view(view)
 	await _settle()
 	await _save(out_dir + "/table.png")
+	table._stamp_token.call_deferred(int(view["you"]), 2)
+	await create_timer(0.35).timeout
+	await _save(out_dir + "/token.png")
+	await create_timer(2.8).timeout
 
 	view["phase"] = "play"
 	view["tookCompany"] = 2
@@ -158,6 +168,50 @@ func _run() -> void:
 	for i in 20:
 		await process_frame
 	await _save(out_dir + "/peek.png")
+	peek.queue_free()
+
+	# A tall phone: the start screen, scrolled to the bottom, and the table.
+	root.get_window().size = Vector2i(720, 1560)
+	root.size = Vector2i(720, 1560)
+	await process_frame
+	var tall = load("res://scenes/main.tscn").instantiate()
+	root.add_child(tall)
+	tall._apply_progress({"xp": 120, "level": 2, "gamesPlayed": 3, "wins": 1, "streak": 4}, true)
+	tall._status.text = "Connected as Tal"
+	tall._name_edit.text = "Tal"
+	tall._on_name_changed("Tal")
+	await _settle()
+	for b in tall._buttons:
+		b.disabled = false
+	tall._status.text = "Connected as Tal"
+	await _settle()
+	await _save(out_dir + "/lobby_tall.png")
+	var scroll: ScrollContainer = tall.find_children("*", "ScrollContainer", false, false)[0]
+	scroll.scroll_vertical = 100000
+	await _settle()
+	await _save(out_dir + "/lobby_more.png")
+	tall.queue_free()
+	var big = load("res://scenes/table.tscn").instantiate()
+	root.add_child(big)
+	await process_frame
+	var four := _fake_view()
+	four["seats"] = four["seats"].slice(0, 4)
+	big._on_view(four)
+	await _settle()
+	await _save(out_dir + "/table_tall.png")
+	big.queue_free()
+	net.tutorial_mode = true
+	var coached = load("res://scenes/table.tscn").instantiate()
+	root.add_child(coached)
+	coached.enable_coach()
+	await process_frame
+	coached._on_view(opening)
+	await _settle()
+	coached.coach._on_got_it()
+	await _settle()
+	await _save(out_dir + "/coach_tall.png")
+	coached.queue_free()
+	net.tutorial_mode = false
 	print("SCREENSHOTS OK")
 	quit(0)
 

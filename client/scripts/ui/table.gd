@@ -1137,12 +1137,49 @@ func _play_events_then_render() -> void:
 				sfx.play("place")
 				if seat == _my_seat:
 					Sfx.buzz(25)
+			"token_moved":
+				# WHY: not awaited, so the stamp lands while play carries on
+				# instead of holding up the next view.
+				_stamp_token(int(e.get("to", 0)), int(e.get("company", 0)))
 			"game_ended":
 				await _animate_dividends(e.get("result", {}))
 	_animating = false
 	_render()
 	if not _pending_events.is_empty():
 		_play_events_then_render()
+
+
+## A regulator token changing hands: a gold seal stamps down on the new
+## holder's seat, with the company named in a bubble.
+func _stamp_token(seat: int, company: int) -> void:
+	var seal := Label.new()
+	seal.text = "R"
+	seal.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	seal.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	seal.add_theme_font_size_override("font_size", 40)
+	seal.add_theme_color_override("font_color", Companies.INK)
+	var style := StyleBoxFlat.new()
+	style.bg_color = Companies.GOLD
+	style.border_color = Companies.color_of(company)
+	style.set_border_width_all(6)
+	style.set_corner_radius_all(40)
+	seal.add_theme_stylebox_override("normal", style)
+	seal.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	seal.size = Vector2(80, 80)
+	seal.pivot_offset = seal.size / 2.0
+	_fx_layer.add_child(seal)
+	seal.global_position = _seat_anchor(seat) - seal.size / 2.0
+	seal.scale = Vector2.ONE * 2.2
+	seal.modulate.a = 0.0
+	_show_bubble(seat, "%s token" % Companies.short_name_of(company))
+	sfx.play("place")
+	var tw := create_tween().set_ease(Tween.EASE_IN).set_trans(Tween.TRANS_QUAD)
+	tw.tween_property(seal, "scale", Vector2.ONE, 0.22)
+	tw.parallel().tween_property(seal, "modulate:a", 1.0, 0.12)
+	tw.tween_interval(0.45)
+	tw.tween_property(seal, "modulate:a", 0.0, 0.25)
+	await tw.finished
+	seal.queue_free()
 
 
 func _target_for_seat(seat: int) -> Vector2:

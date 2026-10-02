@@ -3,7 +3,7 @@ extends SceneTree
 ## Needs a display (use xvfb-run on Linux):
 ##   xvfb-run -a godot --rendering-driver opengl3 --path client --script res://tests/screenshot.gd -- out_dir
 ## Output: <out_dir>/lobby.png, help.png, table.png, play_step.png, dividend.png,
-## tutorial.png, emotes.png, get_ready.png, forfeit.png, peek.png
+## tutorial.png, emotes.png, get_ready.png, forfeit.png, peek.png, token.png
 
 
 func _init() -> void:
@@ -35,6 +35,10 @@ func _run() -> void:
 	table._on_view(view)
 	await _settle()
 	await _save(out_dir + "/table.png")
+	table._stamp_token.call_deferred(int(view["you"]), 2)
+	await create_timer(0.35).timeout
+	await _save(out_dir + "/token.png")
+	await create_timer(2.8).timeout
 
 	view["phase"] = "play"
 	view["tookCompany"] = 2

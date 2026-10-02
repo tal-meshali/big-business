@@ -7,7 +7,7 @@ extends Control
 signal seat_pressed(seat_index: int, at: Vector2)
 
 const W := 220.0
-const H := 96.0
+const H := 104.0
 
 var seat_index: int = -1
 var data: Dictionary = {}
@@ -112,20 +112,26 @@ func _draw() -> void:
 	for card in data.get("portfolio", []):
 		counts[int(card.get("company", 0))] += 1
 	var x := 68.0
+	var seals: Array[Vector2] = []
 	for company in 6:
 		if counts[company] == 0:
 			continue
 		var col := Companies.color_of(company)
-		var pip := Rect2(x, 58, 22, 26)
+		var pip := Rect2(x, 64, 22, 26)
 		draw_rect(pip, col, true)
 		draw_rect(pip, Companies.INK, false, 1.0)
 		var txt := str(counts[company])
 		var tw := font.get_string_size(txt, HORIZONTAL_ALIGNMENT_CENTER, -1, 14).x
-		draw_string(font, Vector2(x + 11 - tw / 2.0, 77), txt, HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Companies.band_text_color(company))
-		# Regulator token: small "R" ring on the pip.
+		draw_string(font, Vector2(x + 11 - tw / 2.0, 84), txt, HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Companies.band_text_color(company))
 		if data.get("tokens", []).has(company):
-			draw_circle(Vector2(x + 20, 60), 7.5, Companies.INK)
-			draw_circle(Vector2(x + 20, 60), 6, Color.WHITE)
-			var rw := font.get_string_size("R", HORIZONTAL_ALIGNMENT_CENTER, -1, 9).x
-			draw_string(font, Vector2(x + 20 - rw / 2.0, 63.5), "R", HORIZONTAL_ALIGNMENT_LEFT, -1, 9, Companies.INK)
+			seals.append(Vector2(x + 21, 62))
 		x += 26
+	# Regulator tokens: a gold seal stamped on the pip's corner.
+	# WHY: drawn after every pip so the next pip cannot cover it; the old
+	# 9 px "R" ring was too small to notice on a phone.
+	for at in seals:
+		draw_circle(at, 12.5, Companies.INK)
+		draw_circle(at, 11, Companies.GOLD)
+		draw_arc(at, 8.5, 0, TAU, 24, Companies.INK, 1.0, true)
+		var rw := font.get_string_size("R", HORIZONTAL_ALIGNMENT_CENTER, -1, 14).x
+		draw_string(font, at + Vector2(-rw / 2.0, 5), "R", HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Companies.INK)

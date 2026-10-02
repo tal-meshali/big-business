@@ -1,6 +1,8 @@
 # Fonts
 
-`emoji_subset.ttf` is Noto Color Emoji (SIL Open Font License 1.1, see `OFL.txt`) cut down to the emoji the game shows: the six emotes, the smiley on the emote button and the three medals on the dividend panel. It is the fallback of the UI font built in `scripts/ui/ui_theme.gd`, so emoji render the same on every phone instead of depending on the system font (without it they draw as hex boxes when the OS font is unreachable).
+`archivo_black.ttf` (Archivo, weight 900), `nunito_sans_extrabold.ttf` and `nunito_sans_bold.ttf` (Nunito Sans, weights 800 and 700) are the design's type, from Google Fonts under the SIL Open Font License 1.1 (see `OFL-Archivo.txt` and `OFL-NunitoSans.txt`). `UiTheme` loads them: Archivo Black for titles, counts and scores, Nunito Sans ExtraBold as the default UI font, Bold for paragraphs.
+
+`emoji_subset.ttf` is Noto Color Emoji (SIL Open Font License 1.1, see `OFL.txt`) cut down to the emoji the game shows: the six emotes and the smiley on the emote button (the three medals are still in the subset but the dividend panel now shows places as numbers). It is the first fallback of every font built in `scripts/ui/ui_theme.gd`, so emoji render the same on every phone instead of depending on the system font (without it they draw as hex boxes when the OS font is unreachable).
 
 Regenerate after adding an emoji anywhere in the client (`pip install fonttools`):
 

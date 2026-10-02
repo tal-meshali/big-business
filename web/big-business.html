@@ -135,6 +135,7 @@ button { font-family: inherit; }
 .opponents { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 .opponents.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .opponents.three .coins .minihand { display: none; }
+.opponents.three .bot { display: none; }
 .seat {
   position: relative;
   background: var(--panel);
@@ -181,15 +182,63 @@ button { font-family: inherit; }
   font-variant-numeric: tabular-nums;
 }
 .pip.sealed { margin-right: 8px; }
-/* The regulator token: a gold seal on the company's pip (D9). */
-.pip .r {
-  position: absolute; right: -10px; top: -5px;
-  width: 15px; height: 15px; border-radius: 50%;
-  background: var(--gold); color: var(--ink);
-  border: 1.5px solid var(--ink);
-  font: 400 9px/13px var(--display); text-align: center;
-}
 .seat .note { color: var(--ink-soft); font-size: 12px; }
+/* The crown chip marks a monopoly: the regulator token for that company (D9). */
+.crown {
+  position: absolute; left: -8px; top: -8px; z-index: 2;
+  width: 18px; height: 18px; border-radius: 50%;
+  background: var(--gold); border: 1.5px solid var(--ink); box-sizing: border-box;
+  display: grid; place-items: center;
+}
+.crown svg { width: 10px; height: 8px; fill: var(--ink); }
+.stack .crown { width: 22px; height: 22px; }
+.stack .crown svg { width: 12px; height: 10px; }
+.pip .crown { left: auto; right: -10px; top: -6px; width: 16px; height: 16px; }
+.pip .crown svg { width: 9px; height: 7px; }
+
+/* Opponents' kept shares: a small stack per company, like your portfolio. */
+.shelf { grid-column: 1 / -1; display: flex; gap: 12px 14px; flex-wrap: wrap; min-height: 42px; padding: 9px 0 0 8px; }
+.share {
+  position: relative;
+  width: 30px; height: 40px; flex: none;
+  background: var(--tint);
+  border: 1.5px solid var(--ink);
+  border-radius: 4px;
+  box-sizing: border-box;
+  display: grid; grid-template-rows: 11px 1fr; place-items: center;
+}
+.share.many { box-shadow: 2px -2px 0 0 var(--card), 2px -2px 0 1.5px var(--ink); }
+.share .band { width: 100%; height: 100%; background: var(--c); border-bottom: 1.5px solid var(--ink); border-radius: 2px 2px 0 0; box-sizing: border-box; }
+.share > svg { width: 20px; height: 20px; }
+.share .n {
+  position: absolute; right: -9px; top: -8px; z-index: 2;
+  min-width: 17px; height: 17px; border-radius: 999px; padding: 0 3px; box-sizing: border-box;
+  background: var(--ink); color: var(--on-band);
+  font: 400 10px/17px var(--display); text-align: center;
+}
+.share.mono { outline: 2.5px solid var(--gold); outline-offset: 1.5px; }
+
+/* The monopoly row: one chip per company with whoever holds its token. */
+.monos-wrap { display: flex; flex-direction: column; gap: 4px; }
+.monos-label { font: 400 11px/1 var(--display); letter-spacing: 0.16em; text-transform: uppercase; color: rgba(255, 255, 255, 0.7); }
+.monos { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 5px; }
+.mono-chip {
+  display: flex; align-items: center; justify-content: space-between; gap: 2px;
+  height: 32px; padding: 0 3px; min-width: 0;
+  background: var(--c); border: 2px solid var(--ink); border-radius: 999px; box-sizing: border-box;
+}
+.mono-chip .ic { width: 22px; height: 22px; flex: none; border-radius: 50%; background: var(--card); border: 1.5px solid var(--ink); box-sizing: border-box; display: grid; place-items: center; }
+.mono-chip .ic svg { width: 15px; height: 15px; }
+.mono-chip .who {
+  width: 22px; height: 22px; flex: none; border-radius: 50%; box-sizing: border-box;
+  border: 1.5px solid var(--ink); display: grid; place-items: center;
+  font: 400 11px/1 var(--display); color: var(--ink);
+}
+.mono-chip .who.open { background: rgba(255, 255, 255, 0.35); border-style: dashed; color: var(--ink-soft); }
+.mono-chip.open { opacity: 0.6; }
+.mono-chip.yours .who { box-shadow: 0 0 0 2px var(--ring); }
+.mono-chip.flash { animation: mono-flash 0.9s ease-out 2; }
+@keyframes mono-flash { 0% { box-shadow: 0 0 0 0 var(--gold); scale: 1; } 35% { box-shadow: 0 0 0 5px var(--gold); scale: 1.12; } 100% { box-shadow: 0 0 0 0 transparent; scale: 1; } }
 
 /* The felt: a stadium tilted away from you, printed with three zones. */
 /* The tilt leaves an empty band above the felt's far edge; pull it up under the plates. */
@@ -242,12 +291,6 @@ button { font-family: inherit; }
   min-width: 22px; height: 22px; border-radius: 999px;
   background: var(--ink); color: var(--on-band);
   font: 400 12px/22px var(--display); text-align: center; padding: 0 4px; box-sizing: border-box;
-}
-.stack .r {
-  position: absolute; left: -8px; top: -8px; z-index: 2;
-  width: 22px; height: 22px; border-radius: 50%;
-  background: var(--gold); border: 1.5px solid var(--ink);
-  font: 400 11px/19px var(--display); text-align: center; box-sizing: border-box;
 }
 
 /* Share cards, drawn like title deeds (client/scripts/ui/card_view.gd). */
@@ -630,6 +673,10 @@ button { font-family: inherit; }
     <span class="timer" id="timer" hidden></span>
   </div>
   <p class="meta" id="meta"></p>
+  <div class="monos-wrap">
+    <div class="monos-label" id="monosLabel">Monopolies</div>
+    <section class="monos" id="monos" aria-labelledby="monosLabel"></section>
+  </div>
   <section class="opponents" id="opponents" aria-label="Other investors"></section>
   <div class="table3d">
     <div class="felt" id="felt">
@@ -802,7 +849,7 @@ button { font-family: inherit; }
     ["Your turn: take, then play", "Every turn has two steps. First take one share: draw the top share of the supply, or pick a share from the Market. Then play one share from your hand: keep it in your portfolio, or sell it to the Market."],
     ["Drawing costs coins", "Before you draw, put 1 coin on every share in the Market, except companies whose regulator token you hold. If you can't pay, you can't draw.\n\nTaking a share from the Market is free, and you collect every coin on it."],
     ["Selling to the Market", "A share you sell goes into the Market with no coins on it. You can't sell a share of the company you took this turn."],
-    ["Regulator tokens", "Whoever has strictly the most shares of a company in their portfolio holds its token, shown as an R on their pip. On a tie the token stays where it is.\n\nWith a token you pay nothing onto that company's Market shares when drawing, but you can't take that company from the Market."],
+    ["Regulator tokens", "Whoever has strictly the most shares of a company in their portfolio holds its token: a monopoly, shown as a gold crown chip on their shares and in the Monopolies row above the table. On a tie the token stays where it is.\n\nWith a token you pay nothing onto that company's Market shares when drawing, but you can't take that company from the Market."],
     ["The end of the game", "When the last supply share is drawn, that player finishes their turn and the game ends. Every hand joins its owner's portfolio, so the shares you are holding count."],
     ["Dividend day", "For each company, the sole majority holder collects 1 coin per share from every other player who holds that company. A tie for the most pays nothing.\n\nCoins received as dividends turn gold and are worth 3. Other coins are worth 1."],
     ["Who wins", "The most capital wins. Ties go to more gold coins, then to fewer shares in the portfolio."],
@@ -826,7 +873,7 @@ button { font-family: inherit; }
   const SPOTS = {
     first_take: "supplyZone", first_play: "handArea", first_sell: "handArea",
     bot_paid: "marketZone", take_with_coins: "marketZone", token_blocks: "marketZone",
-    token_first: "opponents", endgame_near: "supplyZone",
+    token_first: "monos", endgame_near: "supplyZone",
   };
   const STEP_COUNT = Object.keys(STEPS).length;
 
@@ -842,6 +889,9 @@ button { font-family: inherit; }
   let timer = 0;
   let fresh = new Set();
   let bumped = new Set();
+  // Companies whose monopoly changed hands in the last action, and the row's last drawing.
+  let movedTokens = new Set();
+  let lastMonosKey = "";
   let announcedTurn = -1;
   let lastTick = -1;
   let lastEmoteAt = 0;
@@ -1024,10 +1074,45 @@ button { font-family: inherit; }
     for (let c = 0; c < 6; c++) {
       if (!counts[c]) continue;
       const sealed = sv.tokens.indexOf(c) >= 0;
-      const token = sealed ? '<span class="r" title="Regulator token">R</span>' : "";
+      const token = sealed ? CROWN : "";
       pips += `<span class="pip${sealed ? " sealed" : ""}" style="${companyVars(c)}" title="${esc(BB.COMPANIES[c].name)}: ${counts[c]}">${counts[c]}${token}</span>`;
     }
     return pips;
+  }
+
+  const CROWN = '<span class="crown" title="Monopoly: the regulator token"><svg viewBox="0 0 12 10" aria-hidden="true"><path d="M1 9 L1 3 L3.7 5.4 L6 1 L8.3 5.4 L11 3 L11 9 Z"/></svg></span>';
+
+  /** An opponent's kept shares: one small stack per company, with the count and a crown on a monopoly. */
+  function shelfHTML(sv) {
+    const counts = [0, 0, 0, 0, 0, 0];
+    for (const c of sv.portfolio) counts[c.company]++;
+    let html = "";
+    for (let c = 0; c < 6; c++) {
+      if (!counts[c]) continue;
+      const mono = sv.tokens.indexOf(c) >= 0;
+      const name = BB.COMPANIES[c].name;
+      const label = `${counts[c]} ${name} share${counts[c] === 1 ? "" : "s"}${mono ? ", holds the monopoly" : ""}`;
+      html += `<span class="share${counts[c] > 1 ? " many" : ""}${mono ? " mono" : ""}" style="${companyVars(c)}" role="img" aria-label="${esc(label)}" title="${esc(label)}"><span class="band"></span>${icon(c)}<span class="n">${counts[c]}</span>${mono ? CROWN : ""}</span>`;
+    }
+    return html;
+  }
+
+  /** The monopoly row: each company's chip shows whoever holds its regulator token. */
+  function monosHTML(view) {
+    let html = "";
+    for (let c = 0; c < 6; c++) {
+      const holder = view.tokens[c];
+      const name = BB.COMPANIES[c].name;
+      const held = holder !== null && holder !== undefined;
+      const who = held ? (holder === me ? "You" : view.seats[holder].name) : "";
+      const label = held ? `${name}: ${who === "You" ? "you hold" : `${who} holds`} the monopoly` : `${name}: no monopoly yet`;
+      const slot = held
+        ? `<span class="who" style="background:${avatarColor(who)}">${esc(who.charAt(0))}</span>`
+        : '<span class="who open">–</span>';
+      const cls = ["mono-chip", held ? "" : "open", held && holder === me ? "yours" : "", movedTokens.has(c) ? "flash" : ""].join(" ").replace(/ +/g, " ").trim();
+      html += `<span class="${cls}" style="${companyVars(c)}" role="img" aria-label="${esc(label)}" title="${esc(label)}"><span class="ic">${icon(c)}</span>${slot}</span>`;
+    }
+    return html;
   }
 
   function coinsHTML(sv) {
@@ -1043,7 +1128,7 @@ button { font-family: inherit; }
       <div class="avatar" style="background:${avatarColor(sv.name)}">${esc(sv.name.charAt(0))}</div>
       <div class="name" title="${esc(sv.name)}">${esc(short)}${sv.isBot ? '<span class="bot">bot</span>' : ""}</div>
       <div class="coins">${coinsHTML(sv)}${hand}</div>
-      <div class="pips">${pipsHTML(sv) || '<span class="note">No shares yet</span>'}</div>
+      <div class="shelf" aria-label="Kept shares">${shelfHTML(sv) || '<span class="note">No shares kept yet</span>'}</div>
     </div>`;
   }
 
@@ -1068,7 +1153,7 @@ button { font-family: inherit; }
     return Array.from(byCo.keys()).sort((a, b) => a - b).map((co) => {
       const cards = byCo.get(co);
       const top = cards[cards.length - 1];
-      const seal = sv.tokens.indexOf(co) >= 0 ? '<span class="r" title="Regulator token">R</span>' : "";
+      const seal = sv.tokens.indexOf(co) >= 0 ? CROWN : "";
       const count = cards.length > 1 ? `<span class="count">${cards.length}</span>` : "";
       const isFresh = cards.some((c) => fresh.has(c.id));
       return `<span class="stack${isFresh ? " arrive" : ""}">${seal}${count}${cardHTML(top, { mini: true, still: true, style: "--w: var(--pw)" })}</span>`;
@@ -1248,6 +1333,8 @@ button { font-family: inherit; }
     selected = -1;
     fresh = new Set();
     bumped = new Set();
+    movedTokens = new Set();
+    lastMonosKey = "";
     announcedTurn = -1;
     lastTick = -1;
     startsAt = 0;
@@ -1459,6 +1546,7 @@ button { font-family: inherit; }
     state = result.state;
     fresh = new Set();
     bumped = new Set();
+    movedTokens = new Set();
     coachOnEvents(result.events, before);
     describe(result.events, before);
     sounds(result.events);
@@ -1488,6 +1576,7 @@ button { font-family: inherit; }
         fresh.add(e.card.id);
         addLog(e.to === "portfolio" ? `${who} kept ${co(e.card.company)}.` : `${who} sold ${co(e.card.company)} to the Market.`);
       } else if (e.type === "token_moved") {
+        movedTokens.add(e.company);
         addLog(`${esc(nameOf(e.to))} ${e.to === me ? "hold" : "holds"} the ${co(e.company)} regulator token.`);
       } else if (e.type === "game_ended") {
         addLog("<b>Dividend day.</b> Hands join portfolios and dividends are paid.");
@@ -1569,6 +1658,12 @@ button { font-family: inherit; }
       opp += seatHTML(seats[idx], idx, view);
     }
     $("opponents").innerHTML = opp;
+    // Redraw the monopoly row only when a holder changed, so its flash plays through.
+    const monosKey = JSON.stringify([view.tokens, view.seats.map((s) => s.name), Array.from(movedTokens)]);
+    if (monosKey !== lastMonosKey) {
+      lastMonosKey = monosKey;
+      $("monos").innerHTML = monosHTML(view);
+    }
     $("opponents").classList.toggle("three", [3, 5, 6].indexOf(seats.length - 1) >= 0);
     $("mine").innerHTML = meHTML(seats[me], view);
     $("portfolio").innerHTML = portfolioHTML(seats[me]);

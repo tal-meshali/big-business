@@ -11,6 +11,11 @@ export const OP_READY = 2;
 export const OP_EMOTE = 3;
 /** {} Give up the game: a bot plays the seat to the end and it counts as a loss. */
 export const OP_FORFEIT = 4;
+/**
+ * {} Start the waiting lobby now; bots fill the empty seats. Anyone in a
+ * public lobby may send it; in a private room only the host.
+ */
+export const OP_START_NOW = 5;
 
 /** Server -> client opcodes. */
 export const OP_VIEW = 10;
@@ -77,9 +82,11 @@ export interface MatchParams {
   lobbyWaitSeconds: number;
   /** Tutorial: one human, two slow deterministic bots, no timer, fixed seed. */
   tutorial: boolean;
+  /** Bot game: only hostId may join, and it starts as soon as they do. */
+  solo: boolean;
   /** Fixed seed (tutorial only); 0 means random. */
   seed: number;
-  /** Private rooms: the user who created the room, whose custom deck it shows. */
+  /** Private rooms and solo games: the user who created it (private: whose custom deck it shows). */
   hostId?: string;
 }
 
@@ -106,6 +113,7 @@ export const DEFAULT_PARAMS: MatchParams = {
   stepSeconds: 30,
   lobbyWaitSeconds: 20,
   tutorial: false,
+  solo: false,
   seed: 0,
 };
 

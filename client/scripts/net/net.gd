@@ -217,6 +217,17 @@ func quick_play() -> bool:
 	return await _join_match(String(data.get("matchId", "")))
 
 
+## Start a game against bots right away instead of waiting for players.
+func play_bots() -> bool:
+	tutorial_mode = false
+	var rpc: NakamaAPI.ApiRpc = await client.rpc_async(session, "quick_play", JSON.stringify({"bots": true}))
+	if rpc.is_exception():
+		server_error.emit("bot game failed: %s" % rpc.get_exception().message)
+		return false
+	var data: Dictionary = JSON.parse_string(rpc.payload)
+	return await _join_match(String(data.get("matchId", "")))
+
+
 ## Start a solo tutorial game against two slow bots with no timer.
 func start_tutorial() -> bool:
 	var rpc: NakamaAPI.ApiRpc = await client.rpc_async(session, "quick_play", JSON.stringify({"tutorial": true}))
@@ -315,6 +326,13 @@ func send_ready() -> void:
 	if match_id.is_empty():
 		return
 	socket.send_match_state_async(match_id, Protocol.OP_READY, "{}")
+
+
+## Stop waiting for players: the lobby starts now and bots fill the seats.
+func send_start_now() -> void:
+	if match_id.is_empty():
+		return
+	socket.send_match_state_async(match_id, Protocol.OP_START_NOW, "{}")
 
 
 func send_action(action: Dictionary) -> void:

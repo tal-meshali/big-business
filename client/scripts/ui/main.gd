@@ -12,6 +12,8 @@ var _status: Label
 var _lobby_label: Label
 var _buttons: Array[Button] = []
 var _ready_button: Button
+## In a lobby: stop waiting and fill the empty seats with bots.
+var _start_now_button: Button
 var _copy_button: Button
 var _room_code := ""
 var _room_label: Label
@@ -116,6 +118,8 @@ func _build() -> void:
 	play.disabled = true
 	_buttons.append(play)
 	box.add_child(play)
+	var bots_row := _row(box)
+	_add_button(bots_row, "Play vs bots now", _on_play_bots)
 	var row := _row(box)
 	_add_button(row, "How to play", _on_tutorial)
 	_add_button(row, "Create private room", _on_create_room)
@@ -170,6 +174,10 @@ func _build() -> void:
 	_ready_button.visible = false
 	_ready_button.pressed.connect(_on_ready_pressed)
 	box.add_child(_ready_button)
+	_start_now_button = UiTheme.button("Start now with bots", _px(16), _px(48))
+	_start_now_button.visible = false
+	_start_now_button.pressed.connect(_on_start_now_pressed)
+	box.add_child(_start_now_button)
 
 	_build_more(box)
 	_build_season_sheet()
@@ -487,6 +495,12 @@ func _on_ready_pressed() -> void:
 	_ready_button.disabled = true
 
 
+func _on_start_now_pressed() -> void:
+	Net.send_start_now()
+	_start_now_button.disabled = true
+	_status.text = "Starting with bots..."
+
+
 func _on_connect_pressed() -> void:
 	Net.set_server_address(_host_edit.text)
 	_host_edit.text = Net.server_address()
@@ -669,6 +683,17 @@ func _on_quick_play() -> void:
 	_in_lobby = await Net.quick_play()
 
 
+func _on_play_bots() -> void:
+	# Leave a lobby we are waiting in first, as for an invite below.
+	if not Net.match_id.is_empty():
+		await Net.leave_match()
+		_in_lobby = false
+		_room_code = ""
+		_friends_panel.room_code = ""
+	_status.text = "Starting a game against bots..."
+	_in_lobby = await Net.play_bots()
+
+
 func _on_help() -> void:
 	HelpScreen.open_over(self)
 
@@ -716,6 +741,8 @@ func _on_lobby(lobby: Dictionary) -> void:
 		lines.append("Starts when everyone is ready (2+ players)")
 	_lobby_label.text = "\n".join(lines)
 	_lobby_label.visible = true
+	# Anyone may cut a public wait short; a private room waits for its host.
+	_start_now_button.visible = not is_private or not _room_code.is_empty()
 
 
 func _on_first_view(_view: Dictionary) -> void:

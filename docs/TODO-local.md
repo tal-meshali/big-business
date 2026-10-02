@@ -8,7 +8,7 @@ Tick items off as they are done.
 
 - [x] Install Godot 4.6 and Docker Desktop. Node 22 for the server. (Local: Godot 4.6.3 in ~/Applications; Node 26 also passes.)
 - [x] `cd server && npm install && npm run check && docker compose up`. Open http://127.0.0.1:7351 (admin / password) and confirm the "Big Business runtime loaded" log line. (Local: 104/104, runtime loaded, console up.)
-- [ ] Open `client/` in Godot, press Play. The lobby auto-connects to 127.0.0.1. Press "Play now", wait 20 seconds, and play a full game against bots.
+- [ ] Open `client/` in Godot, press Play. The lobby auto-connects to 127.0.0.1. Press "Play vs bots now" (or "Play now", then "Start now with bots" to skip the 20-second wait), and play a full game against bots. *(Cloud: both buttons added; the bot game still runs on the server, so it needs the local server up.)*
 - [ ] Run two Godot instances (Debug > Run Multiple Instances) and try a private room: create in one, join by code in the other, both press "I'm ready".
 - [x] Run `node e2e/play.mjs` in `server/` and `godot --headless --path client --script res://tests/e2e_client.gd` to confirm the automated checks pass on your machine too. (Local: all pass; smoke.gd failed under a Hebrew macOS locale until the layout was pinned left to right, see D9.)
 

@@ -24,7 +24,7 @@ describe('Plus in rooms', () => {
     const seatByUser: { [id: string]: number } = {};
     seats.forEach((id, i) => (seatByUser[id] = i));
     return {
-      params: { isPrivate, minSeats: 3, maxSeats: 5, stepSeconds: 30, lobbyWaitSeconds: 20, tutorial: false, seed: 0, hostId },
+      params: { isPrivate, minSeats: 3, maxSeats: 5, stepSeconds: 30, lobbyWaitSeconds: 20, tutorial: false, solo: false, seed: 0, hostId },
       presences, seatByUser, game: { seats: seats.map((id) => ({ id })) }, customDeck: null,
     } as unknown as MatchState;
   }

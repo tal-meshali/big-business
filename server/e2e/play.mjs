@@ -10,6 +10,9 @@
  *   5. friends: mutual add, room invite notification, join by code, refusals
  *   5b. bad RPC payloads and the report rate limit are rejected cleanly
  *   6. quick play: 1 human, lobby wait, bots fill, game completes
+ *   6b. play vs bots: a solo game starts at once and refuses strangers;
+ *      "start now" ends a public lobby's wait, and only a private room's
+ *      host may use it
  *   7. shop, Remote Config, push tokens and the analytics report (store and
  *      FCM keys are not set, so the shop answers "not configured")
  *   8. Designer: refused until unlocked (the unlock is seeded through the
@@ -32,7 +35,7 @@ const CONSOLE_PORT = process.env.NAKAMA_CONSOLE_PORT || '7351';
 const CONSOLE_USER = process.env.NAKAMA_CONSOLE_USER || 'admin';
 const CONSOLE_PASSWORD = process.env.NAKAMA_CONSOLE_PASSWORD || 'password';
 
-const OP_ACTION = 1, OP_READY = 2, OP_EMOTE = 3, OP_FORFEIT = 4, OP_VIEW = 10, OP_EVENTS = 11, OP_LOBBY = 12, OP_ERROR = 13, OP_EMOTE_SHOWN = 14, OP_FORFEITED = 15, OP_DECK = 16;
+const OP_ACTION = 1, OP_READY = 2, OP_EMOTE = 3, OP_FORFEIT = 4, OP_START_NOW = 5, OP_VIEW = 10, OP_EVENTS = 11, OP_LOBBY = 12, OP_ERROR = 13, OP_EMOTE_SHOWN = 14, OP_FORFEITED = 15, OP_DECK = 16;
 const INVITE_CODE = 100; // notification code, see src/match/protocol.ts
 const STARTING_COINS = 10;
 
@@ -347,6 +350,53 @@ async function testQuickPlay() {
   const final = await playOut([solo], { maxMs: 240000 });
   log('quick play game ended; my rank', final.result.scores.find((s) => s.seat === final.you).rank);
   solo.socket.disconnect(true);
+}
+
+async function testBotGame() {
+  log('--- play vs bots: no lobby wait; start now in a waiting lobby');
+  const [me, stranger] = await Promise.all([makePlayer('Botter'), makePlayer('Stranger')]);
+  const t0 = Date.now();
+  const created = await rpc(me, 'quick_play', { bots: true });
+  if (!created.bots) fail('quick_play {bots:true} should return a bot game');
+  try {
+    await stranger.socket.joinMatch(created.matchId);
+    fail('a stranger joined someone else\'s bot game');
+  } catch (e) { /* refused, as it should be */ }
+  await join(me, created.matchId);
+  while (!me.view && Date.now() - t0 < 8000) await sleep(100);
+  if (!me.view) fail('bot game did not start');
+  log('bot game started after', ((Date.now() - t0) / 1000).toFixed(1), 's');
+  if (me.view.seats.length !== 3 || me.view.seats.filter((s) => s.isBot).length !== 2) fail('bot game needs 1 human + 2 bots');
+  if (me.view.deadline === 0 && me.view.startsInMs === 0) fail('bot game should keep the normal timer');
+  const pub = await rpc(stranger, 'quick_play');
+  if (pub.matchId === created.matchId) fail('public quick play joined a bot game');
+  await send(me, OP_FORFEIT);
+  me.socket.disconnect(true);
+
+  // Start now: a public lobby's wait ends at once.
+  await join(stranger, pub.matchId);
+  await waitFor(() => stranger.lobby, 5000, 'public lobby message');
+  const t1 = Date.now();
+  await send(stranger, OP_START_NOW);
+  while (!stranger.view && Date.now() - t1 < 5000) await sleep(100);
+  if (!stranger.view) fail('start now did not start the public lobby');
+  log('start now started a public lobby after', ((Date.now() - t1) / 1000).toFixed(1), 's');
+  await send(stranger, OP_FORFEIT);
+  stranger.socket.disconnect(true);
+
+  // Private room: a guest's start now is ignored, the host's starts it.
+  const [host, guest] = await Promise.all([makePlayer('Host'), makePlayer('Guest')]);
+  const room = await rpc(host, 'create_room', {});
+  await join(host, room.matchId, room.code);
+  await join(guest, room.matchId, room.code);
+  await send(guest, OP_START_NOW);
+  await sleep(1500);
+  if (guest.view) fail('a guest started the host\'s private room');
+  await send(host, OP_START_NOW);
+  await waitFor(() => host.view && guest.view, 5000, 'host start now');
+  if (host.view.seats.length !== 3 || host.view.seats.filter((s) => s.isBot).length !== 1) fail('host start now should fill to 3 seats with 1 bot');
+  log('private start now: guest ignored, host started with', host.view.seats.length, 'seats');
+  for (const p of [host, guest]) { await send(p, OP_FORFEIT); p.socket.disconnect(true); }
 }
 
 async function testTutorial() {
@@ -785,6 +835,7 @@ try {
   await testFriendsAndInvites();
   await testRejections();
   await testQuickPlay();
+  await testBotGame();
   await testTutorial();
   await testServices();
   await testDesigner();

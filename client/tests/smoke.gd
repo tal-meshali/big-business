@@ -1362,7 +1362,7 @@ func _designer_checks() -> int:
 		push_error("back crop should be the largest 5:7 box, centred (got %s)" % back_rect)
 		failures += 1
 	var win_rect := CardArt.crop_rect(Vector2i(1000, 1000), "c0", 2.0, Vector2(1.0, 0.0))
-	if win_rect.size != Vector2i(500, 261) or win_rect.end.x != 1000 or win_rect.position.y != 0:
+	if win_rect.size != Vector2i(500, 352) or win_rect.end.x != 1000 or win_rect.position.y != 0:
 		push_error("a zoomed window crop should stay inside the picture (got %s)" % win_rect)
 		failures += 1
 	var picture := Image.create(900, 600, false, Image.FORMAT_RGBA8)

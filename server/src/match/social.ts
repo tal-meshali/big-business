@@ -70,6 +70,21 @@ function friendStates(nk: nkruntime.Nakama, userId: string, state: number): { [u
   return out;
 }
 
+/**
+ * True when `a` and `b` are mutual friends and `b` has not blocked `a`: the
+ * test for anything one player sends another (gifts, watching a game).
+ */
+export function areMutualFriends(nk: nkruntime.Nakama, a: string, b: string): boolean {
+  if (a === b) return false;
+  if (friendStates(nk, b, FRIEND_STATE_BLOCKED)[a] === FRIEND_STATE_BLOCKED) return false;
+  return friendStates(nk, a, FRIEND_STATE_MUTUAL)[b] === FRIEND_STATE_MUTUAL;
+}
+
+/** Mutual friends of a player, by user id. */
+export function mutualFriends(nk: nkruntime.Nakama, userId: string): string[] {
+  return Object.keys(friendStates(nk, userId, FRIEND_STATE_MUTUAL));
+}
+
 /** RPC find_player: exact username lookup; never returns the caller. */
 export const rpcFindPlayer: nkruntime.RpcFunction = (ctx, logger, nk, payload) => {
   void logger;

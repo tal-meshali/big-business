@@ -257,11 +257,13 @@ func join_room(code: String) -> bool:
 
 ## Joins a match. Private rooms need their code: the server refuses a join
 ## by match id alone, since match ids can be listed by any client.
-func _join_match(id: String, code: String = "") -> bool:
+func _join_match(id: String, code: String = "", watch: bool = false) -> bool:
 	if id.is_empty():
 		server_error.emit("no match id")
 		return false
 	var metadata = {"code": code} if not code.is_empty() else null
+	if watch:
+		metadata = {"watch": "1"}
 	var joined: NakamaRTAPI.Match = await socket.join_match_async(id, metadata)
 	if joined.is_exception():
 		server_error.emit("join failed: %s" % joined.get_exception().message)
@@ -270,6 +272,25 @@ func _join_match(id: String, code: String = "") -> bool:
 	room_code = code
 	last_view = {}
 	return true
+
+
+## Watches a mutual friend's game: the server lets you in for a moment,
+## then the first view opens the table without a seat (no hand, no moves).
+func watch_friend(target_user_id: String) -> bool:
+	if client == null or session == null:
+		return false
+	var rpc: NakamaAPI.ApiRpc = await client.rpc_async(session, "watch_friend", JSON.stringify({"userId": target_user_id}))
+	if rpc.is_exception():
+		# The server's own words: "Error: x at reject (...)" -> "x".
+		var m := rpc.get_exception().message.trim_prefix("Error: ")
+		server_error.emit(m.substr(0, m.find(" at ")) if m.find(" at ") > 0 else m)
+		return false
+	var data = JSON.parse_string(rpc.payload)
+	if not data is Dictionary:
+		return false
+	if not match_id.is_empty():
+		await leave_match()
+	return await _join_match(String(data.get("matchId", "")), "", true)
 
 
 func leave_match() -> void:

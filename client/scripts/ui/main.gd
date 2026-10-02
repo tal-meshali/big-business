@@ -371,6 +371,12 @@ func _build_more(box: VBoxContainer) -> void:
 	_friends_panel = FriendsPanel.new()
 	_friends_panel.visible = false
 	_friends_panel.join_requested.connect(_on_invite_join)
+	_friends_panel.gifts_collected.connect(_refresh_profile)
+	# Watching left any lobby we were in; the table opens with the first view.
+	_friends_panel.watch_started.connect(func() -> void:
+		_in_lobby = false
+		_room_code = ""
+		_friends_panel.room_code = "")
 	box.add_child(_friends_panel)
 
 	# Account row: guest or linked providers, with link buttons where a

@@ -10,6 +10,8 @@ import { ROOM_COLLECTION, SYSTEM_USER } from './rooms';
 import { PURCHASE_COLLECTION } from './store';
 import { ART_COLLECTION, ART_QUEUE_COLLECTION, DECK_COLLECTION, STANDING_COLLECTION } from './designer_store';
 import { STATS_COLLECTION } from './stats';
+import { GIFT_COLLECTION } from './gifts';
+import { PLAYING_COLLECTION } from './watch';
 
 export const REPORT_COLLECTION = 'reports';
 const REPORT_REASONS = ['name', 'behaviour', 'cheating', 'other'];
@@ -112,6 +114,8 @@ export const SERVER_COLLECTIONS = [
   ART_COLLECTION,
   ART_QUEUE_COLLECTION,
   STATS_COLLECTION,
+  GIFT_COLLECTION,
+  PLAYING_COLLECTION,
 ];
 
 /** True when a client storage request touches a server-only collection. */

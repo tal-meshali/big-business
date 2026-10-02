@@ -84,3 +84,9 @@ Decisions made by the project owner on 2026-09-27, after the research in `docs/r
 - **Why:** D4 rules out free text for players under 13, and a typed club name or a club chat would be the first text one player shows another, needing a moderation queue. Picked names and no chat keep clubs open to every age with nothing to review. Tying the league to season points rewards playing with people, which the game needs for its liquidity, and adds no new grind.
 - **Implies:** the client's own group calls (create, update, join, add users) and every chat channel join are refused by before hooks, so a modified client cannot get around the rules. If a weekly reward is added later it must be a free cosmetic, never anything sold. If clubs ever get chat, it needs the 13+ gate and moderation from D4 first.
 
+## D14. Gifts are track points; only friends watch (2026-10-02)
+
+- **Decision:** a friend gift is 5 points on the free cosmetic track: one a day to each mutual friend, ten sends a day, five collected a day, kept 7 days. Watching is for mutual friends only: the friend's match grants a short pass and the watcher joins with no seat, seeing what a player without a seat sees (no hands) and sending nothing the game acts on; at most 8 watch a game, and never the tutorial.
+- **Why:** the research's "gift free currency" does not fit D5 (real money only, no virtual currency), so the gift is the one free thing players already earn. Small daily caps keep a ring of spare accounts from buying the track. Friends only matches the invite rule (D4): a stranger cannot find a child's game, and watching shows nothing a seat at the table would not.
+- **Implies:** gifts and the `playing` rows are server-only storage. Nobody can be watched by a stranger, but friends can watch without asking; if players ask for it, add a setting to turn watching off. A watcher sees emotes but cannot send one.
+

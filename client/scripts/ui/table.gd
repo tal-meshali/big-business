@@ -1202,6 +1202,9 @@ func _update_prompt() -> void:
 			var seats: Array = view.get("seats", [])
 			var active := int(view.get("active", 0))
 			_prompt.text = "%s is thinking…" % (seats[active].get("name", "?") if active < seats.size() else "?")
+		# A friend watching has no seat (Net.watch_friend).
+		if _my_seat < 0:
+			_prompt.text = "Watching. " + _prompt.text
 		return
 	if phase == "take":
 		var cost = view.get("drawCost")

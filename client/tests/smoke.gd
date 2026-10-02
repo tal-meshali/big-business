@@ -118,6 +118,7 @@ func _run() -> void:
 	failures += await _designer_checks()
 	failures += await _plus_checks()
 	failures += await _club_checks()
+	failures += await _watch_checks()
 
 	if failures == 0:
 		print("SMOKE OK")
@@ -976,9 +977,23 @@ func _friends_checks() -> int:
 	if panel._list.get_child(2).get_child(2).text != "Pending":
 		push_error("a sent request should read Pending")
 		failures += 1
-	if bo_row.get_child(3).text != "Remove":
-		push_error("each friend row needs a Remove button")
+	if bo_row.get_child(bo_row.get_child_count() - 1).text != "Remove" or bo_row.get_child(3).text != "Gift":
+		push_error("a friend row has Gift, then Remove")
 		failures += 1
+	if panel._list.get_child(1).get_child(3).text != "Remove":
+		push_error("a request row has no Gift")
+		failures += 1
+	var bo_id := String(panel._friends[0].get("userId", ""))
+	panel.set_extras({"waiting": 2, "names": ["Cara", "Dev"], "claimLeft": 5, "sentToday": [bo_id], "sendLeft": 9, "points": 5}, [bo_id])
+	await process_frame
+	bo_row = panel._list.get_child(0)
+	if bo_row.get_child(3).text != "Watch" or bo_row.get_child(4).text != "Sent" or not bo_row.get_child(4).disabled:
+		push_error("a friend in a game offers Watch; a gift sent today reads Sent")
+		failures += 1
+	if not panel._gift_row.visible or panel._gift_label.text != "2 gifts from Cara, Dev (+5 track points each)" or panel._collect_button.custom_minimum_size.y < 48:
+		push_error("waiting gifts show with Collect, got '%s'" % panel._gift_label.text)
+		failures += 1
+	panel.set_extras({}, [])
 
 	panel.room_code = "ABC234"
 	await process_frame
@@ -1616,3 +1631,37 @@ func _small_buttons(node: Node, what: String) -> int:
 			push_error("%s: button '%s' is %d px tall" % [what, String(c.get("text")), int(c.size.y)])
 			bad += 1
 	return bad
+
+
+## A watcher's view (no seat): the table shows every seat as an opponent,
+## no hand and no move buttons.
+func _watch_checks() -> int:
+	var failures := 0
+	var table = load("res://scenes/table.tscn").instantiate()
+	root.add_child(table)
+	await process_frame
+	var v := {
+		"you": null,
+		"seats": [
+			{"id": "a", "name": "Ana", "isBot": false, "connected": true, "handCount": 3, "portfolio": [], "bronze": 10, "gold": 0, "tokens": []},
+			{"id": "b", "name": "Broker Bo", "isBot": true, "connected": true, "handCount": 3, "portfolio": [], "bronze": 10, "gold": 0, "tokens": []},
+		],
+		"market": [], "supplyCount": 31, "removedCount": 5, "active": 0, "phase": "take", "turn": 1,
+		"tookCompany": null, "tokens": [null, null, null, null, null, null], "seq": 0, "deadline": 0,
+		"drawCost": null, "legal": [], "result": null,
+	}
+	table._on_view(v)
+	await process_frame
+	if table._me_view.visible:
+		push_error("a watcher has no seat of their own")
+		failures += 1
+	for b in table.find_children("*", "Button", true, false):
+		if b is CardView and b.is_visible_in_tree() and b.face_up and b.selectable:
+			push_error("a watcher must have no playable cards")
+			failures += 1
+			break
+	if not String(table._prompt.text).begins_with("Watching."):
+		push_error("a watcher's prompt says they are watching, got '%s'" % table._prompt.text)
+		failures += 1
+	table.queue_free()
+	return failures

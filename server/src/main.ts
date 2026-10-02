@@ -48,7 +48,10 @@ import {
   guardedSetAgeBracket,
   guardedUploadCardArt,
 } from './match/guarded_designer';
-import { guardedClubCreate, guardedClubJoin, guardedClubKick, guardedClubLeave, guardedClubList, guardedClubState } from './match/guarded_social';
+// WHY a namespace import: esbuild turns `social.x` back into the plain
+// function name in the bundle (which Nakama needs), while the graph sees one
+// dependency instead of one per RPC, keeping main.ts under the god-node limit.
+import * as social from './match/guarded_social';
 import { beforeChannelJoin, beforeGroupChange } from './match/rpc_clubs';
 
 function InitModule(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, initializer: nkruntime.Initializer): void {
@@ -88,12 +91,17 @@ function InitModule(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkrunt
   initializer.registerRpc('get_card_art', guardedGetCardArt);
   initializer.registerRpc('report_card_art', guardedReportCardArt);
   initializer.registerRpc('get_stats', guardedGetStats);
-  initializer.registerRpc('club_state', guardedClubState);
-  initializer.registerRpc('club_list', guardedClubList);
-  initializer.registerRpc('club_create', guardedClubCreate);
-  initializer.registerRpc('club_join', guardedClubJoin);
-  initializer.registerRpc('club_leave', guardedClubLeave);
-  initializer.registerRpc('club_kick', guardedClubKick);
+  initializer.registerRpc('club_state', social.guardedClubState);
+  initializer.registerRpc('club_list', social.guardedClubList);
+  initializer.registerRpc('club_create', social.guardedClubCreate);
+  initializer.registerRpc('club_join', social.guardedClubJoin);
+  initializer.registerRpc('club_leave', social.guardedClubLeave);
+  initializer.registerRpc('club_kick', social.guardedClubKick);
+  initializer.registerRpc('gift_state', social.guardedGiftState);
+  initializer.registerRpc('send_gift', social.guardedSendGift);
+  initializer.registerRpc('claim_gifts', social.guardedClaimGifts);
+  initializer.registerRpc('friends_playing', social.guardedFriendsPlaying);
+  initializer.registerRpc('watch_friend', social.guardedWatchFriend);
   // Server-to-server only (runtime http_key; they refuse player sessions).
   initializer.registerRpc('revenuecat_webhook', guardedRevenueCatWebhook);
   initializer.registerRpc('set_remote_config', guardedSetRemoteConfig);

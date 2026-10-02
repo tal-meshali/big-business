@@ -16,11 +16,12 @@ import { botThinkMs, GET_READY_MS, label, lobbyJoinError, lobbyMessage, nowMs, s
 import { chooseRoomDeck, sendDeck } from './room_deck';
 import { pushTurnIfAway } from './turn_push';
 import { sendViews } from './views';
+import { answerSignal, mayWatch, recordPlaying } from './watch';
 
 const TICK_RATE = 4; // ticks per second
 const END_LINGER_MS = 45_000;
 
-function startGame(s: MatchState, nk: nkruntime.Nakama, logger: nkruntime.Logger, dispatcher: nkruntime.MatchDispatcher): void {
+function startGame(s: MatchState, nk: nkruntime.Nakama, logger: nkruntime.Logger, dispatcher: nkruntime.MatchDispatcher, matchId: string): void {
   const defs: SeatDef[] = s.lobby.map((l) => ({ id: l.userId, name: l.name, isBot: false }));
   let botIndex = 0;
   while (defs.length < s.params.minSeats) {
@@ -50,6 +51,8 @@ function startGame(s: MatchState, nk: nkruntime.Nakama, logger: nkruntime.Logger
   }
   s.botActAt = firstTurnAt + botThinkMs(s);
   chooseRoomDeck(s, nk, logger);
+  // Friends can find this game to watch it (not the tutorial: nothing to see).
+  if (!s.params.tutorial) recordPlaying(nk, logger, matchId, Object.keys(s.seatByUser), nowMs());
   logger.info('match started seats=%d seed=%d tutorial=%s deck=%s', s.game.seats.length, seed, String(s.params.tutorial), s.customDeck ? 'custom' : 'standard');
   dispatcher.matchLabelUpdate(label(s));
   // The look goes first so the table can fetch the art while it lays out.
@@ -96,6 +99,7 @@ export const matchInit: nkruntime.MatchInitFunction<MatchState> = (ctx, logger, 
     pushSentAt: {},
     pushFailures: 0,
     customDeck: null,
+    watchers: {},
   };
   logger.info('match init private=%s code=%s', String(p.isPrivate), p.roomCode || '-');
   void ctx;
@@ -106,8 +110,9 @@ export const matchInit: nkruntime.MatchInitFunction<MatchState> = (ctx, logger, 
 export const matchJoinAttempt: nkruntime.MatchJoinAttemptFunction<MatchState> = (ctx, logger, nk, dispatcher, tick, state, presence, metadata) => {
   void ctx; void logger; void nk; void dispatcher; void tick;
   if (state.game) {
-    // Rejoin only.
+    // Rejoin, or a friend with a watch pass (watch.ts).
     if (state.seatByUser[presence.userId] !== undefined) return { state, accept: true };
+    if (metadata && metadata['watch'] && mayWatch(state, presence.userId, nowMs())) return { state, accept: true };
     return { state, accept: false, rejectMessage: 'game already started' };
   }
   const now = nowMs();
@@ -139,6 +144,9 @@ export const matchJoin: nkruntime.MatchJoinFunction<MatchState> = (ctx, logger, 
         }
         sendDeck(state, nk, dispatcher, [p]);
         logger.info('user %s rejoined seat %d', p.userId, seat);
+      } else {
+        sendDeck(state, nk, dispatcher, [p]);
+        logger.info('user %s is watching', p.userId);
       }
       continue;
     }
@@ -215,7 +223,7 @@ export const matchLoop: nkruntime.MatchLoopFunction<MatchState> = (ctx, logger, 
     const publicStart = !state.params.isPrivate && (full || timedOut);
     const privateStart = state.params.isPrivate && allReady && (enough || humans >= 2);
     if (publicStart || privateStart) {
-      startGame(state, nk, logger, dispatcher);
+      startGame(state, nk, logger, dispatcher, ctx.matchId || '');
     } else if (humans === 0 && now - state.lastActivity > 5 * 60_000) {
       return null; // empty room expired
     } else {
@@ -294,7 +302,8 @@ export const matchTerminate: nkruntime.MatchTerminateFunction<MatchState> = (ctx
   return { state };
 };
 
+/** Signals: a watch request from watch_friend (watch.ts) answers {ok} or {error}. */
 export const matchSignal: nkruntime.MatchSignalFunction<MatchState> = (ctx, logger, nk, dispatcher, tick, state, data) => {
   void ctx; void logger; void nk; void dispatcher; void tick;
-  return { state, data };
+  return { state, data: answerSignal(state, data, nowMs()) };
 };

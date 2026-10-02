@@ -711,9 +711,10 @@ async function testClubs() {
   send(member, OP_READY);
   await playOut([owner, member], { maxMs: 120000 });
   let st = null;
-  for (let i = 0; i < 25; i++) {
+  for (let i = 0; i < 50; i++) {
     st = await rpc(member, 'club_state');
-    if (st.club && st.club.score > 0) break;
+    // The league table can trail the club's own record by a moment.
+    if (st.club && st.club.score > 0 && st.league.some((c) => c.id === club.id)) break;
     await sleep(200);
   }
   const sum = st.club.members.reduce((n, m) => n + m.week, 0);
@@ -729,6 +730,52 @@ async function testClubs() {
   for (const p of [owner, member]) p.socket.disconnect(true);
 }
 
+async function testGiftsAndWatching() {
+  log('--- Gifts and watching: friends only, track points, a seatless view');
+  const [a, b, c, stranger] = await Promise.all([makePlayer('GiftA'), makePlayer('GiftB'), makePlayer('GiftC'), makePlayer('Nosy')]);
+  await rpcRejected(a, 'send_gift', { userId: b.userId }, 'a gift before being friends');
+  await a.client.addFriends(a.session, [b.userId]);
+  await b.client.addFriends(b.session, [a.userId]);
+  await rpc(a, 'send_gift', { userId: b.userId });
+  await rpcRejected(a, 'send_gift', { userId: b.userId }, 'a second gift the same day');
+  const before = (await rpc(b, 'get_profile')).trackPoints || 0;
+  const st = await rpc(b, 'gift_state');
+  if (st.waiting !== 1 || st.names[0] !== a.session.username) fail(`gift_state: ${JSON.stringify(st)}`);
+  const claim = await rpc(b, 'claim_gifts');
+  if (claim.claimed !== 1 || claim.trackPoints !== before + st.points) fail(`claim_gifts: ${JSON.stringify(claim)} (before ${before})`);
+  log(`gifts: friends only, once a day, +${st.points} track points collected`);
+
+  const created = await rpc(a, 'create_room', { stepSeconds: 5, maxSeats: 2 });
+  await join(a, created.matchId, created.code);
+  await join(c, created.matchId, created.code);
+  await waitFor(() => a.lobby && a.lobby.seats.length === 2, 5000, 'both players seated');
+  send(a, OP_READY);
+  send(c, OP_READY);
+  await waitFor(() => a.view, 8000, 'the game to start');
+  let playing = [];
+  for (let i = 0; i < 20 && playing.length === 0; i++) {
+    playing = (await rpc(b, 'friends_playing')).playing;
+    if (playing.length === 0) await sleep(200);
+  }
+  if (playing.join() !== a.userId) fail(`friends_playing: ${JSON.stringify(playing)}`);
+  await rpcRejected(stranger, 'watch_friend', { userId: a.userId }, 'a stranger watching');
+  let sneaked = false;
+  try { await stranger.socket.joinMatch(created.matchId, undefined, { watch: '1' }); sneaked = true; } catch (e) { /* expected */ }
+  if (sneaked) fail('joining with watch metadata but no pass must be refused');
+  const pass = await rpc(b, 'watch_friend', { userId: a.userId });
+  if (pass.matchId !== created.matchId) fail(`watch_friend: ${JSON.stringify(pass)}`);
+  await b.socket.joinMatch(pass.matchId, undefined, { watch: '1' });
+  b.matchId = pass.matchId;
+  await waitFor(() => b.view, 5000, 'the watcher to get a view');
+  if (b.view.you !== null || b.view.seats.some((s) => s.hand) || b.view.legal.length !== 0) fail(`a watcher sees no hands and has no moves: ${JSON.stringify({ you: b.view.you, legal: b.view.legal })}`);
+  send(b, OP_FORFEIT);
+  await playOut([a, c], { maxMs: 120000 });
+  await waitFor(() => b.view && b.view.phase === 'ended', 5000, 'the watcher to see the end');
+  if (a.forfeits.length + c.forfeits.length > 0) fail("a watcher's forfeit must do nothing");
+  log('watching: friends only, by pass, no hands or moves, saw the game to the end');
+  for (const p of [a, b, c, stranger]) p.socket.disconnect(true);
+}
+
 try {
   await testPrivateRoom();
   await testForfeit();
@@ -740,6 +787,7 @@ try {
   await testDesigner();
   await testPlus();
   await testClubs();
+  await testGiftsAndWatching();
   log('E2E OK');
   process.exit(0);
 } catch (e) {

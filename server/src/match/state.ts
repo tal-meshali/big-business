@@ -51,6 +51,8 @@ export interface MatchState {
   pushFailures: number;
   /** The host's custom deck, chosen when the game starts (room_deck.ts); null for the standard cards. */
   customDeck: DeckMessage | null;
+  /** Friends let in to watch (watch.ts): pass expiry in epoch ms by user id. */
+  watchers: { [userId: string]: number };
 }
 
 export function nowMs(): number {

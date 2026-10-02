@@ -276,7 +276,12 @@ func _refresh_pick_button(b: Button, id: String, current: String) -> void:
 	b.disabled = not is_unlocked
 	b.set_pressed_no_signal(id == current)
 	var pts := _unlock_points(id)
-	b.text = Cosmetics.name_of(id) if is_unlocked or pts == 0 else "%s  (%d pts)" % [Cosmetics.name_of(id), pts]
+	if is_unlocked or (pts == 0 and not Cosmetics.is_paid(id)):
+		b.text = Cosmetics.name_of(id)
+	elif Cosmetics.is_paid(id):
+		b.text = "%s  (shop)" % Cosmetics.name_of(id)
+	else:
+		b.text = "%s  (%d pts)" % [Cosmetics.name_of(id), pts]
 
 
 ## Applies the pick locally first so the lobby and cards change at once,

@@ -18,6 +18,10 @@ var _board_label: Label
 var _friends_panel: FriendsPanel
 var _quests_button: Button
 var _quests_panel: QuestsPanel
+var _shop_button: Button
+var _shop_panel: ShopPanel
+## Games on the profile; -1 until the profile has loaded.
+var _games_played := -1
 var _felt: ColorRect
 var _felt_edge: ReferenceRect
 var _account_label: Label
@@ -37,6 +41,7 @@ func _ready() -> void:
 	Net.view_updated.connect(_on_first_view, CONNECT_ONE_SHOT)
 	Net.server_error.connect(func(m: String) -> void: _status.text = m)
 	Net.account_switched.connect(_on_account_switched)
+	Net.remote_config_updated.connect(_apply_remote_config)
 	if not Net.is_connected_to_server():
 		_on_connect_pressed.call_deferred()
 	else:
@@ -153,11 +158,21 @@ func _build() -> void:
 	_board_label.visible = false
 	_board_label.add_theme_font_size_override("font_size", 18)
 	pbox.add_child(_board_label)
+	var cosmetics_row := HBoxContainer.new()
+	cosmetics_row.add_theme_constant_override("separation", 10)
+	pbox.add_child(cosmetics_row)
 	_quests_button = Button.new()
 	_quests_button.text = "Quests & card backs"
 	_quests_button.custom_minimum_size = Vector2(0, 48)
+	_quests_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_quests_button.pressed.connect(_on_toggle_quests)
-	pbox.add_child(_quests_button)
+	cosmetics_row.add_child(_quests_button)
+	_shop_button = Button.new()
+	_shop_button.text = "Shop"
+	_shop_button.custom_minimum_size = Vector2(120, 48)
+	_shop_button.visible = RemoteConfig.shop_enabled
+	_shop_button.pressed.connect(_on_open_shop)
+	cosmetics_row.add_child(_shop_button)
 	box.add_child(profile["panel"])
 
 	_friends_panel = FriendsPanel.new()
@@ -243,6 +258,20 @@ func _build() -> void:
 	_quests_panel.cosmetic_changed.connect(_on_cosmetic_changed)
 	add_child(_quests_panel)
 
+	_shop_panel = ShopPanel.new()
+	_shop_panel.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_shop_panel.offset_left = 24
+	_shop_panel.offset_right = -24
+	_shop_panel.offset_top = 60
+	_shop_panel.offset_bottom = -40
+	_shop_panel.visible = false
+	_shop_panel.cosmetic_changed.connect(_on_cosmetic_changed)
+	# Purchases change what the quests picker may offer; reload the profile.
+	_shop_panel.closed.connect(func() -> void:
+		if Net.is_connected_to_server():
+			_refresh_profile())
+	add_child(_shop_panel)
+
 
 func _add_button(parent: Control, text: String, handler: Callable, enabled := false) -> void:
 	var b := Button.new()
@@ -293,6 +322,7 @@ func _refresh_profile() -> void:
 
 
 func _apply_progress(p: Dictionary, daily_available: bool) -> void:
+	_games_played = int(p.get("gamesPlayed", 0))
 	var level := int(p.get("level", 1))
 	var xp := int(p.get("xp", 0))
 	var floor_xp := 50 * (level - 1) * (level - 1)
@@ -319,6 +349,18 @@ func _on_claim_daily() -> void:
 
 func _on_toggle_quests() -> void:
 	_quests_panel.visible = not _quests_panel.visible
+
+
+func _on_open_shop() -> void:
+	_quests_panel.visible = false
+	await _shop_panel.open()
+
+
+## Remote Config arrived: the shop can be switched off without a release.
+func _apply_remote_config() -> void:
+	_shop_button.visible = RemoteConfig.shop_enabled
+	if not RemoteConfig.shop_enabled:
+		_shop_panel.visible = false
 
 
 ## The lobby felt follows the picked table felt at once.
@@ -398,6 +440,11 @@ func _on_failed(reason: String) -> void:
 
 
 func _on_quick_play() -> void:
+	# Remote Config can send a brand-new player to the tutorial first (TODO-local B2).
+	if RemoteConfig.tutorial_auto_route and _games_played == 0:
+		_status.text = "First game: let's start with the tutorial..."
+		_in_lobby = await Net.start_tutorial()
+		return
 	_status.text = "Finding a game..."
 	_in_lobby = await Net.quick_play()
 

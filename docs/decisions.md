@@ -48,7 +48,13 @@ Decisions made by the project owner on 2026-09-27, after the research in `docs/r
 - `server/` Nakama TypeScript runtime: pure rules engine in `server/src/engine`, match handler in `server/src/match`.
 - `client/` Godot 4.6 project.
 
-## D8. Left-to-right layout, larger type (2026-10-02)
+## D8. Shop, analytics, Remote Config and push stay on our server
+
+- **Decision:** store entitlements are read by the Nakama server from RevenueCat and kept in a server-only row; analytics are aggregate counts per install day in Nakama storage; Remote Config lives in Nakama storage; "your turn" pushes are sent by the server through FCM HTTP v1. Firebase is used only for FCM delivery and, later, Crashlytics.
+- **Why:** D5 requires server-side entitlements and Restore Purchases. D4 (every age, no personalised ads) is easiest to keep when no analytics SDK collects device data: D1 / D7 and the first-session funnel need only install day, active days and first-time steps. The server itself reads some switches (push off, quick-play wait), so Remote Config has to be where it can read them.
+- **Implies:** the client never says what it owns; it buys through the store plugin and asks the server to sync. Server-to-server RPCs (Remote Config, analytics report, RevenueCat webhook) need the runtime http_key, which is a production secret. Without RevenueCat or FCM keys the shop reports "opens soon" and nothing is pushed. Pushes are capped (one per cooldown per player and match) and only sent when a turn starts for a player who is away.
+
+## D9. Left-to-right layout, larger type (2026-10-02)
 
 - **Decision:** the client always lays out left to right (`internationalization/rendering/root_node_layout_direction=1`), and UI text is about 20% larger than the first pass (labels 19 px, buttons and inputs 22 px on the 720 px canvas; seat cards widened to 220 px).
 - **Why:** on the owner's first local run (macOS in Hebrew) Godot mirrored the whole table: the supply pile jumped to the right and the hand fan rendered off screen. The app has no translations, so the locale should not flip the layout. Text was also too small on a phone.

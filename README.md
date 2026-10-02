@@ -59,6 +59,8 @@ Bot tuning from simulation: at 3 and 4 seats, where bots actually play, they mod
 
 Phase 2 social and accounts, ported onto this line: a friends list with room invites (add by exact username, accept, remove; invite a mutual friend to a private room through a Nakama in-app notification), three daily and two weekly quests feeding a free cosmetic track (card backs and table felts, nothing sold), and Sign in with Apple and Google linking for guest accounts (the server side and lobby row are done; the native token plugins need a real machine, `docs/deploy.md` "Social sign-in"). A server security review validates every RPC payload and match message, keeps profile, room, report and rate-limit storage server-owned, and rate-limits lookups, invites, reports, room creation and friend requests (`docs/deploy.md` "Security checklist").
 
+Phase 2 shop, analytics and push, server and client code: three curated skins (two card backs and a table felt) sold a la carte through RevenueCat with entitlements checked on the server, a Shop overlay in the lobby with Buy, Use and Restore purchases, D1 / D7 retention and a first-session funnel counted per install day in Nakama storage, Remote Config switches (shop, push, tutorial auto-routing, quick-play wait) the operator changes without a release, and a "your turn" push sender over FCM with device-token registration. The store and Firebase plugins, accounts and keys are local steps (`docs/TODO-local.md` G, `docs/deploy.md` "Shop, push and analytics").
+
 Code conventions (acyclic, layered dependency graph checked with graphify on every push and in CI) are in `docs/conventions.md`.
 
 What still needs a real machine (phone builds, playtesting, store accounts, art) is listed in `docs/TODO-local.md`.

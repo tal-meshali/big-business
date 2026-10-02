@@ -90,3 +90,9 @@ Decisions made by the project owner on 2026-09-27, after the research in `docs/r
 - **Why:** the research's "gift free currency" does not fit D5 (real money only, no virtual currency), so the gift is the one free thing players already earn. Small daily caps keep a ring of spare accounts from buying the track. Friends only matches the invite rule (D4): a stranger cannot find a child's game, and watching shows nothing a seat at the table would not.
 - **Implies:** gifts and the `playing` rows are server-only storage. Nobody can be watched by a stranger, but friends can watch without asking; if players ask for it, add a setting to turn watching off. A watcher sees emotes but cannot send one.
 
+
+## D15. Opponents' shares lie on the felt, with a chip for each regulator token (2026-10-02)
+
+- **Decision:** each opponent's kept shares are drawn face up on the felt between their hand and the Supply, one small stack per company with its count, and a gold "R" chip edged in the company's colour sits on the corner of every stack whose regulator token that player holds. Your own Portfolio gets the same chip. The plate pips and the stamp when a token changes hands stay.
+- **Why:** the plate pips were the only place to see who holds what, and they are small on a phone; the playtest list (TODO-local, section C) already asks whether players lose track of who holds a token. Stacks in front of each player read like a real table, and one chip shape everywhere makes a token easy to spot at a glance.
+- **Implies:** the Supply's count label moved onto the Market's line so the right-hand opponent's shares do not cover it. At five or six opponents the stacks shrink to fit. The browser table (web/) does not have this yet.

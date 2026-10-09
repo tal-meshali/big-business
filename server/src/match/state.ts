@@ -1,6 +1,6 @@
 /** Match state shared by the handler and its helper modules. */
 import type { Action, GameState } from '../engine';
-import type { DeckMessage, LobbyMessage, LobbySeat, MatchParams } from './protocol';
+import { OP_READY, OP_START_NOW, type DeckMessage, type LobbyMessage, type LobbySeat, type MatchParams } from './protocol';
 
 export const BOT_THINK_MS = 900;
 export const TUTORIAL_BOT_THINK_MS = 1800;
@@ -83,7 +83,7 @@ export function lobbyMessage(s: MatchState): LobbyMessage {
  */
 export function label(s: MatchState): string {
   return JSON.stringify({
-    mode: s.params.tutorial ? 'tutorial' : s.params.isPrivate ? 'private' : 'public',
+    mode: s.params.tutorial ? 'tutorial' : s.params.solo ? 'solo' : s.params.isPrivate ? 'private' : 'public',
     open: s.game === null ? 'yes' : 'no',
     players: s.lobby.length,
     max: s.params.maxSeats,
@@ -100,6 +100,7 @@ export function label(s: MatchState): string {
  */
 export function lobbyJoinError(s: MatchState, userId: string, code: unknown, now: number): string | null {
   for (const l of s.lobby) if (l.userId === userId) return null;
+  if (s.params.solo && userId !== s.params.hostId) return 'solo game';
   if (s.params.isPrivate && (typeof code !== 'string' || code.toUpperCase() !== (s.params.roomCode || ''))) return 'invalid code';
   let pending = 0;
   for (const id in s.pendingJoins) {
@@ -110,6 +111,32 @@ export function lobbyJoinError(s: MatchState, userId: string, code: unknown, now
   }
   if (s.lobby.length + pending >= s.params.maxSeats) return 'room full';
   return null;
+}
+
+/**
+ * Whether this user may start the lobby early with bots: anyone waiting in a
+ * public lobby, but in a private room only its host, so a guest cannot cut
+ * the host's friends out.
+ */
+export function mayStartNow(s: MatchState, userId: string): boolean {
+  if (!s.lobby.some((l) => l.userId === userId)) return false;
+  return !s.params.isPrivate || userId === s.params.hostId;
+}
+
+/**
+ * Applies lobby messages: OP_READY marks the sender ready. Returns true when
+ * someone allowed to (mayStartNow) asked to start now with bots.
+ */
+export function readLobbyMessages(s: MatchState, messages: nkruntime.MatchMessage[]): boolean {
+  let startNow = false;
+  for (const m of messages) {
+    if (m.opCode === OP_READY) {
+      for (const l of s.lobby) if (l.userId === m.sender.userId) l.ready = true;
+    } else if (m.opCode === OP_START_NOW && mayStartNow(s, m.sender.userId)) {
+      startNow = true;
+    }
+  }
+  return startNow;
 }
 
 export function send(dispatcher: nkruntime.MatchDispatcher, op: number, data: unknown, to?: nkruntime.Presence[]): void {

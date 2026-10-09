@@ -6,6 +6,9 @@ const OP_READY := 2
 const OP_EMOTE := 3
 ## {} Give up the game: a bot plays the seat to the end.
 const OP_FORFEIT := 4
+## {} Start the waiting lobby now with bots in the empty seats (public
+## lobby: anyone in it; private room: the host only).
+const OP_START_NOW := 5
 
 const OP_VIEW := 10
 const OP_EVENTS := 11

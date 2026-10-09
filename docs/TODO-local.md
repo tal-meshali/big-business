@@ -14,7 +14,7 @@ Tick items off as they are done.
 
 ## B. Play it on a phone (the Phase 1 goal)
 
-- [ ] Android: install Android SDK + export templates in Godot, create an Android export preset (portrait, min SDK 24, permission `VIBRATE` on for haptics), enable USB debugging, "Remote Deploy" from the editor to a phone. Point the server field at your computer's LAN IP (not 127.0.0.1).
+- [ ] Android: install Android SDK + export templates in Godot, create an Android export preset (portrait, min SDK 24, permission `VIBRATE` on for haptics), enable USB debugging, "Remote Deploy" from the editor to a phone. Point the server field at your computer's LAN IP (not 127.0.0.1). *(Local: JDK 17, Android SDK 35, the 4.6.3 templates, a debug keystore and the Android and iOS presets in `client/export_presets.cfg` are in; `godot --headless --path client --export-debug Android ../build/android/big-business.apk` builds a signed debug APK. Left: a phone with USB debugging.)*
 - [ ] iOS: Xcode + Apple developer account, iOS export preset, run on a device via Xcode. Same LAN host note.
 - [x] Check touch targets: hand cards, market cards, Keep / Sell buttons. Anything under ~48 px tall gets enlarged. *(Cloud: the smoke test now fails if any visible button on the lobby, table or help screen is under 48 px; the emote strip, top-bar buttons and seat-menu rows were enlarged. Still worth a thumb test on a phone.)*
 - [x] Check the fan of 4 cards during the play step on a narrow phone (older iPhone SE width). *(Cloud: portrait width is always 720 design px, and a 4-card hand overflowed the left edge by 17 px on every phone; fixed, rendered at iPhone SE, iPhone 13 and tablet ratios, and covered by a smoke check.)*

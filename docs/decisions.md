@@ -64,7 +64,7 @@ Decisions made by the project owner on 2026-09-27, after the research in `docs/r
 
 - **Decision:** the client follows the "Big Business — 3D Table" design: a felt table tilted 32 degrees in perspective with printed zones, opponents on plates around the far side, the hand standing at the near edge, a cream bottom bar, Archivo Black and Nunito Sans (bundled, OFL), and a start page with a fanned set of shares over a small felt. Layouts are written in design points of the 390 x 844 artboard and scaled by `UiTheme.layout_scale`, so the same layout fills a 16:9 and a 19.5:9 phone. The tutorial coach dims the table except the area its step is about.
 - **Why:** the owner asked for the design to be implemented. Scaling from the artboard also fixes the remaining "too small on a phone" complaint from D9: the design's 44-point buttons become 67 to 81 px on the 720 px canvas, and nothing on the table is under the 48 px touch target.
-- **Implies:** the tilt is drawn in 2D (`TableBoard.project`), not with a 3D scene, so cards stay ordinary Controls and every smoke and e2e hook still works. D9 still holds: the layout is pinned left to right, and Hebrew-locale screenshots match the default ones. Company art is drawn in code (sun, pine, anchor, gear, cloud, bolt) until the commissioned art in TODO-local F replaces the art window.
+- **Implies:** the tilt is drawn in 2D (`TableBoard.project`), not with a 3D scene, so cards stay ordinary Controls and every smoke and e2e hook still works. D9 still holds: the layout is pinned left to right, and Hebrew-locale screenshots match the default ones. Company art is drawn in code (sun, pine, anchor, gear, cloud, bolt) until the commissioned art in TODO-local F replaces the art window. The browser table (`web/big-business.html`) follows the same design: the felt is tilted with a CSS 3D transform, and its start page lists the app-only features (clubs, gifts and watching, Designer, online tables). Its opponents' plates show their kept shares as small stacks per company, and a Monopolies row above the plates shows who holds each company's regulator token; a gold crown chip marks a monopoly everywhere it appears (2026-10-02).
 
 ## D11. Designer: art windows and backs, rendered on the device, reviewed before others see it (2026-10-02)
 
@@ -90,7 +90,14 @@ Decisions made by the project owner on 2026-09-27, after the research in `docs/r
 - **Why:** the research's "gift free currency" does not fit D5 (real money only, no virtual currency), so the gift is the one free thing players already earn. Small daily caps keep a ring of spare accounts from buying the track. Friends only matches the invite rule (D4): a stranger cannot find a child's game, and watching shows nothing a seat at the table would not.
 - **Implies:** gifts and the `playing` rows are server-only storage. Nobody can be watched by a stranger, but friends can watch without asking; if players ask for it, add a setting to turn watching off. A watcher sees emotes but cannot send one.
 
-## D15. "Play vs bots" instead of waiting, on the server (2026-10-02)
+
+## D15. Opponents' shares lie on the felt, with a chip for each regulator token (2026-10-02)
+
+- **Decision:** each opponent's kept shares are drawn face up on the felt between their hand and the Supply, one small stack per company with its count, and a gold "R" chip edged in the company's colour sits on the corner of every stack whose regulator token that player holds. Your own Portfolio gets the same chip. The plate pips and the stamp when a token changes hands stay.
+- **Why:** the plate pips were the only place to see who holds what, and they are small on a phone; the playtest list (TODO-local, section C) already asks whether players lose track of who holds a token. Stacks in front of each player read like a real table, and one chip shape everywhere makes a token easy to spot at a glance.
+- **Implies:** the Supply's count label moved onto the Market's line so the right-hand opponent's shares do not cover it. At five or six opponents the stacks shrink to fit. The browser table (web/) shows the same stacks and a monopoly row.
+
+## D16. "Play vs bots" instead of waiting, on the server (2026-10-02)
 
 - **Decision:** the lobby offers "Play vs bots now" (a one-player game with two bots and the normal timer that starts as soon as you join) and, while waiting in a lobby, "Start now with bots" (bots fill the empty seats at once). In a public lobby anyone waiting may start it; in a private room only the host may. These are real games: they count for XP, quests and stats like a quick play game that bots filled.
 - **Why:** waiting 20 seconds for players who are not there is the worst part of a quiet server. The rules engine runs only on the server (TypeScript in `server/src/engine`), so a truly offline game would need a second engine in GDScript; the bot game reuses the server's bots and anti-cheat for free.

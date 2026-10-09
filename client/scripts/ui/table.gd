@@ -6,7 +6,8 @@ extends Control
 ## UiTheme.layout_scale):
 ##   top bar      brand, whose turn it is, timer, Leave / Forfeit
 ##   plates       opponents around the far side of the felt
-##   felt         tilted table (TableBoard): Supply, the Market, your Portfolio
+##   felt         tilted table (TableBoard): Supply, the Market, your Portfolio,
+##                and each opponent's hand and kept shares
 ##   hand         your 3-4 cards standing at the near edge of the felt
 ##   bottom bar   you (capital, holdings), emotes, rules, prompt and buttons
 ##
@@ -101,6 +102,8 @@ var _peek_layer: Control
 var _peek: CardView = null
 ## What the other players did last, shown in the prompt while you wait.
 var _action_note := ""
+## Where each opponent's kept shares lie on the felt (dp), by seat.
+var _portfolio_spots: Dictionary = {}
 
 
 func _ready() -> void:
@@ -959,8 +962,8 @@ func _render_status(phase: String, seats: Array, active: int) -> void:
 
 
 ## Opponents in turn order from your left, on plates around the far side of
-## the felt, with their face-down hands on the felt in front of them; you in
-## the bottom bar.
+## the felt, with their face-down hands and kept shares on the felt in front
+## of them; you in the bottom bar.
 func _render_seats(seats: Array, active: int, phase: String) -> void:
 	var order: Array[int] = []
 	var n := seats.size()
@@ -986,6 +989,8 @@ func _render_seats(seats: Array, active: int, phase: String) -> void:
 	var slots: Array = PLATE_SLOTS[clampi(order.size(), 1, PLATE_SLOTS.size()) - 1]
 	var spots := TableBoard.hand_spots(order.size())
 	var hands := []
+	var portfolios := []
+	_portfolio_spots.clear()
 	for i in mini(order.size(), slots.size()):
 		var seat_idx := order[i]
 		var slot: Array = slots[i]
@@ -1006,10 +1011,27 @@ func _render_seats(seats: Array, active: int, phase: String) -> void:
 		sv.update(seat_idx, seats[seat_idx], seat_idx == active and phase != "ended", false, float(view.get("deadline", 0)), _step_seconds)
 		if phase != "ended":
 			hands.append({"at": spots[i]["at"], "angle": spots[i]["angle"], "count": int(seats[seat_idx].get("handCount", 0))})
+		var spot := TableBoard.portfolio_spot(spots[i]["at"])
+		_portfolio_spots[seat_idx] = spot
+		portfolios.append({"at": spot, "cell": TableBoard.portfolio_cell(order.size()), "cols": TableBoard.portfolio_cols(i, order.size()), "stacks": _stacks_of(seats[seat_idx])})
 	_board.hands = hands
+	_board.portfolios = portfolios
 	_me_view.visible = _my_seat >= 0 and _my_seat < n
 	if _me_view.visible:
 		_me_view.update(_my_seat, seats[_my_seat], _my_seat == active and phase != "ended", true, float(view.get("deadline", 0)), _step_seconds)
+
+
+## A seat's kept shares as [company, count, holds token] per company held.
+static func _stacks_of(seat: Dictionary) -> Array:
+	var counts := [0, 0, 0, 0, 0, 0]
+	for card in seat.get("portfolio", []):
+		counts[int(card.get("company", 0))] += 1
+	var tokens: Array = seat.get("tokens", [])
+	var out := []
+	for company in 6:
+		if counts[company] > 0:
+			out.append([company, counts[company], tokens.has(company)])
+	return out
 
 
 ## Market slot k of m on the felt: rows of at least five, two rows at most,
@@ -1066,7 +1088,8 @@ func _render_market(phase: String) -> void:
 	_place_supply()
 
 
-## Your kept shares, face up on the felt in one small stack per company.
+## Your kept shares, face up on the felt in one small stack per company,
+## with a regulator chip on each company whose token you hold.
 func _render_portfolio(seats: Array) -> void:
 	for child in _portfolio_layer.get_children():
 		_portfolio_layer.remove_child(child)
@@ -1092,6 +1115,15 @@ func _render_portfolio(seats: Array) -> void:
 			cv.card_released.connect(_on_card_released)
 			_portfolio_layer.add_child(cv)
 			_place_on_felt(cv, Vector2((gi - (groups.size() - 1) / 2.0) * 46.0, 92.0 + j * 10.0), PORTFOLIO_CARD)
+		if seats[_my_seat].get("tokens", []).has(company):
+			# On the top-right corner of the nearest share in the stack.
+			var p := Vector2((gi - (groups.size() - 1) / 2.0) * 46.0 + 16.0, 92.0 + (ids.size() - 1) * 10.0 - 22.0)
+			var chip := Control.new()
+			chip.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			chip.position = _board.project(p)
+			var r := 11.0 * _board.depth(p) * _s
+			chip.draw.connect(func() -> void: TableBoard.draw_chip(chip, Vector2.ZERO, r, company))
+			_portfolio_layer.add_child(chip)
 
 
 func _render_hand(seats: Array, phase: String) -> void:
@@ -1408,6 +1440,10 @@ func _play_events_then_render() -> void:
 					var p := TableBoard.zone_center(TableBoard.ZONE_PORTFOLIO)
 					to = _board.get_global_transform() * _board.project(p)
 					to_k = _felt_scale(p, PORTFOLIO_CARD)
+				elif _portfolio_spots.has(seat):
+					var p: Vector2 = _portfolio_spots[seat]
+					to = _board.get_global_transform() * _board.project(p)
+					to_k = _felt_scale(p, 0.2)
 				if not mine:
 					_action_note = "%s %s %s%s." % [_seat_name(seat), "sells" if to_market else "keeps", Companies.name_of(company), " to the Market" if to_market else ""]
 				await _fly_card(from, to, company, true, from_k, to_k)

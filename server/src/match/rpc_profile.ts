@@ -1,5 +1,6 @@
 /** Profile RPCs: get_profile and claim_daily. Registered by main.ts. */
 import { availableCosmetics, dropUnavailable } from './cosmetics';
+import { readStanding } from './designer_store';
 import { requireUser } from './input';
 import { trackActive } from './metrics';
 import { loadProfile, readProgress, saveProfile } from './profile';
@@ -17,7 +18,9 @@ export const rpcGetProfile: nkruntime.RpcFunction = (ctx, logger, nk, payload) =
   const owned = readOwned(nk, userId).owned;
   // A lapsed Plus (or a refund the webhook missed) shows the default skin.
   const p = { ...stored, equipped: dropUnavailable(stored.equipped, availableCosmetics(stored.trackPoints, owned, now)) };
-  return JSON.stringify({ progress: p, dailyAvailable: p.lastDailyClaim !== utcDate(now), ...profileExtras(p, now, owned) });
+  // An empty ageBracket asks the lobby for the neutral age screen (decision D4).
+  const ageBracket = readStanding(nk, userId).standing.ageBracket;
+  return JSON.stringify({ progress: p, dailyAvailable: p.lastDailyClaim !== utcDate(now), ageBracket, ...profileExtras(p, now, owned) });
 };
 
 /** RPC claim_daily: once per UTC day; streak grows on consecutive days. */

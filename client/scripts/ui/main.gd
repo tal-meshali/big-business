@@ -526,6 +526,16 @@ func _refresh_profile() -> void:
 	_apply_progress(data.get("progress", {}), bool(data.get("dailyAvailable", false)))
 	_quests_panel.apply_profile(data)
 	_on_cosmetic_changed("table", Cosmetics.table)
+	# WHY the default: a server from before the age screen sends no field,
+	# and must not ask on every visit.
+	if String(data.get("ageBracket", "unknown")).is_empty():
+		_ask_age()
+
+
+## The neutral age screen (decision D4), once, over the lobby.
+func _ask_age() -> void:
+	if find_children("*", "AgeScreen", true, false).is_empty():
+		AgeScreen.open_over(self)
 
 
 func _apply_progress(p: Dictionary, daily_available: bool) -> void:

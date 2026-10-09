@@ -125,6 +125,8 @@ func _run() -> void:
 	failures += await _plus_checks()
 	failures += await _club_checks()
 	failures += await _watch_checks()
+	failures += await _age_checks()
+	failures += await _session_checks()
 
 	if failures == 0:
 		print("SMOKE OK")
@@ -1670,4 +1672,95 @@ func _watch_checks() -> int:
 		push_error("a watcher's prompt says they are watching, got '%s'" % table._prompt.text)
 		failures += 1
 	table.queue_free()
+	return failures
+
+
+## The neutral age screen: one at a time over the lobby, three answers with
+## thumb-sized buttons, a failed save keeps it open, an answer closes it.
+func _age_checks() -> int:
+	var failures := 0
+	var lobby = load("res://scripts/ui/main.gd").new()
+	root.add_child(lobby)
+	await process_frame
+	lobby._ask_age()
+	lobby._ask_age()
+	await process_frame
+	# WHY untyped and by path: AgeScreen reaches the Net autoload through
+	# DesignerApi, which a test script cannot name at compile time.
+	var screens: Array = lobby.find_children("*", "AgeScreen", true, false)
+	if screens.size() != 1:
+		push_error("the age screen should open once, got %d" % screens.size())
+		lobby.queue_free()
+		return failures + 1
+	var screen = screens[0]
+	var labels: Array[String] = _texts(screen)
+	for answer in load("res://scripts/ui/age_screen.gd").ANSWERS:
+		if not labels.has(answer[0]):
+			push_error("the age screen should offer %s" % answer[0])
+			failures += 1
+	failures += _check_button_sizes(screen, "age screen")
+	screen.send = func(_b: String) -> Dictionary: return {}
+	screen._on_answer("13to15")
+	await process_frame
+	if not is_instance_valid(screen) or screen._status.text.is_empty() or screen._buttons[0].disabled:
+		push_error("a failed save should keep the age screen open with a message and live buttons")
+		failures += 1
+	var got: Array[String] = []
+	screen.answered.connect(func(b: String) -> void: got.append(b))
+	screen.send = func(b: String) -> Dictionary: return {"ageBracket": b, "blocker": "not_owned"}
+	screen._on_answer("13to15")
+	await process_frame
+	await process_frame
+	if got != ["13to15"] or not lobby.find_children("*", "AgeScreen", true, false).is_empty():
+		push_error("an answer should be reported and close the age screen (got %s)" % [got])
+		failures += 1
+	lobby.queue_free()
+	return failures
+
+
+## A JWT the Nakama session parser accepts, expiring at `exp`.
+func _fake_jwt(user: String, exp: int) -> String:
+	var b64 := func(d: Dictionary) -> String:
+		return Marshalls.utf8_to_base64(JSON.stringify(d)).replace("+", "-").replace("/", "_").trim_suffix("=").trim_suffix("=")
+	return "%s.%s.sig" % [b64.call({"alg": "HS256"}), b64.call({"uid": user, "usn": user, "exp": exp})]
+
+
+## The session is saved for the next launch and comes back only for the same
+## server and while its refresh token lasts; settings saves keep it.
+func _session_checks() -> int:
+	var failures := 0
+	var net: Node = root.get_node("Net")
+	var saved_session = net.session
+	var saved_client = net.client
+	var now := int(Time.get_unix_time_from_system())
+	net.session = NakamaSession.new(_fake_jwt("u-session", now + 3600), false, _fake_jwt("u-session", now + 86400))
+	if not net.session.is_valid():
+		push_error("the fake session token should parse")
+		return failures + 1
+	net._save_session()
+	net.save_settings()
+	var back = await net._restore_session()
+	if back == null or back.user_id != "u-session" or back.token != net.session.token:
+		push_error("a saved session should come back for the same server")
+		failures += 1
+	var real_host: String = net.host
+	net.host = "elsewhere.example"
+	if await net._restore_session() != null:
+		push_error("a session saved for another server must not be restored")
+		failures += 1
+	net.host = real_host
+	net.session = NakamaSession.new(_fake_jwt("u-session", now - 60), false, _fake_jwt("u-session", now - 30))
+	net._save_session()
+	if await net._restore_session() != null:
+		push_error("a session whose refresh token ran out must not be restored")
+		failures += 1
+	if await net.refresh_session():
+		push_error("refresh_session should refuse a session whose refresh token ran out")
+		failures += 1
+	var cfg := ConfigFile.new()
+	cfg.load(net.SETTINGS_PATH)
+	cfg.erase_section("session")
+	cfg.save(net.SETTINGS_PATH)
+	net.session = saved_session
+	net.client = saved_client
 	return failures

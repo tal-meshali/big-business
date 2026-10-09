@@ -85,6 +85,8 @@ func _load_settings() -> void:
 
 func save_settings() -> void:
 	var cfg := ConfigFile.new()
+	# Keeps the saved session (_save_session) and anything else already there.
+	cfg.load(SETTINGS_PATH)
 	cfg.set_value("server", "host", host)
 	cfg.set_value("server", "port", port)
 	cfg.set_value("server", "scheme", scheme)
@@ -182,6 +184,7 @@ func _open_socket() -> bool:
 	socket.received_match_presence.connect(_on_match_presence)
 	socket.closed.connect(_on_socket_closed.bind(socket))
 	_reconnect_attempts = 0
+	_save_session()
 	await _load_blocked()
 	connected.emit()
 	return true
@@ -528,11 +531,67 @@ func _try_reconnect() -> void:
 ## WHY: connect_to_server signs in with the device id, which after an Apple
 ## or Google sign-in is a different account; rejoining as that account would
 ## be refused and the seat would time out. The current session is reused
-## while valid, otherwise the remembered sign-in runs again.
+## while valid, refreshed with its refresh token once it has expired, and
+## only when both have run out does the remembered sign-in run again.
 func _reconnect_session() -> bool:
 	if session != null and not session.is_exception() and not session.would_expire_in(60):
 		return await _open_socket()
+	if await refresh_session():
+		return await _open_socket()
 	return await connect_preferred()
+
+
+## Trades the refresh token for a new session token on the same account.
+## False when there is nothing to refresh or the server refuses it.
+## WHY: RPCs refresh on their own (the Nakama client does it before a call
+## when the token is about to expire), but the socket checks the token only
+## when it opens, so a reconnect after the token's two hours must refresh
+## first or it falls back to a fresh sign-in.
+func refresh_session() -> bool:
+	if client == null or session == null or session.is_exception() or session.refresh_token.is_empty() or session.is_refresh_expired():
+		return false
+	var fresh: NakamaSession = await client.session_refresh_async(session)
+	if fresh.is_exception():
+		push_warning("session refresh failed: %s" % fresh.get_exception().message)
+		return false
+	session = fresh
+	_save_session()
+	return true
+
+
+## Keeps this session's tokens so the next launch can reopen it without
+## signing in. Only for the server it came from.
+func _save_session() -> void:
+	var cfg := ConfigFile.new()
+	cfg.load(SETTINGS_PATH)
+	cfg.set_value("session", "server", server_address())
+	cfg.set_value("session", "token", session.token)
+	cfg.set_value("session", "refresh", session.refresh_token)
+	cfg.save(SETTINGS_PATH)
+
+
+## The session saved by the last launch for the current server, refreshed
+## when its token has expired, or null when there is none or it ran out.
+## WHY: after an Apple or Google sign-in the next launch needs a provider
+## token, and a phone without one would fall back to the device id, which
+## is a different account; the saved refresh token keeps the right one for
+## its week.
+func _restore_session() -> NakamaSession:
+	var cfg := ConfigFile.new()
+	if cfg.load(SETTINGS_PATH) != OK or String(cfg.get_value("session", "server", "")) != server_address():
+		return null
+	var token := String(cfg.get_value("session", "token", ""))
+	var refresh := String(cfg.get_value("session", "refresh", ""))
+	if token.is_empty() or refresh.is_empty():
+		return null
+	var saved := NakamaSession.new(token, false, refresh)
+	if not saved.is_valid() or saved.is_refresh_expired():
+		return null
+	_make_client()
+	if not saved.would_expire_in(60):
+		return saved
+	var fresh: NakamaSession = await client.session_refresh_async(saved)
+	return null if fresh.is_exception() else fresh
 
 
 # --- Friends and invites ------------------------------------------------------
@@ -841,14 +900,20 @@ func _switch_to_social(name: String, token: String) -> bool:
 	return true
 
 
-## Connects with the remembered provider when a token provider is available
-## on this device, otherwise with the device id. The lobby calls this
-## instead of connect_to_server at launch.
+## Connects with the session saved by the last launch while it is good,
+## else with the remembered provider when a token provider is available on
+## this device, otherwise with the device id. The lobby calls this instead
+## of connect_to_server at launch.
 ## WHY create=false and the fallback: a provider sign-in that fails (server
 ## misconfigured, provider unlinked on another phone) must not leave the
 ## player offline or make a new empty account; the device id still reaches
 ## the account that holds the progress.
 func connect_preferred() -> bool:
+	var restored := await _restore_session()
+	if restored != null:
+		session = restored
+		if await _open_socket():
+			return true
 	var avail: Dictionary = SocialTokens.available()
 	var token := ""
 	if provider == "apple" and avail.get("apple", false):

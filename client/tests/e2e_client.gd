@@ -20,6 +20,26 @@ func _run() -> void:
 		return
 	print("connected as ", net.display_name, " user ", net.user_id)
 
+	# The refresh token buys a new session on the same account, and the
+	# socket opens on it (what a reconnect after two hours does).
+	var first_token: String = net.session.token
+	if not await net.refresh_session() or net.session.user_id != net.user_id or net.session.token.is_empty():
+		print("E2E CLIENT FAILED: session refresh (token changed: %s)" % [net.session.token != first_token])
+		quit(1)
+		return
+	net._closing = true
+	net.socket.close()
+	net._closing = false
+	if not await net._reconnect_session():
+		print("E2E CLIENT FAILED: reopen the socket on the refreshed session")
+		quit(1)
+		return
+	var restored = await net._restore_session()
+	if restored == null or restored.user_id != net.user_id:
+		print("E2E CLIENT FAILED: the saved session should come back for this server")
+		quit(1)
+		return
+
 	# Private room through the real client: creating joins with the room code
 	# (the server refuses a private join without it); leave and come back by code.
 	var lobby_seen := {"code": ""}

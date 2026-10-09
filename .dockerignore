@@ -1,0 +1,3 @@
+# Only server/build/index.js goes into the image.
+*
+!server/build/index.js

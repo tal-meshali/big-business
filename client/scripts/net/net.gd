@@ -72,6 +72,8 @@ func _ready() -> void:
 
 
 func _load_settings() -> void:
+	if not AppInfo.SERVER_ADDRESS.is_empty():
+		set_server_address(AppInfo.SERVER_ADDRESS)
 	var cfg := ConfigFile.new()
 	if cfg.load(SETTINGS_PATH) == OK:
 		host = cfg.get_value("server", "host", host)
@@ -156,7 +158,10 @@ func connect_to_server() -> bool:
 
 ## Creates the client for the current host settings.
 func _make_client() -> void:
-	client = Nakama.create_client(server_key, host, port, scheme, Nakama.DEFAULT_TIMEOUT, NakamaLogger.LOG_LEVEL.WARNING)
+	var key := server_key
+	if scheme == "https" and not AppInfo.SERVER_KEY.is_empty():
+		key = AppInfo.SERVER_KEY
+	client = Nakama.create_client(key, host, port, scheme, Nakama.DEFAULT_TIMEOUT, NakamaLogger.LOG_LEVEL.WARNING)
 
 
 ## The username to create a new account with, or null to let Nakama pick.

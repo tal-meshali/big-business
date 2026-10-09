@@ -8,6 +8,13 @@ const SUPPORT_EMAIL := ""
 ## Public page with the privacy policy.
 const PRIVACY_URL := ""
 
+## The deployed server (docs/deploy.md), for builds handed to players:
+## the address the lobby starts with until the player types another one,
+## and its NAKAMA_SERVER_KEY from .env (embedded in the app, not a secret).
+## Empty keeps the local default, 127.0.0.1 with "defaultkey".
+const SERVER_ADDRESS := ""
+const SERVER_KEY := ""
+
 
 static func version() -> String:
 	return String(ProjectSettings.get_setting("application/config/version", "dev"))

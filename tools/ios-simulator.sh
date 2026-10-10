@@ -9,13 +9,11 @@ set -eu
 # everything under build/ios for libraries, so simulator files there break the
 # phone build.
 cd "$(dirname "$0")/.."
-godot=${GODOT:-$HOME/Applications/Godot.app/Contents/MacOS/Godot}
 sim="BB iPhone 16 (iOS 18)"
-mkdir -p build/ios
-"$godot" --headless --path client --export-debug "iOS" ../build/ios/BigBusiness.ipa
+tools/ios-export.sh
 cd build/ios
 xcodebuild -quiet -project BigBusiness.xcodeproj -scheme BigBusiness -configuration Debug \
-  -sdk iphonesimulator ARCHS=x86_64 ONLY_ACTIVE_ARCH=NO -derivedDataPath ../ios-simulator CODE_SIGNING_ALLOWED=NO build
+  -sdk iphonesimulator ONLY_ACTIVE_ARCH=NO -derivedDataPath ../ios-simulator CODE_SIGNING_ALLOWED=NO build
 if ! xcrun simctl list devices | grep -q "$sim"; then
   xcrun simctl create "$sim" "iPhone 16" com.apple.CoreSimulator.SimRuntime.iOS-18-6
 fi

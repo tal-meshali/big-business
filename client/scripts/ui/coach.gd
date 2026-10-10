@@ -349,7 +349,9 @@ func on_view(view: Dictionary) -> void:
 			_fire("first_take")
 		if int(view.get("supplyCount", 99)) <= 3:
 			_fire("endgame_near", [])
-		var my_tokens: Array = seats[_my_seat].get("tokens", []) if _my_seat < seats.size() else []
+		var my_tokens: Array[int] = []
+		if _my_seat < seats.size():
+			my_tokens = Companies.tokens_of(seats[_my_seat])
 		for slot in market:
 			var company := int(slot.get("card", {}).get("company", -1))
 			if my_tokens.has(company):

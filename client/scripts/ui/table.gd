@@ -1026,7 +1026,7 @@ static func _stacks_of(seat: Dictionary) -> Array:
 	var counts := [0, 0, 0, 0, 0, 0]
 	for card in seat.get("portfolio", []):
 		counts[int(card.get("company", 0))] += 1
-	var tokens: Array = seat.get("tokens", [])
+	var tokens := Companies.tokens_of(seat)
 	var out := []
 	for company in 6:
 		if counts[company] > 0:
@@ -1115,7 +1115,7 @@ func _render_portfolio(seats: Array) -> void:
 			cv.card_released.connect(_on_card_released)
 			_portfolio_layer.add_child(cv)
 			_place_on_felt(cv, Vector2((gi - (groups.size() - 1) / 2.0) * 46.0, 92.0 + j * 10.0), PORTFOLIO_CARD)
-		if seats[_my_seat].get("tokens", []).has(company):
+		if Companies.tokens_of(seats[_my_seat]).has(company):
 			# On the top-right corner of the nearest share in the stack.
 			var p := Vector2((gi - (groups.size() - 1) / 2.0) * 46.0 + 16.0, 92.0 + (ids.size() - 1) * 10.0 - 22.0)
 			var chip := Control.new()

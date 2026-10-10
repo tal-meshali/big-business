@@ -174,7 +174,7 @@ func _pip_list() -> Array:
 	var counts := [0, 0, 0, 0, 0, 0]
 	for card in data.get("portfolio", []):
 		counts[int(card.get("company", 0))] += 1
-	var tokens: Array = data.get("tokens", [])
+	var tokens := Companies.tokens_of(data)
 	var out := []
 	for company in 6:
 		if counts[company] > 0 or tokens.has(company):

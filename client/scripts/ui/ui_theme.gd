@@ -86,6 +86,22 @@ static func get_theme() -> Theme:
 
 ## Design points to pixels for a viewport: the 390 dp artboard fills the
 ## width, unless the screen is too short for its 844 dp height.
+## Space the phone's notch or Dynamic Island (top) and home indicator
+## (bottom) take from the screen, in canvas units; zero off phones.
+## WHY: desktop safe areas are relative to the monitor, not the window.
+static func safe_insets(ci: CanvasItem) -> Vector2:
+	if not OS.has_feature("mobile"):
+		return Vector2.ZERO
+	var win := ci.get_window()
+	var safe := DisplayServer.get_display_safe_area()
+	if win == null or win.size.y <= 0 or safe.size.y <= 0:
+		return Vector2.ZERO
+	var k := ci.get_viewport_rect().size.y / float(win.size.y)
+	var top := maxf(0.0, float(safe.position.y - win.position.y)) * k
+	var bottom := maxf(0.0, float(win.position.y + win.size.y - safe.end.y)) * k
+	return Vector2(top, bottom)
+
+
 static func layout_scale(viewport: Vector2) -> float:
 	if viewport.x < 200 or viewport.y < 200:
 		viewport = Vector2(720, 1280)

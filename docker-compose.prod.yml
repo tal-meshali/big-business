@@ -27,7 +27,7 @@ services:
         --name bigbiz
         --database.address postgres:${POSTGRES_PASSWORD}@postgres:5432/nakama
         --runtime.js_entrypoint index.js
-        --runtime.js_read_only_globals true
+        --runtime.js_read_only_globals=true
         --socket.server_key ${NAKAMA_SERVER_KEY}
         --session.encryption_key ${NAKAMA_SESSION_KEY}
         --session.refresh_encryption_key ${NAKAMA_REFRESH_KEY}

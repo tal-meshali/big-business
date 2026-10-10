@@ -24,11 +24,11 @@ func _run() -> void:
 		"seats": [
 			{"id": "a", "name": "You", "isBot": false, "connected": true, "handCount": 3,
 			 "hand": [{"id": 1, "company": 0}, {"id": 2, "company": 3}, {"id": 3, "company": 5}],
-			 "portfolio": [{"id": 9, "company": 5}], "bronze": 9, "gold": 0, "tokens": [5]},
+			 "portfolio": [{"id": 9, "company": 5}], "bronze": 9, "gold": 0, "tokens": [5.0]},
 			{"id": "b", "name": "Broker Bo", "isBot": true, "connected": false, "handCount": 3,
 			 "portfolio": [], "bronze": 10, "gold": 0, "tokens": []},
 			{"id": "c", "name": "Analyst Avi", "isBot": true, "connected": false, "handCount": 3,
-			 "portfolio": [{"id": 7, "company": 2}], "bronze": 11, "gold": 0, "tokens": [2]},
+			 "portfolio": [{"id": 7, "company": 2}], "bronze": 11, "gold": 0, "tokens": [2.0]},
 		],
 		"market": [{"card": {"id": 20, "company": 1}, "coins": 2}, {"card": {"id": 21, "company": 5}, "coins": 0}],
 		"supplyCount": 20, "removedCount": 5, "active": 0, "phase": "take", "turn": 4,
@@ -203,7 +203,8 @@ func _coach_checks() -> int:
 	v["phase"] = "take"
 	v["active"] = 0
 	v["market"] = [{"card": {"id": 20, "company": 1}, "coins": 2}, {"card": {"id": 21, "company": 5}, "coins": 0}]
-	v["seats"][0]["tokens"] = [5]
+	# Floats, as JSON delivers them from the server.
+	v["seats"][0]["tokens"] = [5.0]
 	v["supplyCount"] = 2
 	v["legal"] = [{"type": "take_supply"}, {"type": "take_market", "cardId": 20}]
 	table._on_view(v)
@@ -213,6 +214,10 @@ func _coach_checks() -> int:
 		if not table._animating and not table._pending_events.size():
 			break
 	await process_frame
+	var held := {"portfolio": [{"id": 30, "company": 5}], "tokens": [5.0]}
+	if not table._stacks_of(held).has([5, 1, true]):
+		push_error("a float token from JSON should mark its stack: %s" % [table._stacks_of(held)])
+		failures += 1
 	for id in ["endgame_near", "token_blocks", "take_with_coins"]:
 		if not table.coach.seen.has(id):
 			push_error("%s should fire, seen %s" % [id, table.coach.seen.keys()])

@@ -3,12 +3,12 @@
 One small VPS runs everything until well past 10k monthly players. Steps:
 
 1. **Provision** a 2 vCPU / 4 GB Linux VPS with Docker installed, and point a DNS A record for your domain (for example `play.example.com`) and `console.play.example.com` at it.
-2. **Build the runtime** on your machine: `cd server && npm run check`. Commit nothing from `build/`; the Dockerfile copies it at image build time.
-3. **Copy** the `server/` folder to the VPS (or clone the repo there and run `npm ci && npm run build`).
-4. **Configure**: `cp .env.example .env` and fill every value with long random strings. `NAKAMA_SERVER_KEY` is the key the Godot client uses (set it in `client/scripts/net/net.gd` or the in-app host field later).
-5. **Start**: `docker compose -f docker-compose.prod.yml up -d --build`. Caddy obtains TLS certificates automatically. The client connects with scheme `https` on port 443, and the socket uses `wss`.
+2. **Clone** the repo on the VPS and build the runtime there: `cd server && npm ci && npm run build` (Node 22). The root `Dockerfile` copies `server/build/index.js` into the image; commit nothing from `build/`.
+3. **Configure**: from the repo root, `tools/make-prod-env.sh play.example.com > .env`. It fills every secret with `openssl rand -hex 32` and leaves the store keys empty. `.env` is git-ignored; keep a copy in a password manager. `NAKAMA_SERVER_KEY` is the key the Godot client uses (set it in `client/scripts/net/net.gd` or the in-app host field later).
+4. **Start**: from the repo root, `docker compose -f docker-compose.prod.yml up -d --build`. Caddy obtains TLS certificates automatically once the DNS record points at the VPS. The client connects with scheme `https` on port 443, and the socket uses `wss`.
+5. **Check the keys took**: `docker compose -f docker-compose.prod.yml logs nakama | grep "insecure default"` must print nothing. A line there means Nakama fell back to a default key (CI's "Production compose stack" job checks the same).
 6. **Verify**: `curl https://play.example.com/` returns Nakama's status. The console is not published; open it through an SSH tunnel (`ssh -N -L 7351:127.0.0.1:7351 user@play.example.com`, then `http://127.0.0.1:7351`).
-7. **Update**: rebuild the bundle, then `docker compose -f docker-compose.prod.yml up -d --build nakama`. Matches in progress are terminated on restart; deploy during quiet hours until rolling restarts are set up.
+7. **Update**: `git pull`, `cd server && npm ci && npm run build`, then from the repo root `docker compose -f docker-compose.prod.yml up -d --build nakama`. Matches in progress are terminated on restart; deploy during quiet hours until rolling restarts are set up.
 
 ## Social sign-in
 

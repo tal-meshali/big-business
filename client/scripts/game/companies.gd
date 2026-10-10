@@ -39,6 +39,15 @@ static func get_company(id: int) -> Dictionary:
 	return DATA[id]
 
 
+## The companies whose regulator token a seat holds, as ints.
+## WHY: JSON numbers arrive as floats, and Array.has(int) never matches a float.
+static func tokens_of(seat: Dictionary) -> Array[int]:
+	var out: Array[int] = []
+	for t in seat.get("tokens", []):
+		out.append(int(t))
+	return out
+
+
 static func color_of(id: int) -> Color:
 	return DATA[id]["color"]
 

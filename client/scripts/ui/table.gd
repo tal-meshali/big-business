@@ -104,6 +104,8 @@ var _peek: CardView = null
 var _action_note := ""
 ## Where each opponent's kept shares lie on the felt (dp), by seat.
 var _portfolio_spots: Dictionary = {}
+## Notch / Dynamic Island (x) and home indicator (y) insets, canvas units.
+var _insets := Vector2.ZERO
 
 
 func _ready() -> void:
@@ -146,6 +148,7 @@ func _build_layout() -> void:
 	set_anchors_preset(Control.PRESET_FULL_RECT)
 	theme = UiTheme.get_theme()
 	_s = UiTheme.layout_scale(get_viewport_rect().size)
+	_insets = UiTheme.safe_insets(self)
 	_hand_scale = HAND_CARD * _s * 100.0 / CardView.W
 	_room = UiTheme.room_background(Cosmetics.table_bg_color(), Vector2(0.5, 0.42))
 	add_child(_room)
@@ -223,7 +226,7 @@ func _build_top_bar() -> void:
 	top.set_anchors_and_offsets_preset(Control.PRESET_TOP_WIDE)
 	top.offset_left = _px(12)
 	top.offset_right = -_px(12)
-	top.offset_top = _px(8)
+	top.offset_top = _px(8) + _insets.x
 	top.custom_minimum_size = Vector2(0, _px(48))
 	top.add_theme_constant_override("separation", _px(10))
 	add_child(top)
@@ -266,7 +269,7 @@ func _build_bottom_bar() -> void:
 	style.content_margin_left = _px(14)
 	style.content_margin_right = _px(14)
 	style.content_margin_top = _px(8)
-	style.content_margin_bottom = _px(14)
+	style.content_margin_bottom = _px(14) + _insets.y
 	style.shadow_color = Color(0, 0, 0, 0.3)
 	style.shadow_size = _px(14)
 	_bar.add_theme_stylebox_override("panel", style)
@@ -367,7 +370,7 @@ func _layout() -> void:
 	var screen := get_viewport_rect().size
 	if screen.x < 200:
 		screen = Vector2(720, 1280)
-	var top := 60.0 * _s
+	var top := 60.0 * _s + _insets.x
 	var bar_top := screen.y - maxf(_bar.size.y, _bar.get_combined_minimum_size().y)
 	_board.origin = Vector2(screen.x / 2.0, (top + bar_top) / 2.0 + 18.0 * _s)
 	_board.queue_redraw()
@@ -384,7 +387,7 @@ func _build_get_ready() -> void:
 	_ready_overlay = ColorRect.new()
 	_ready_overlay.color = Color(0, 0, 0, 0.45)
 	_ready_overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	_ready_overlay.offset_top = _px(60)
+	_ready_overlay.offset_top = _px(60) + _insets.x
 	_ready_overlay.visible = false
 	add_child(_ready_overlay)
 	var center := CenterContainer.new()
@@ -1026,7 +1029,7 @@ static func _stacks_of(seat: Dictionary) -> Array:
 	var counts := [0, 0, 0, 0, 0, 0]
 	for card in seat.get("portfolio", []):
 		counts[int(card.get("company", 0))] += 1
-	var tokens: Array = seat.get("tokens", [])
+	var tokens := Companies.tokens_of(seat)
 	var out := []
 	for company in 6:
 		if counts[company] > 0:
@@ -1115,7 +1118,7 @@ func _render_portfolio(seats: Array) -> void:
 			cv.card_released.connect(_on_card_released)
 			_portfolio_layer.add_child(cv)
 			_place_on_felt(cv, Vector2((gi - (groups.size() - 1) / 2.0) * 46.0, 92.0 + j * 10.0), PORTFOLIO_CARD)
-		if seats[_my_seat].get("tokens", []).has(company):
+		if Companies.tokens_of(seats[_my_seat]).has(company):
 			# On the top-right corner of the nearest share in the stack.
 			var p := Vector2((gi - (groups.size() - 1) / 2.0) * 46.0 + 16.0, 92.0 + (ids.size() - 1) * 10.0 - 22.0)
 			var chip := Control.new()

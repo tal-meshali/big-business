@@ -88,8 +88,9 @@ func _build() -> void:
 	margins.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	margins.add_theme_constant_override("margin_left", _px(18))
 	margins.add_theme_constant_override("margin_right", _px(18))
-	margins.add_theme_constant_override("margin_top", _px(40))
-	margins.add_theme_constant_override("margin_bottom", _px(28))
+	var insets := UiTheme.safe_insets(self)
+	margins.add_theme_constant_override("margin_top", maxi(_px(40), int(insets.x) + _px(8)))
+	margins.add_theme_constant_override("margin_bottom", _px(28) + int(insets.y))
 	scroll.add_child(margins)
 	var box := VBoxContainer.new()
 	box.add_theme_constant_override("separation", _px(12))

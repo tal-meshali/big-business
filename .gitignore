@@ -2,3 +2,4 @@ node_modules/
 build/
 graphify-out/
 .env
+.env.fly

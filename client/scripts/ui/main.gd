@@ -1,9 +1,11 @@
 extends Control
-## Start screen, after the "3D table" design: a little table with the six
-## companies' shares fanned over it, the title card, your portfolio (name,
-## level, XP, daily bonus, season standings), Play now, the tutorial and
-## private rooms. Below the fold: friends, quests and card backs, the shop,
-## rules, your account and the server address.
+## Start screen, after the "3D table" design, fitted to one phone screen:
+## a little table with the six companies' shares fanned over it (it shrinks
+## to the room left), the title card, your portfolio (name, level, XP,
+## daily bonus, season standings), Play now, bots, the tutorial and private
+## rooms, and a dock for friends, quests and card backs, the shop, clubs and
+## More (rules, your account, the server address). Typing happens in sheets
+## or fields that the lobby lifts above the on-screen keyboard.
 
 var _host_edit: LineEdit
 var _name_edit: LineEdit
@@ -33,6 +35,15 @@ var _quests_panel: QuestsPanel
 var _shop_button: Button
 var _shop_panel: ShopPanel
 var _clubs_panel: ClubsPanel
+## Play now and the other ways in; swapped for `_room_box` while waiting.
+var _play_box: VBoxContainer
+## A room or quick-play lobby: its code, who is in, ready, start now, leave.
+var _room_box: VBoxContainer
+var _join_sheet: Control
+var _friends_sheet: Control
+var _more_sheet: Control
+## Notch / Dynamic Island (x) and home indicator (y), canvas units.
+var _insets := Vector2.ZERO
 ## Games on the profile; -1 until the profile has loaded.
 var _games_played := -1
 ## The little table on top; its `color` is the picked felt.
@@ -78,26 +89,30 @@ func _build() -> void:
 	_room = UiTheme.room_background(Cosmetics.table_bg_color(), Vector2(0.5, 0.22))
 	add_child(_room)
 
+	_insets = UiTheme.safe_insets(self)
+
+	# WHY: the layout is sized to fit a phone screen; the scroll only
+	# matters on very short screens (and the keyboard lift handles typing).
 	var scroll := ScrollContainer.new()
 	scroll.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	# Phones scroll by dragging; the bar would only cover the cards.
 	scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_SHOW_NEVER
 	add_child(scroll)
 	var margins := MarginContainer.new()
 	margins.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	margins.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	margins.add_theme_constant_override("margin_left", _px(18))
 	margins.add_theme_constant_override("margin_right", _px(18))
-	var insets := UiTheme.safe_insets(self)
-	margins.add_theme_constant_override("margin_top", maxi(_px(40), int(insets.x) + _px(8)))
-	margins.add_theme_constant_override("margin_bottom", _px(28) + int(insets.y))
+	margins.add_theme_constant_override("margin_top", maxi(_px(16), int(_insets.x) + _px(4)))
+	margins.add_theme_constant_override("margin_bottom", _px(12) + int(_insets.y))
 	scroll.add_child(margins)
 	var box := VBoxContainer.new()
-	box.add_theme_constant_override("separation", _px(12))
+	box.add_theme_constant_override("separation", _px(10))
 	margins.add_child(box)
 
 	_felt = StartFan.new()
 	_felt.s = _s
+	_felt.fit = true
 	_felt.color = Cosmetics.table_bg_color()
 	_felt.edge_color = Cosmetics.table_edge_color()
 	box.add_child(_felt)
@@ -107,10 +122,14 @@ func _build() -> void:
 	_status.add_theme_font_override("font", UiTheme.body_font())
 	_status.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_status.max_lines_visible = 2
 	box.add_child(_status)
 
 	box.add_child(_portfolio_card())
 
+	_play_box = VBoxContainer.new()
+	_play_box.add_theme_constant_override("separation", _px(10))
+	box.add_child(_play_box)
 	var play := UiTheme.button("Play now", _px(20), _px(58), "big")
 	play.icon = UiTheme.play_icon(_px(20))
 	play.add_theme_constant_override("h_separation", _px(8))
@@ -118,69 +137,19 @@ func _build() -> void:
 	play.pressed.connect(_on_quick_play)
 	play.disabled = true
 	_buttons.append(play)
-	box.add_child(play)
-	var bots_row := _row(box)
-	_add_button(bots_row, "Play vs bots now", _on_play_bots)
-	var row := _row(box)
+	_play_box.add_child(play)
+	var row := _row(_play_box)
+	_add_button(row, "Play vs bots", _on_play_bots)
 	_add_button(row, "How to play", _on_tutorial)
-	_add_button(row, "Create private room", _on_create_room)
+	var rooms := _row(_play_box)
+	_add_button(rooms, "Create room", _on_create_room)
+	_add_button(rooms, "Join with code", _open_join_sheet)
 
-	# Join by code, or once you made a room, its code to share.
-	_join_row = _row(box)
-	_code_edit = LineEdit.new()
-	_code_edit.placeholder_text = "Room code"
-	_code_edit.max_length = 6
-	_code_edit.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_code_edit.custom_minimum_size = Vector2(0, _px(44))
-	_code_edit.add_theme_font_override("font", UiTheme.display_font())
-	_code_edit.add_theme_font_size_override("font_size", _px(16))
-	_code_edit.add_theme_constant_override("minimum_character_width", 4)
-	_code_edit.text_changed.connect(func(t: String) -> void:
-		var caret := _code_edit.caret_column
-		_code_edit.text = t.to_upper()
-		_code_edit.caret_column = caret)
-	_join_row.add_child(_code_edit)
-	var join := UiTheme.button("Join", _px(14), _px(44))
-	join.custom_minimum_size.x = _px(88)
-	join.pressed.connect(_on_join_room)
-	join.disabled = true
-	_join_row.add_child(join)
-	_buttons.append(join)
-	_room_row = _row(box)
-	_room_row.visible = false
-	_room_label = UiTheme.label("", _px(13), UiTheme.CREAM)
-	_room_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_room_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	_room_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_room_label.custom_minimum_size = Vector2(0, _px(44))
-	var dashed := StyleBoxFlat.new()
-	dashed.draw_center = false
-	dashed.border_color = UiTheme.CREAM
-	dashed.set_border_width_all(2)
-	dashed.set_corner_radius_all(_px(10))
-	_room_label.add_theme_stylebox_override("normal", dashed)
-	_room_row.add_child(_room_label)
-	_copy_button = UiTheme.button("Copy", _px(14), _px(44))
-	_copy_button.custom_minimum_size.x = _px(88)
-	_copy_button.pressed.connect(func() -> void:
-		DisplayServer.clipboard_set(_room_code)
-		_copy_button.text = "Copied!")
-	_room_row.add_child(_copy_button)
-
-	_lobby_label = UiTheme.label("", _px(14), UiTheme.CREAM)
-	_lobby_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_lobby_label.visible = false
-	box.add_child(_lobby_label)
-	_ready_button = UiTheme.button("I'm ready", _px(16), _px(48), "primary")
-	_ready_button.visible = false
-	_ready_button.pressed.connect(_on_ready_pressed)
-	box.add_child(_ready_button)
-	_start_now_button = UiTheme.button("Start now with bots", _px(16), _px(48))
-	_start_now_button.visible = false
-	_start_now_button.pressed.connect(_on_start_now_pressed)
-	box.add_child(_start_now_button)
-
-	_build_more(box)
+	_build_room_box(box)
+	_build_dock(box)
+	_build_join_sheet()
+	_build_friends_sheet()
+	_build_more_sheet()
 	_build_season_sheet()
 
 	# Quests overlay above the lobby, toggled by its button.
@@ -347,51 +316,208 @@ func _portfolio_card() -> Control:
 	return card
 
 
-## Below the fold: friends, quests and card backs, the shop, rules, your
-## account and the server address.
-func _build_more(box: VBoxContainer) -> void:
-	var more := UiTheme.label("MORE", _px(11), Color(UiTheme.CREAM, 0.75), true)
-	box.add_child(more)
-	var row := _row(box)
-	var friends_button := UiTheme.button("Friends", _px(14), _px(44))
-	friends_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	friends_button.pressed.connect(func() -> void: _friends_panel.visible = not _friends_panel.visible)
-	row.add_child(friends_button)
-	_quests_button = UiTheme.button("Quests & card backs", _px(14), _px(44))
-	_quests_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+## While waiting in a room or a quick-play lobby, this replaces the play
+## buttons: the code to share, who is in, ready, start now and leave.
+func _build_room_box(box: VBoxContainer) -> void:
+	_room_box = VBoxContainer.new()
+	_room_box.add_theme_constant_override("separation", _px(8))
+	_room_box.visible = false
+	box.add_child(_room_box)
+	_room_row = _row(_room_box)
+	_room_row.visible = false
+	_room_label = UiTheme.label("", _px(13), UiTheme.CREAM)
+	_room_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_room_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_room_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_room_label.custom_minimum_size = Vector2(0, _px(44))
+	var dashed := StyleBoxFlat.new()
+	dashed.draw_center = false
+	dashed.border_color = UiTheme.CREAM
+	dashed.set_border_width_all(2)
+	dashed.set_corner_radius_all(_px(10))
+	_room_label.add_theme_stylebox_override("normal", dashed)
+	_room_row.add_child(_room_label)
+	_copy_button = UiTheme.button("Copy", _px(14), _px(44))
+	_copy_button.custom_minimum_size.x = _px(88)
+	_copy_button.pressed.connect(func() -> void:
+		DisplayServer.clipboard_set(_room_code)
+		_copy_button.text = "Copied!")
+	_room_row.add_child(_copy_button)
+
+	_lobby_label = UiTheme.label("", _px(14), UiTheme.CREAM)
+	_lobby_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_lobby_label.visible = false
+	_room_box.add_child(_lobby_label)
+	var buttons := _row(_room_box)
+	_ready_button = UiTheme.button("I'm ready", _px(16), _px(48), "primary")
+	_ready_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_ready_button.visible = false
+	_ready_button.pressed.connect(_on_ready_pressed)
+	buttons.add_child(_ready_button)
+	_start_now_button = UiTheme.button("Start with bots", _px(16), _px(48))
+	_start_now_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_start_now_button.visible = false
+	_start_now_button.pressed.connect(_on_start_now_pressed)
+	buttons.add_child(_start_now_button)
+	var leave := UiTheme.button("Leave", _px(14), _px(48), "ghost")
+	leave.pressed.connect(_on_leave_room)
+	buttons.add_child(leave)
+
+
+## One row along the bottom: friends, quests and card backs, the shop,
+## clubs, and More (rules, account, server).
+func _build_dock(box: VBoxContainer) -> void:
+	var dock := _row(box)
+	dock.add_theme_constant_override("separation", _px(6))
+	var friends_button := _dock_button(dock, "Friends")
+	friends_button.pressed.connect(func() -> void: _friends_sheet.visible = true)
+	_quests_button = _dock_button(dock, "Quests")
+	_quests_button.tooltip_text = "Quests & card backs"
 	_quests_button.pressed.connect(_on_toggle_quests)
-	row.add_child(_quests_button)
-	var row2 := _row(box)
-	_shop_button = UiTheme.button("Shop", _px(14), _px(44))
-	_shop_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_shop_button = _dock_button(dock, "Shop")
 	_shop_button.visible = RemoteConfig.shop_enabled
 	_shop_button.pressed.connect(_on_open_shop)
-	row2.add_child(_shop_button)
-	var rules := UiTheme.button("Rules and help", _px(14), _px(44))
-	rules.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	rules.pressed.connect(_on_help)
-	row2.add_child(rules)
-	var row3 := _row(box)
-	var clubs_button := UiTheme.button("Clubs", _px(14), _px(44))
-	clubs_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var clubs_button := _dock_button(dock, "Clubs")
 	clubs_button.pressed.connect(_on_open_clubs)
-	row3.add_child(clubs_button)
+	var more := _dock_button(dock, "More")
+	more.pressed.connect(func() -> void: _more_sheet.visible = true)
 
+
+func _dock_button(parent: Control, text: String) -> Button:
+	var b := UiTheme.button(text, _px(12), _px(44))
+	b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	b.clip_text = true
+	parent.add_child(b)
+	return b
+
+
+## A deed sheet rising from the bottom over a dimmed lobby; a tap outside
+## closes it. Returns {"root": the overlay, "body": a VBox for content}.
+func _sheet(color: Color, title: String, title_color := Color.WHITE) -> Dictionary:
+	var shade := ColorRect.new()
+	shade.color = Color(0.04, 0.09, 0.06, 0.6)
+	shade.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	shade.visible = false
+	shade.gui_input.connect(func(e: InputEvent) -> void:
+		if e is InputEventMouseButton and e.pressed:
+			shade.visible = false)
+	add_child(shade)
+	var deed := UiTheme.deed_panel(color, title, title_color)
+	deed["title"].add_theme_font_size_override("font_size", _px(18))
+	var sheet: PanelContainer = deed["panel"]
+	sheet.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_WIDE)
+	sheet.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	sheet.offset_left = _px(16)
+	sheet.offset_right = -_px(16)
+	sheet.offset_bottom = -_px(16) - _insets.y
+	shade.add_child(sheet)
+	var body := VBoxContainer.new()
+	body.add_theme_constant_override("separation", _px(12))
+	deed["body"].add_child(body)
+	return {"root": shade, "body": body}
+
+
+func _close_button(sheet: Control) -> Button:
+	var close := UiTheme.button("Close", _px(14), _px(44), "ghost")
+	close.pressed.connect(func() -> void: sheet.visible = false)
+	return close
+
+
+## Join by code: a sheet, so the field sits low and the lobby lifts it
+## above the keyboard.
+func _build_join_sheet() -> void:
+	var sheet := _sheet(Companies.CHEST, "Join a private room")
+	_join_sheet = sheet["root"]
+	var body: VBoxContainer = sheet["body"]
+	var hint := UiTheme.label("Type the 6-letter code your friend shared.", _px(14))
+	hint.add_theme_font_override("font", UiTheme.body_font())
+	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	body.add_child(hint)
+	_join_row = _row(body)
+	_code_edit = LineEdit.new()
+	_code_edit.placeholder_text = "Room code"
+	_code_edit.max_length = 6
+	_code_edit.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_code_edit.custom_minimum_size = Vector2(0, _px(48))
+	_code_edit.add_theme_font_override("font", UiTheme.display_font())
+	_code_edit.add_theme_font_size_override("font_size", _px(18))
+	_code_edit.add_theme_constant_override("minimum_character_width", 4)
+	_code_edit.virtual_keyboard_type = LineEdit.KEYBOARD_TYPE_DEFAULT
+	_code_edit.text_changed.connect(func(t: String) -> void:
+		var caret := _code_edit.caret_column
+		_code_edit.text = t.to_upper()
+		_code_edit.caret_column = caret)
+	_code_edit.text_submitted.connect(func(_t: String) -> void: _on_join_room())
+	_join_row.add_child(_code_edit)
+	var join := UiTheme.button("Join", _px(14), _px(48), "primary")
+	join.custom_minimum_size.x = _px(88)
+	join.pressed.connect(_on_join_room)
+	join.disabled = true
+	_join_row.add_child(join)
+	_buttons.append(join)
+	body.add_child(_close_button(_join_sheet))
+
+
+func _open_join_sheet() -> void:
+	_join_sheet.visible = true
+	_code_edit.grab_focus()
+
+
+## Friends in a sheet that fills the screen between the safe insets.
+func _build_friends_sheet() -> void:
+	var shade := ColorRect.new()
+	shade.color = Color(0.04, 0.09, 0.06, 0.6)
+	shade.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	shade.visible = false
+	add_child(shade)
+	_friends_sheet = shade
+	var column := VBoxContainer.new()
+	column.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	column.offset_left = _px(12)
+	column.offset_right = -_px(12)
+	column.offset_top = _insets.x + _px(12)
+	column.offset_bottom = -_insets.y - _px(12)
+	column.add_theme_constant_override("separation", _px(10))
+	shade.add_child(column)
+	var scroll := ScrollContainer.new()
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	column.add_child(scroll)
 	_friends_panel = FriendsPanel.new()
-	_friends_panel.visible = false
-	_friends_panel.join_requested.connect(_on_invite_join)
+	_friends_panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_friends_panel.join_requested.connect(func(code: String) -> void:
+		_friends_sheet.visible = false
+		_on_invite_join(code))
 	_friends_panel.gifts_collected.connect(_refresh_profile)
 	# Watching left any lobby we were in; the table opens with the first view.
 	_friends_panel.watch_started.connect(func() -> void:
 		_in_lobby = false
 		_room_code = ""
 		_friends_panel.room_code = "")
-	box.add_child(_friends_panel)
+	scroll.add_child(_friends_panel)
+	var close := UiTheme.button("Close", _px(14), _px(48), "primary")
+	close.pressed.connect(func() -> void: shade.visible = false)
+	column.add_child(close)
+	# FriendsPanel shows and hides itself with the sheet.
+	shade.visibility_changed.connect(func() -> void: _friends_panel.visible = shade.visible)
+	_friends_panel.visible = false
+
+
+## More: rules and help, your account (guest or linked) and the server.
+func _build_more_sheet() -> void:
+	var sheet := _sheet(Companies.INK, "More")
+	_more_sheet = sheet["root"]
+	var body: VBoxContainer = sheet["body"]
+	var rules := UiTheme.button("Rules and help", _px(14), _px(48))
+	rules.pressed.connect(func() -> void:
+		_more_sheet.visible = false
+		_on_help())
+	body.add_child(rules)
 
 	# Account row: guest or linked providers, with link buttons where a
 	# token provider exists (iOS / Android with the plugin installed).
-	var account_row := _row(box)
-	_account_label = UiTheme.label(Net.describe_account_links({}), _px(12), UiTheme.CREAM)
+	var account_row := _row(body)
+	_account_label = UiTheme.label(Net.describe_account_links({}), _px(13))
 	_account_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_account_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	_account_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -405,17 +531,36 @@ func _build_more(box: VBoxContainer) -> void:
 	_link_google_button.pressed.connect(_on_link_google)
 	account_row.add_child(_link_google_button)
 
-	var server_row := _row(box)
+	body.add_child(UiTheme.label("SERVER", _px(11), UiTheme.MUTED, true))
+	var server_row := _row(body)
 	_host_edit = LineEdit.new()
-	_host_edit.placeholder_text = "server (127.0.0.1 or https://your.domain)"
+	_host_edit.placeholder_text = "127.0.0.1 or https://your.domain"
 	_host_edit.text = Net.server_address()
-	_host_edit.custom_minimum_size = Vector2(0, maxf(48, _px(40)))
+	_host_edit.custom_minimum_size = Vector2(0, maxf(48, _px(44)))
 	_host_edit.add_theme_font_size_override("font_size", _px(13))
 	_host_edit.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_host_edit.virtual_keyboard_type = LineEdit.KEYBOARD_TYPE_URL
+	_host_edit.text_submitted.connect(func(_t: String) -> void: _on_connect_pressed())
 	server_row.add_child(_host_edit)
-	var connect_button := UiTheme.button("Connect", _px(13), _px(40), "ghost")
+	var connect_button := UiTheme.button("Connect", _px(13), _px(44), "primary")
 	connect_button.pressed.connect(_on_connect_pressed)
 	server_row.add_child(connect_button)
+	body.add_child(_close_button(_more_sheet))
+
+
+## Lifts the lobby so a focused text field stays above the on-screen
+## keyboard (phones report its height; desktops report 0).
+func _process(_delta: float) -> void:
+	var lift := 0.0
+	var kb := DisplayServer.virtual_keyboard_get_height()
+	var focus := get_viewport().gui_get_focus_owner()
+	if kb > 0 and focus is LineEdit and is_ancestor_of(focus) and get_window().size.y > 0:
+		var screen_h := get_viewport_rect().size.y
+		var keyboard_top := screen_h - kb * screen_h / float(get_window().size.y)
+		var field_bottom := focus.get_global_rect().end.y - position.y + _px(12)
+		lift = maxf(0.0, field_bottom - keyboard_top)
+	if absf(position.y + lift) > 0.5:
+		position.y = -lift
 
 
 ## Season standings in a sheet that rises from the bottom.
@@ -715,16 +860,19 @@ func _on_create_room() -> void:
 	_status.text = "Room code: %s" % code
 	_room_label.text = "Your room  %s" % code
 	_copy_button.text = "Copy"
-	_join_row.visible = false
 	_room_row.visible = true
 	_ready_button.visible = true
+	_show_room_box(true)
 
 
 func _on_join_room() -> void:
 	_status.text = "Joining..."
 	_in_lobby = await Net.join_room(_code_edit.text)
 	if _in_lobby:
+		_join_sheet.visible = false
+		_code_edit.release_focus()
 		_ready_button.visible = true
+		_show_room_box(true)
 
 
 func _on_lobby(lobby: Dictionary) -> void:
@@ -742,6 +890,7 @@ func _on_lobby(lobby: Dictionary) -> void:
 		lines.append("Starts when everyone is ready (2+ players)")
 	_lobby_label.text = "\n".join(lines)
 	_lobby_label.visible = true
+	_show_room_box(true)
 	# Anyone may cut a public wait short; a private room waits for its host.
 	_start_now_button.visible = not is_private or not _room_code.is_empty()
 
@@ -763,3 +912,25 @@ func _on_invite_join(code: String) -> void:
 	await _on_join_room()
 	if _in_lobby:
 		_friends_panel.room_code = code
+
+
+## Waiting in a room swaps the play buttons for the room's own.
+func _show_room_box(waiting: bool) -> void:
+	_play_box.visible = not waiting
+	_room_box.visible = waiting
+
+
+func _on_leave_room() -> void:
+	if not Net.match_id.is_empty():
+		await Net.leave_match()
+	_in_lobby = false
+	_room_code = ""
+	_friends_panel.room_code = ""
+	_room_row.visible = false
+	_lobby_label.visible = false
+	_ready_button.visible = false
+	_ready_button.disabled = false
+	_start_now_button.visible = false
+	_start_now_button.disabled = false
+	_status.text = "Connected as %s" % Net.display_name if _connected else "Not connected"
+	_show_room_box(false)

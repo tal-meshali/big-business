@@ -11,7 +11,8 @@ const PRIVACY_URL := ""
 ## The deployed server (docs/deploy.md), for builds handed to players:
 ## the address the lobby starts with until the player types another one,
 ## and its NAKAMA_SERVER_KEY from .env (embedded in the app, not a secret).
-## Empty keeps the local default, 127.0.0.1 with "defaultkey".
+## Empty keeps the local default, 127.0.0.1 with "defaultkey". Editor runs and
+## tests always start on the local server.
 const SERVER_ADDRESS := "https://big-business-server.fly.dev"
 const SERVER_KEY := "35bd519ec107d4960bf69ce4042b98e83d5d125cd146ce9dbacc29638de1cfed"
 

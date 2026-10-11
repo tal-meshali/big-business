@@ -653,8 +653,10 @@ async function testDesigner() {
 
   await consoleWrite('purchases', 'owned', host.userId, { owned: ['designer'], syncedAt: Date.now() });
   await rpcRejected(host, 'upload_card_art', { slot: 0, part: 'back', image: back }, 'an upload before the age answer');
+  if ((await rpc(host, 'get_profile')).ageBracket !== '') fail('get_profile should report no age answer yet, so the lobby asks');
   const age = await rpc(host, 'set_age_bracket', { bracket: '16plus', region: 'US' });
   if (age.blocker !== '') fail(`set_age_bracket: ${JSON.stringify(age)}`);
+  if ((await rpc(host, 'get_profile')).ageBracket !== '16plus') fail('get_profile should report the age answer');
   await rpcRejected(host, 'upload_card_art', { slot: 0, part: 'c0', image: back }, 'a back image as an art window');
   const up = await rpc(host, 'upload_card_art', { slot: 0, part: 'back', image: back });
   if (!/^[0-9a-f]{64}$/.test(up.hash) || up.status !== 'pending') fail(`upload_card_art: ${JSON.stringify(up)}`);

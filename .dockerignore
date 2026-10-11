@@ -1,3 +1,4 @@
-# Only server/build/index.js goes into the image.
+# Only the runtime bundle and the Fly start script go into the images.
 *
 !server/build/index.js
+!fly/start.sh

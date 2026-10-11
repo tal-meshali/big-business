@@ -12,8 +12,8 @@ const PRIVACY_URL := ""
 ## the address the lobby starts with until the player types another one,
 ## and its NAKAMA_SERVER_KEY from .env (embedded in the app, not a secret).
 ## Empty keeps the local default, 127.0.0.1 with "defaultkey".
-const SERVER_ADDRESS := ""
-const SERVER_KEY := ""
+const SERVER_ADDRESS := "https://big-business-server.fly.dev"
+const SERVER_KEY := "35bd519ec107d4960bf69ce4042b98e83d5d125cd146ce9dbacc29638de1cfed"
 
 
 static func version() -> String:

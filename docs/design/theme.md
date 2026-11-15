@@ -4,6 +4,14 @@ Working theme: a bright, slightly retro world of six ambitious companies fightin
 
 **Visual direction (decided 2026-09-28): title-deed cards on a board-green table.** The look borrows the language of classic property-trading board games: off-white cards with a black border and a solid colour band naming the company, black text, a pale green playing surface with a darker green rim, and white panels with ink borders. It must not copy any specific board game's logo, mascot, property names or exact board layout.
 
+**Game finish (decided 2026-11-15): "After-hours trading floor".** Research on Clash Royale, Brawl Stars, casual hits and Balatro (direction page: https://claude.ai/artifact/4vBjfqE9DCKq12jtw6XrrD) gave the app the finish of a top mobile game around the unchanged cards:
+
+- Lobby room: royal purple glow (`UiTheme.NIGHT`, `ROYAL`, `ROYAL_GLOW`) with slow gold rays and rising sparkles (`LobbyBackdrop`). The table room still follows the picked felt.
+- Buttons (`GlossBox`): a thick ink outline (`#1A1238`), a dark lip under the face, three toon-shaded bands and a white streak; pressed, the face sinks into the lip and the button squashes and springs back (`UiTheme.juice`). Labels are white Archivo Black with an ink outline. Colours by role: gold `#FFC83D` for the one main action per screen, violet `#6A4CF0` for the rest, mint `#26C96F` for rewards, red `#FF3B55` for danger and badges, cream for quiet actions (Close, Skip).
+- Wordmark (`LogoTitle`): two-tone gold face, ink outline, brown extrusion, tilted -3 degrees, with a glint every 4 s. The same drawing slams in as "YOUR TURN" at the table.
+- Lobby HUD: avatar with a level diamond, name over the XP bar, streak flame, season trophy and the daily gift (wiggles with a red "!" while a bonus waits). The PLAY button breathes and has a light sweep. A dock along the bottom edge holds Friends, Quests (red badge = quests ready to claim), Shop, Clubs and More, as drawn icon tiles (`IconTile`, `GameIcons`).
+- Motion is short (0.06 to 0.3 s) and always tied to something that happened or something waiting for a tap; only one element per screen loops for attention.
+
 ## Vocabulary
 
 | Concept | In-app word | Never use |

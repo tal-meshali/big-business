@@ -4,7 +4,7 @@ extends SceneTree
 ##   xvfb-run -a godot --rendering-driver opengl3 --path client --script res://tests/screenshot.gd -- out_dir
 ## Output: <out_dir>/lobby.png, help.png, table.png, play_step.png, dividend.png,
 ## tutorial.png, emotes.png, get_ready.png, forfeit.png, peek.png, token.png,
-## then lobby_tall.png, lobby_more.png, table_tall.png and coach_tall.png at
+## then lobby_tall.png, lobby_more.png (the More sheet), table_tall.png and coach_tall.png at
 ## 720x1560 (a 19.5:9 phone).
 ## Add "he" after the folder to run under a Hebrew (right-to-left) locale:
 ##   ... --script res://tests/screenshot.gd -- out_dir he
@@ -186,10 +186,10 @@ func _run() -> void:
 	tall._status.text = "Connected as Tal"
 	await _settle()
 	await _save(out_dir + "/lobby_tall.png")
-	var scroll: ScrollContainer = tall.find_children("*", "ScrollContainer", false, false)[0]
-	scroll.scroll_vertical = 100000
+	tall._more_sheet.visible = true
 	await _settle()
 	await _save(out_dir + "/lobby_more.png")
+	tall._more_sheet.visible = false
 	tall.queue_free()
 	var big = load("res://scenes/table.tscn").instantiate()
 	root.add_child(big)

@@ -28,6 +28,22 @@ const MUTED := Color("#4A4A4A")
 const XP_GREEN := Color("#3F9E4F")
 const PLATE_ON := Color("#FFF1C9")
 
+## "After-hours trading floor" (2026-11): royal purple rooms, gold for the
+## one main action, violet for the rest, mint for rewards, red for badges.
+## Every edge and every text outline is the same deep ink.
+const NIGHT := Color("#120C2E")
+const ROYAL := Color("#2B1D73")
+const ROYAL_GLOW := Color("#4C34C9")
+const VIOLET := Color("#6A4CF0")
+const GOLD := Color("#FFC83D")
+const GOLD_DEEP := Color("#F09A00")
+const GOLD_PALE := Color("#FFF0A0")
+const MINT := Color("#26C96F")
+const BADGE := Color("#FF3B55")
+const LILAC := Color("#B7AEE6")
+const OUTLINE := Color("#1A1238")
+const DISABLED := Color("#8E8AA8")
+
 static var _cached: Theme = null
 static var _fonts: Dictionary = {}
 
@@ -38,22 +54,24 @@ static func get_theme() -> Theme:
 	var t := Theme.new()
 	t.default_font = ui_font()
 
-	_button_styles(t, "Button", Companies.PANEL, HOVER, 10, 3)
-	t.set_color("font_color", "Button", Companies.INK)
-	t.set_color("font_hover_color", "Button", Companies.INK)
-	t.set_color("font_pressed_color", "Button", Companies.INK)
-	t.set_color("font_focus_color", "Button", Companies.INK)
-	t.set_color("font_hover_pressed_color", "Button", Companies.INK)
-	t.set_color("font_disabled_color", "Button", Color(Companies.INK, 0.45))
+	# Glossy game buttons: violet by default, gold for the main action,
+	# cream for quiet ones (Close, Leave), mint for rewards, red for danger.
+	_gloss_styles(t, "Button", VIOLET)
+	_button_text(t, "Button", Color.WHITE, OUTLINE)
+	t.set_font("font", "Button", display_font())
 	t.set_font_size("font_size", "Button", 22)
-	# Yellow call to action, cream secondary, and the tall "Play now".
 	t.set_type_variation("PrimaryButton", "Button")
-	_button_styles(t, "PrimaryButton", PRIMARY, PRIMARY_HOVER, 10, 3)
+	_gloss_styles(t, "PrimaryButton", GOLD)
 	t.set_type_variation("GhostButton", "Button")
-	_button_styles(t, "GhostButton", CREAM, HOVER, 10, 3)
+	_gloss_styles(t, "GhostButton", CREAM)
+	_button_text(t, "GhostButton", OUTLINE, Color(0, 0, 0, 0))
+	t.set_constant("outline_size", "GhostButton", 0)
 	t.set_type_variation("BigButton", "Button")
-	_button_styles(t, "BigButton", PRIMARY, PRIMARY_HOVER, 14, 5)
-	t.set_font("font", "BigButton", display_font())
+	_gloss_styles(t, "BigButton", GOLD, 18, 8)
+	t.set_type_variation("GreenButton", "Button")
+	_gloss_styles(t, "GreenButton", MINT)
+	t.set_type_variation("DangerButton", "Button")
+	_gloss_styles(t, "DangerButton", BADGE)
 
 	var edit := _box(CREAM, Companies.INK, 2)
 	edit.set_corner_radius_all(10)
@@ -69,12 +87,10 @@ static func get_theme() -> Theme:
 	t.set_color("font_color", "Label", Companies.INK)
 	t.set_font_size("font_size", "Label", 19)
 
-	var track := _box(Color("#EEF0EA"), Companies.INK, 2)
+	var track := _box(OUTLINE, OUTLINE, 2)
 	track.set_corner_radius_all(8)
 	track.set_content_margin_all(0)
-	var fill := StyleBoxFlat.new()
-	fill.bg_color = XP_GREEN
-	fill.set_corner_radius_all(6)
+	var fill := GlossBox.make(MINT, 6, 0, 0)
 	t.set_stylebox("background", "ProgressBar", track)
 	t.set_stylebox("fill", "ProgressBar", fill)
 
@@ -146,34 +162,46 @@ static func _font_with_fallbacks(key: String, path: String) -> Font:
 	return font
 
 
-## Button faces: an ink border with a thicker bottom edge standing in for the
-## design's hard drop shadow; pressed, the drop shrinks and the label sinks.
-static func _button_styles(t: Theme, type: String, bg: Color, hover_bg: Color, radius: int, drop: int) -> void:
-	var normal := _button_box(bg, radius, drop, false)
-	t.set_stylebox("normal", type, normal)
-	t.set_stylebox("hover", type, _button_box(hover_bg, radius, drop, false))
-	t.set_stylebox("pressed", type, _button_box(hover_bg, radius, drop, true))
-	t.set_stylebox("hover_pressed", type, _button_box(hover_bg, radius, drop, true))
+## Glossy faces for every state of one button type. Pressed, the face
+## sinks into its lip and the label sinks with it.
+static func _gloss_styles(t: Theme, type: String, face: Color, radius := 14, lip := 6) -> void:
+	t.set_stylebox("normal", type, _gloss(face, radius, lip, false))
+	t.set_stylebox("hover", type, _gloss(face.lightened(0.06), radius, lip, false))
+	t.set_stylebox("pressed", type, _gloss(face.lightened(0.06), radius, lip, true))
+	t.set_stylebox("hover_pressed", type, _gloss(face.lightened(0.06), radius, lip, true))
 	t.set_stylebox("focus", type, StyleBoxEmpty.new())
-	var off := _button_box(bg, radius, drop, false)
-	off.bg_color = bg.lerp(Color("#E4E4E0"), 0.55)
-	off.border_color = Color(Companies.INK, 0.4)
-	t.set_stylebox("disabled", type, off)
+	t.set_stylebox("disabled", type, _gloss(face.lerp(DISABLED, 0.75), radius, lip, false))
 
 
-static func _button_box(bg: Color, radius: int, drop: int, pressed: bool) -> StyleBoxFlat:
-	var s := StyleBoxFlat.new()
-	s.bg_color = bg
-	s.border_color = Companies.INK
-	s.set_border_width_all(2)
-	s.border_width_bottom = 2 + (1 if pressed else drop)
-	s.set_corner_radius_all(radius)
-	s.content_margin_left = 14
-	s.content_margin_right = 14
-	s.content_margin_top = 6 + (drop - 1 if pressed else 0)
-	s.content_margin_bottom = 6
-	s.anti_aliasing = true
-	return s
+static func _gloss(face: Color, radius: int, lip: int, pressed: bool) -> GlossBox:
+	var g := GlossBox.make(face, radius, lip, 3, pressed)
+	g.content_margin_left = 16
+	g.content_margin_right = 16
+	g.content_margin_top = 6 + 3 + (lip - 1 if pressed else 0)
+	g.content_margin_bottom = 6 + 3 + (1 if pressed else lip)
+	return g
+
+
+## Label colours for a button type: white with an ink outline on colour.
+static func _button_text(t: Theme, type: String, color: Color, outline_color: Color) -> void:
+	for key in ["font_color", "font_hover_color", "font_pressed_color", "font_focus_color", "font_hover_pressed_color"]:
+		t.set_color(key, type, color)
+	t.set_color("font_disabled_color", type, Color(color, 0.7))
+	t.set_color("font_outline_color", type, outline_color)
+	t.set_constant("outline_size", type, 6)
+
+
+## A squash on press and a springy release, so every tap feels physical.
+static func juice(b: BaseButton) -> void:
+	var recenter := func() -> void: b.pivot_offset = b.size / 2.0
+	b.resized.connect(recenter)
+	b.button_down.connect(func() -> void:
+		recenter.call()
+		var tw := b.create_tween()
+		tw.tween_property(b, "scale", Vector2(1.04, 0.92), 0.06).set_ease(Tween.EASE_OUT))
+	b.button_up.connect(func() -> void:
+		var tw := b.create_tween()
+		tw.tween_property(b, "scale", Vector2.ONE, 0.32).set_trans(Tween.TRANS_ELASTIC).set_ease(Tween.EASE_OUT))
 
 
 static func _box(bg: Color, border: Color, width: int) -> StyleBoxFlat:
@@ -262,12 +290,14 @@ static func play_icon(px: int) -> ImageTexture:
 	return ImageTexture.create_from_image(img)
 
 
-## A design button: `kind` is "", "primary", "ghost" or "big".
+## A design button: `kind` is "" (violet), "primary" (gold), "ghost"
+## (cream), "big" (the tall gold Play), "green" (rewards) or "danger".
 static func button(text: String, px: int, height: float, kind := "") -> Button:
 	var b := Button.new()
 	b.text = text
 	b.custom_minimum_size = Vector2(maxf(48.0, height), maxf(48.0, height))
 	b.add_theme_font_size_override("font_size", px)
+	b.add_theme_constant_override("outline_size", maxi(4, int(round(px * 0.3))) if kind != "ghost" else 0)
 	match kind:
 		"primary":
 			b.theme_type_variation = "PrimaryButton"
@@ -275,6 +305,11 @@ static func button(text: String, px: int, height: float, kind := "") -> Button:
 			b.theme_type_variation = "GhostButton"
 		"big":
 			b.theme_type_variation = "BigButton"
+		"green":
+			b.theme_type_variation = "GreenButton"
+		"danger":
+			b.theme_type_variation = "DangerButton"
+	juice(b)
 	return b
 
 
@@ -305,6 +340,10 @@ static func deed_panel(band_color: Color, title: String, band_text: Color = Colo
 	title_label.add_theme_font_override("font", display_font())
 	title_label.add_theme_font_size_override("font_size", 30)
 	title_label.add_theme_color_override("font_color", band_text)
+	# White titles get the game's ink outline, like every label on colour.
+	if band_text == Color.WHITE:
+		title_label.add_theme_color_override("font_outline_color", OUTLINE)
+		title_label.add_theme_constant_override("outline_size", 7)
 	band.add_child(title_label)
 
 	var body := MarginContainer.new()

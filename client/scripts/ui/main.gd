@@ -1,11 +1,13 @@
 extends Control
-## Start screen, after the "3D table" design, fitted to one phone screen:
-## a little table with the six companies' shares fanned over it (it shrinks
-## to the room left), the title card, your portfolio (name, level, XP,
-## daily bonus, season standings), Play now, bots, the tutorial and private
-## rooms, and a dock for friends, quests and card backs, the shop, clubs and
-## More (rules, your account, the server address). Typing happens in sheets
-## or fields that the lobby lifts above the on-screen keyboard.
+## Start screen, "after-hours trading floor" (2026-11), fitted to one phone
+## screen: a royal purple room with turning gold rays; a HUD with your
+## avatar and level, name, XP, streak, season standings and the daily gift;
+## the little table with the six shares fanned over it (it shrinks to the
+## room left) under the gold logo; the breathing PLAY button, bots, the
+## tutorial and private rooms; and a dock along the bottom edge for
+## friends, quests and card backs, the shop, clubs and More (rules, your
+## account, the server address). Typing happens in sheets or fields that
+## the lobby lifts above the on-screen keyboard.
 
 var _host_edit: LineEdit
 var _name_edit: LineEdit
@@ -25,8 +27,10 @@ var _profile_label: Label
 var _xp_bar: ProgressBar
 var _xp_label: Label
 var _avatar_label: Label
-var _daily_button: Button
-var _board_button: Button
+var _daily_button: IconTile
+var _board_button: IconTile
+var _streak_label: Label
+var _quests_tab: IconTile
 var _board_label: Label
 var _season_sheet: ColorRect
 var _friends_panel: FriendsPanel
@@ -48,7 +52,7 @@ var _insets := Vector2.ZERO
 var _games_played := -1
 ## The little table on top; its `color` is the picked felt.
 var _felt: StartFan
-var _room: TextureRect
+var _room: LobbyBackdrop
 var _account_label: Label
 var _link_apple_button: Button
 var _link_google_button: Button
@@ -86,29 +90,33 @@ func _build() -> void:
 	set_anchors_preset(Control.PRESET_FULL_RECT)
 	theme = UiTheme.get_theme()
 	_s = UiTheme.layout_scale(get_viewport_rect().size)
-	_room = UiTheme.room_background(Cosmetics.table_bg_color(), Vector2(0.5, 0.22))
+	_room = LobbyBackdrop.new()
 	add_child(_room)
 
 	_insets = UiTheme.safe_insets(self)
+	var dock_h := _px(74) + int(_insets.y)
 
 	# WHY: the layout is sized to fit a phone screen; the scroll only
 	# matters on very short screens (and the keyboard lift handles typing).
 	var scroll := ScrollContainer.new()
 	scroll.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	scroll.offset_bottom = -dock_h
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_SHOW_NEVER
 	add_child(scroll)
 	var margins := MarginContainer.new()
 	margins.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	margins.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	margins.add_theme_constant_override("margin_left", _px(18))
-	margins.add_theme_constant_override("margin_right", _px(18))
-	margins.add_theme_constant_override("margin_top", maxi(_px(16), int(_insets.x) + _px(4)))
-	margins.add_theme_constant_override("margin_bottom", _px(12) + int(_insets.y))
+	margins.add_theme_constant_override("margin_left", _px(16))
+	margins.add_theme_constant_override("margin_right", _px(16))
+	margins.add_theme_constant_override("margin_top", maxi(_px(14), int(_insets.x) + _px(4)))
+	margins.add_theme_constant_override("margin_bottom", _px(10))
 	scroll.add_child(margins)
 	var box := VBoxContainer.new()
-	box.add_theme_constant_override("separation", _px(10))
+	box.add_theme_constant_override("separation", _px(8))
 	margins.add_child(box)
+
+	box.add_child(_hud())
 
 	_felt = StartFan.new()
 	_felt.s = _s
@@ -116,37 +124,34 @@ func _build() -> void:
 	_felt.color = Cosmetics.table_bg_color()
 	_felt.edge_color = Cosmetics.table_edge_color()
 	box.add_child(_felt)
-	box.add_child(_title_card())
+	box.add_child(_logo())
 
-	_status = UiTheme.label("Not connected", _px(13), UiTheme.CREAM)
+	_status = UiTheme.label("Not connected", _px(12), UiTheme.LILAC)
 	_status.add_theme_font_override("font", UiTheme.body_font())
 	_status.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_status.max_lines_visible = 2
 	box.add_child(_status)
 
-	box.add_child(_portfolio_card())
-
 	_play_box = VBoxContainer.new()
 	_play_box.add_theme_constant_override("separation", _px(10))
 	box.add_child(_play_box)
-	var play := UiTheme.button("Play now", _px(20), _px(58), "big")
-	play.icon = UiTheme.play_icon(_px(20))
-	play.add_theme_constant_override("h_separation", _px(8))
-	play.add_theme_constant_override("icon_max_width", _px(20))
+	var play := UiTheme.button("PLAY", _px(30), _px(70), "big")
+	play.add_theme_constant_override("outline_size", _px(5))
+	play.tooltip_text = "Play now: join an online game"
 	play.pressed.connect(_on_quick_play)
 	play.disabled = true
 	_buttons.append(play)
-	_play_box.add_child(play)
+	_play_box.add_child(_breathing(play))
 	var row := _row(_play_box)
-	_add_button(row, "Play vs bots", _on_play_bots)
+	_add_button(row, "Vs bots", _on_play_bots)
 	_add_button(row, "How to play", _on_tutorial)
 	var rooms := _row(_play_box)
 	_add_button(rooms, "Create room", _on_create_room)
 	_add_button(rooms, "Join with code", _open_join_sheet)
 
 	_build_room_box(box)
-	_build_dock(box)
+	_build_dock(dock_h)
 	_build_join_sheet()
 	_build_friends_sheet()
 	_build_more_sheet()
@@ -187,133 +192,237 @@ func _build() -> void:
 	add_child(_clubs_panel)
 
 
-## "BIG BUSINESS" on a red band, with the tagline under it.
-func _title_card() -> Control:
-	var card := PanelContainer.new()
-	card.add_theme_stylebox_override("panel", UiTheme.card_box(Companies.PANEL, 12 * _s, 4 * _s))
+## The gold wordmark and the red ribbon under it, tilted together.
+func _logo() -> Control:
+	var holder := Control.new()
+	holder.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var logo := LogoTitle.new()
+	logo.px = _px(40)
+	logo.tilt = 0.0
+	var tag := _tagline()
 	var column := VBoxContainer.new()
-	column.add_theme_constant_override("separation", 0)
-	card.add_child(column)
-	var band := _band(Companies.ALERT, _px(58))
-	column.add_child(band)
+	column.add_theme_constant_override("separation", _px(2))
+	column.add_child(logo)
+	column.add_child(tag)
+	holder.add_child(column)
+	holder.custom_minimum_size = Vector2(0, _px(40) * 1.95 + _px(26))
+	holder.resized.connect(func() -> void:
+		column.size = Vector2(holder.size.x, column.get_combined_minimum_size().y)
+		column.position = Vector2(0, (holder.size.y - column.size.y) / 2.0)
+		column.pivot_offset = column.size / 2.0)
+	column.rotation = deg_to_rad(LogoTitle.TILT_DEG)
+	return holder
+
+
+## The red ribbon under the logo.
+func _tagline() -> Control:
+	var center := CenterContainer.new()
+	var tag := UiTheme.label("CORNER THE MARKET", _px(11), Color.WHITE, true)
 	var spaced := FontVariation.new()
 	spaced.base_font = UiTheme.display_font()
-	spaced.spacing_glyph = _px(2)
-	var title := UiTheme.label("BIG BUSINESS", _px(34), Color.WHITE)
-	title.add_theme_font_override("font", spaced)
-	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	title.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	band.add_child(title)
-	var tag := UiTheme.label("Collect shares. Corner the market. Cash in on dividend day.", _px(13.5))
-	tag.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	tag.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	var pad := MarginContainer.new()
-	for side in ["left", "right"]:
-		pad.add_theme_constant_override("margin_" + side, _px(14))
-	for side in ["top", "bottom"]:
-		pad.add_theme_constant_override("margin_" + side, _px(9))
-	pad.add_child(tag)
-	column.add_child(pad)
-	return card
+	spaced.spacing_glyph = _px(1.5)
+	tag.add_theme_font_override("font", spaced)
+	tag.add_theme_color_override("font_outline_color", UiTheme.OUTLINE)
+	tag.add_theme_constant_override("outline_size", _px(3))
+	var pill := UiTheme.card_box(UiTheme.BADGE, 12 * _s, 2 * _s)
+	pill.border_color = UiTheme.OUTLINE
+	pill.content_margin_left = 14 * _s
+	pill.content_margin_right = 14 * _s
+	pill.content_margin_top = 3 * _s
+	pill.content_margin_bottom = 3 * _s
+	tag.add_theme_stylebox_override("normal", pill)
+	tag.tooltip_text = "Collect shares. Corner the market. Cash in on dividend day."
+	center.add_child(tag)
+	return center
 
 
-## Your portfolio: avatar, name, level, XP towards the next level and the
-## streak, the daily bonus and the season standings.
-func _portfolio_card() -> Control:
-	var card := PanelContainer.new()
-	card.add_theme_stylebox_override("panel", UiTheme.card_box(Companies.PANEL, 12 * _s, 4 * _s))
-	var column := VBoxContainer.new()
-	column.add_theme_constant_override("separation", 0)
-	card.add_child(column)
-	var band := _band(Companies.color_of(2), _px(34))
-	column.add_child(band)
-	var title := UiTheme.label("Your portfolio", _px(15), Color.WHITE, true)
-	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	title.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	band.add_child(title)
-	var pad := MarginContainer.new()
-	pad.add_theme_constant_override("margin_left", _px(12))
-	pad.add_theme_constant_override("margin_right", _px(12))
-	pad.add_theme_constant_override("margin_top", _px(10))
-	pad.add_theme_constant_override("margin_bottom", _px(12))
-	column.add_child(pad)
-	var body := VBoxContainer.new()
-	body.add_theme_constant_override("separation", _px(9))
-	pad.add_child(body)
+## The top bar, as in mobile games: your avatar with its level diamond,
+## your name over the XP bar, the streak, season standings and the daily
+## gift (it wiggles while a bonus waits).
+func _hud() -> Control:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", _px(8))
 
-	var who := HBoxContainer.new()
-	who.add_theme_constant_override("separation", _px(10))
-	body.add_child(who)
-	_avatar_label = UiTheme.label("?", _px(18), Companies.INK, true)
+	var avatar := Control.new()
+	avatar.custom_minimum_size = Vector2(_px(48), _px(48))
+	avatar.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	row.add_child(avatar)
+	_avatar_label = UiTheme.label("?", _px(19), UiTheme.OUTLINE, true)
 	_avatar_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_avatar_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	_avatar_label.custom_minimum_size = Vector2(_px(42), _px(42))
-	_avatar_label.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	_avatar_label.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	var disc := StyleBoxFlat.new()
 	disc.bg_color = SeatView.AVATARS[0]
-	disc.border_color = Companies.INK
-	disc.set_border_width_all(2)
-	disc.set_corner_radius_all(_px(21))
+	disc.border_color = Color.WHITE
+	disc.set_border_width_all(_px(2.5))
+	disc.set_corner_radius_all(_px(24))
+	disc.shadow_color = UiTheme.OUTLINE
+	disc.shadow_size = _px(2)
+	disc.shadow_offset = Vector2(0, _px(2))
+	disc.anti_aliasing = true
 	_avatar_label.add_theme_stylebox_override("normal", disc)
-	who.add_child(_avatar_label)
-	var field := VBoxContainer.new()
-	field.add_theme_constant_override("separation", _px(2))
-	field.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	who.add_child(field)
-	field.add_child(UiTheme.label("YOUR NAME", _px(10), UiTheme.MUTED))
+	avatar.add_child(_avatar_label)
+	# The level diamond on the avatar's corner.
+	var diamond := Control.new()
+	diamond.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	diamond.custom_minimum_size = Vector2(_px(22), _px(22))
+	diamond.size = diamond.custom_minimum_size
+	diamond.position = Vector2(_px(31), _px(29))
+	diamond.draw.connect(func() -> void:
+		var c := diamond.size / 2.0
+		var k := diamond.size.x * 0.55
+		var pts := PackedVector2Array([c + Vector2(0, -k), c + Vector2(k, 0), c + Vector2(0, k), c + Vector2(-k, 0)])
+		diamond.draw_colored_polygon(pts, UiTheme.OUTLINE)
+		var inner := PackedVector2Array()
+		for p in pts:
+			inner.append(c + (p - c) * 0.8)
+		diamond.draw_colored_polygon(inner, UiTheme.VIOLET)
+		var lvl := _profile_label.text.trim_prefix("Level ") if _profile_label != null else "1"
+		var f := UiTheme.display_font()
+		var sz := _px(10)
+		var w := f.get_string_size(lvl, HORIZONTAL_ALIGNMENT_LEFT, -1, sz).x
+		diamond.draw_string(f, c + Vector2(-w / 2.0, sz * 0.36), lvl, HORIZONTAL_ALIGNMENT_LEFT, -1, sz, Color.WHITE))
+	avatar.add_child(diamond)
+
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", _px(1))
+	col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	col.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	row.add_child(col)
 	_name_edit = LineEdit.new()
 	_name_edit.placeholder_text = "Pick a name"
 	_name_edit.text = Net.display_name
 	_name_edit.max_length = 16
-	_name_edit.custom_minimum_size = Vector2(0, maxf(48, _px(34)))
-	_name_edit.add_theme_font_size_override("font_size", _px(16))
-	var underline := StyleBoxFlat.new()
-	underline.bg_color = Color(0, 0, 0, 0)
-	underline.border_color = Companies.INK
-	underline.border_width_bottom = 2
-	underline.content_margin_left = 2
-	var underline_focus := underline.duplicate()
-	underline_focus.border_color = Companies.color_of(2)
-	_name_edit.add_theme_stylebox_override("normal", underline)
-	_name_edit.add_theme_stylebox_override("focus", underline_focus)
+	_name_edit.tooltip_text = "Your name: tap to change it"
+	_name_edit.custom_minimum_size = Vector2(0, _px(26))
+	_name_edit.add_theme_font_override("font", UiTheme.display_font())
+	_name_edit.add_theme_font_size_override("font_size", _px(15))
+	_name_edit.add_theme_color_override("font_color", Color.WHITE)
+	_name_edit.add_theme_color_override("font_placeholder_color", UiTheme.LILAC)
+	_name_edit.add_theme_color_override("caret_color", UiTheme.GOLD)
+	_name_edit.add_theme_color_override("font_outline_color", UiTheme.OUTLINE)
+	_name_edit.add_theme_constant_override("outline_size", _px(3))
+	var flat := StyleBoxFlat.new()
+	flat.bg_color = Color(0, 0, 0, 0)
+	flat.content_margin_left = 2
+	var flat_focus := StyleBoxFlat.new()
+	flat_focus.bg_color = Color(UiTheme.OUTLINE, 0.5)
+	flat_focus.set_corner_radius_all(_px(6))
+	flat_focus.content_margin_left = 2
+	_name_edit.add_theme_stylebox_override("normal", flat)
+	_name_edit.add_theme_stylebox_override("focus", flat_focus)
 	_name_edit.text_changed.connect(_on_name_changed)
 	_name_edit.focus_exited.connect(func() -> void: Net.save_settings())
-	field.add_child(_name_edit)
-	_on_name_changed(_name_edit.text)
-	_profile_label = UiTheme.label("Level 1", _px(13), Companies.INK, true)
-	_profile_label.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	var chip := UiTheme.card_box(UiTheme.PRIMARY, 8 * _s, 2 * _s)
-	chip.content_margin_left = 8 * _s
-	chip.content_margin_right = 8 * _s
-	chip.content_margin_top = 5 * _s
-	chip.content_margin_bottom = 5 * _s
-	_profile_label.add_theme_stylebox_override("normal", chip)
-	who.add_child(_profile_label)
+	col.add_child(_name_edit)
 
 	var xp_row := HBoxContainer.new()
-	xp_row.add_theme_constant_override("separation", _px(8))
-	body.add_child(xp_row)
+	xp_row.add_theme_constant_override("separation", _px(6))
+	col.add_child(xp_row)
+	_profile_label = UiTheme.label("Level 1", _px(10), UiTheme.GOLD, true)
+	_profile_label.add_theme_color_override("font_outline_color", UiTheme.OUTLINE)
+	_profile_label.add_theme_constant_override("outline_size", _px(3))
+	_profile_label.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	_profile_label.draw.connect(func() -> void: diamond.queue_redraw())
+	xp_row.add_child(_profile_label)
 	_xp_bar = ProgressBar.new()
-	_xp_bar.custom_minimum_size = Vector2(0, _px(12))
+	_xp_bar.custom_minimum_size = Vector2(0, _px(14))
 	_xp_bar.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_xp_bar.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	_xp_bar.show_percentage = false
 	xp_row.add_child(_xp_bar)
-	_xp_label = UiTheme.label("0 / 50 XP · Streak 0", _px(12))
-	xp_row.add_child(_xp_label)
+	_xp_label = UiTheme.label("0 / 50", _px(8.5), Color.WHITE, true)
+	_xp_label.add_theme_color_override("font_outline_color", UiTheme.OUTLINE)
+	_xp_label.add_theme_constant_override("outline_size", _px(2.5))
+	_xp_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_xp_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_xp_label.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_xp_bar.add_child(_xp_label)
 
-	var buttons := _row(body)
-	_daily_button = UiTheme.button("Claim daily bonus", _px(14), _px(44))
-	_daily_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_daily_button.disabled = true
-	_daily_button.pressed.connect(_on_claim_daily)
-	buttons.add_child(_daily_button)
-	_board_button = UiTheme.button("Season standings", _px(14), _px(44))
-	_board_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	# Streak: a flame and the day count in a dark pill.
+	var streak := PanelContainer.new()
+	var pill := StyleBoxFlat.new()
+	pill.bg_color = Color(UiTheme.NIGHT, 0.6)
+	pill.border_color = UiTheme.OUTLINE
+	pill.set_border_width_all(_px(1.5))
+	pill.set_corner_radius_all(_px(14))
+	pill.content_margin_left = _px(4)
+	pill.content_margin_right = _px(8)
+	pill.anti_aliasing = true
+	streak.add_theme_stylebox_override("panel", pill)
+	streak.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	streak.tooltip_text = "Daily streak: play or claim your bonus every day"
+	row.add_child(streak)
+	var streak_row := HBoxContainer.new()
+	streak_row.add_theme_constant_override("separation", _px(2))
+	streak.add_child(streak_row)
+	var flame := Control.new()
+	flame.custom_minimum_size = Vector2(_px(20), _px(26))
+	flame.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	flame.draw.connect(func() -> void: GameIcons.draw(flame, "flame", flame.size / 2.0, flame.size.x * 0.55))
+	streak_row.add_child(flame)
+	_streak_label = UiTheme.label("0", _px(13), Color.WHITE, true)
+	_streak_label.add_theme_color_override("font_outline_color", UiTheme.OUTLINE)
+	_streak_label.add_theme_constant_override("outline_size", _px(3))
+	_streak_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	streak_row.add_child(_streak_label)
+
+	_board_button = _tile("trophy", "", UiTheme.VIOLET, _px(46))
+	_board_button.tooltip_text = "Season standings"
 	_board_button.disabled = true
 	_board_button.pressed.connect(_on_show_board)
-	buttons.add_child(_board_button)
-	return card
+	row.add_child(_board_button)
+	_daily_button = _tile("gift", "", UiTheme.MINT, _px(46))
+	_daily_button.tooltip_text = "Daily bonus"
+	_daily_button.disabled = true
+	_daily_button.pressed.connect(_on_claim_daily)
+	row.add_child(_daily_button)
+	return row
+
+
+func _tile(kind: String, caption: String, face: Color, side: int) -> IconTile:
+	var t := IconTile.new()
+	t.icon_kind = kind
+	t.caption = caption
+	t.face = face
+	t.s = _s
+	t.custom_minimum_size = Vector2(side, side + (_px(13) if not caption.is_empty() else 0))
+	t.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	return t
+
+
+## Wraps the Play button so it can breathe (scale the wrapper, so the
+## button's own press squash stays free), with a light sweep across it.
+func _breathing(b: Button) -> Control:
+	var wrap := MarginContainer.new()
+	wrap.add_child(b)
+	wrap.resized.connect(func() -> void: wrap.pivot_offset = wrap.size / 2.0)
+	var tw := wrap.create_tween().set_loops()
+	tw.tween_property(wrap, "scale", Vector2(1.03, 1.03), 1.1).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	tw.tween_property(wrap, "scale", Vector2.ONE, 1.1).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	var sweep := Control.new()
+	sweep.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	sweep.clip_contents = true
+	sweep.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	sweep.offset_left = _px(3)
+	sweep.offset_right = -_px(3)
+	sweep.offset_top = _px(3)
+	sweep.offset_bottom = -_px(10)
+	b.add_child(sweep)
+	sweep.set_meta("k", 2.0)
+	sweep.draw.connect(func() -> void:
+		var k: float = sweep.get_meta("k")
+		if b.disabled or k > 1.0:
+			return
+		var h := sweep.size.y
+		var w := h * 0.35
+		var x := -h + (sweep.size.x + h * 2.0) * k
+		sweep.draw_colored_polygon(PackedVector2Array([Vector2(x, h), Vector2(x + h * 0.5, 0), Vector2(x + h * 0.5 + w, 0), Vector2(x + w, h)]), Color(1, 1, 1, 0.45)))
+	# One pass in 0.9 s, then a rest, forever.
+	var shine := wrap.create_tween().set_loops()
+	shine.tween_method(func(k: float) -> void:
+		sweep.set_meta("k", k)
+		sweep.queue_redraw(), 0.0, 3.5, 3.2)
+	return wrap
 
 
 ## While waiting in a room or a quick-play lobby, this replaces the play
@@ -364,38 +473,67 @@ func _build_room_box(box: VBoxContainer) -> void:
 	buttons.add_child(leave)
 
 
-## One row along the bottom: friends, quests and card backs, the shop,
-## clubs, and More (rules, account, server).
-func _build_dock(box: VBoxContainer) -> void:
-	var dock := _row(box)
-	dock.add_theme_constant_override("separation", _px(6))
-	var friends_button := _dock_button(dock, "Friends")
+## The dock along the bottom edge: friends, quests and card backs, the
+## shop, clubs, and More (rules, account, server). Quests carry a red badge
+## while a quest waits to be claimed.
+func _build_dock(height: int) -> void:
+	var bar := PanelContainer.new()
+	bar.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_WIDE)
+	bar.offset_top = -height
+	var style := StyleBoxFlat.new()
+	style.bg_color = UiTheme.ROYAL.darkened(0.25)
+	style.border_color = UiTheme.OUTLINE
+	style.border_width_top = _px(2)
+	style.corner_radius_top_left = _px(18)
+	style.corner_radius_top_right = _px(18)
+	style.shadow_color = Color(0, 0, 0, 0.35)
+	style.shadow_size = _px(8)
+	style.content_margin_left = _px(8)
+	style.content_margin_right = _px(8)
+	style.content_margin_top = _px(8)
+	style.content_margin_bottom = _px(6) + _insets.y
+	style.anti_aliasing = true
+	bar.add_theme_stylebox_override("panel", style)
+	add_child(bar)
+	var dock := HBoxContainer.new()
+	dock.add_theme_constant_override("separation", _px(4))
+	bar.add_child(dock)
+	var friends_button := _dock_button(dock, "friends", "Friends")
 	friends_button.pressed.connect(func() -> void: _friends_sheet.visible = true)
-	_quests_button = _dock_button(dock, "Quests")
-	_quests_button.tooltip_text = "Quests & card backs"
-	_quests_button.pressed.connect(_on_toggle_quests)
-	_shop_button = _dock_button(dock, "Shop")
+	_quests_tab = _dock_button(dock, "quests", "Quests")
+	_quests_tab.tooltip_text = "Quests & card backs"
+	_quests_tab.pressed.connect(_on_toggle_quests)
+	_shop_button = _dock_button(dock, "shop", "Shop")
 	_shop_button.visible = RemoteConfig.shop_enabled
 	_shop_button.pressed.connect(_on_open_shop)
-	var clubs_button := _dock_button(dock, "Clubs")
+	var clubs_button := _dock_button(dock, "clubs", "Clubs")
 	clubs_button.pressed.connect(_on_open_clubs)
-	var more := _dock_button(dock, "More")
+	var more := _dock_button(dock, "more", "More")
 	more.pressed.connect(func() -> void: _more_sheet.visible = true)
+	_quests_button = _quests_tab
 
 
-func _dock_button(parent: Control, text: String) -> Button:
-	var b := UiTheme.button(text, _px(12), _px(44))
+func _dock_button(parent: Control, kind: String, caption: String) -> IconTile:
+	var b := _tile(kind, caption, UiTheme.VIOLET, _px(44))
 	b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	b.clip_text = true
 	parent.add_child(b)
 	return b
+
+
+## Red badge on Quests: how many quests are done but not yet claimed.
+func _refresh_quest_badge() -> void:
+	var n := 0
+	for r in _quests_panel.rows:
+		if r.get("claimable", false) and not r.get("claimed", false):
+			n += 1
+	_quests_tab.badge = str(n) if n > 0 else ""
 
 
 ## A deed sheet rising from the bottom over a dimmed lobby; a tap outside
 ## closes it. Returns {"root": the overlay, "body": a VBox for content}.
 func _sheet(color: Color, title: String, title_color := Color.WHITE) -> Dictionary:
 	var shade := ColorRect.new()
-	shade.color = Color(0.04, 0.09, 0.06, 0.6)
+	shade.color = Color(UiTheme.NIGHT, 0.72)
 	shade.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	shade.visible = false
 	shade.gui_input.connect(func(e: InputEvent) -> void:
@@ -466,7 +604,7 @@ func _open_join_sheet() -> void:
 ## Friends in a sheet that fills the screen between the safe insets.
 func _build_friends_sheet() -> void:
 	var shade := ColorRect.new()
-	shade.color = Color(0.04, 0.09, 0.06, 0.6)
+	shade.color = Color(UiTheme.NIGHT, 0.72)
 	shade.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	shade.visible = false
 	add_child(shade)
@@ -566,7 +704,7 @@ func _process(_delta: float) -> void:
 ## Season standings in a sheet that rises from the bottom.
 func _build_season_sheet() -> void:
 	_season_sheet = ColorRect.new()
-	_season_sheet.color = Color(0.04, 0.09, 0.06, 0.6)
+	_season_sheet.color = Color(UiTheme.NIGHT, 0.72)
 	_season_sheet.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_season_sheet.visible = false
 	_season_sheet.gui_input.connect(func(e: InputEvent) -> void:
@@ -672,6 +810,7 @@ func _refresh_profile() -> void:
 	_apply_progress(data.get("progress", {}), bool(data.get("dailyAvailable", false)))
 	_quests_panel.apply_profile(data)
 	_on_cosmetic_changed("table", Cosmetics.table)
+	_refresh_quest_badge()
 
 
 func _apply_progress(p: Dictionary, daily_available: bool) -> void:
@@ -682,12 +821,16 @@ func _apply_progress(p: Dictionary, daily_available: bool) -> void:
 	var next_xp := 50 * level * level
 	_profile_label.text = "Level %d" % level
 	_profile_label.tooltip_text = "%d games, %d wins" % [int(p.get("gamesPlayed", 0)), int(p.get("wins", 0))]
-	_xp_label.text = "%d / %d XP · Streak %d" % [xp, next_xp, int(p.get("streak", 0))]
+	_xp_label.text = "%d / %d" % [xp, next_xp]
+	_xp_label.tooltip_text = "%d / %d XP to level %d" % [xp, next_xp, level + 1]
+	_streak_label.text = str(int(p.get("streak", 0)))
 	_xp_bar.min_value = floor_xp
 	_xp_bar.max_value = next_xp
 	_xp_bar.value = xp
 	_daily_button.disabled = not daily_available
-	_daily_button.text = "Claim daily bonus" if daily_available else "Bonus claimed"
+	_daily_button.wiggle = daily_available
+	_daily_button.badge = "!" if daily_available else ""
+	_daily_button.tooltip_text = "Claim your daily bonus" if daily_available else "Bonus claimed. Come back tomorrow"
 
 
 func _on_claim_daily() -> void:
@@ -704,8 +847,11 @@ func _on_claim_daily() -> void:
 
 ## "+15 XP" rises off the daily bonus button and fades.
 func _float_xp(amount: int) -> void:
-	var tag := UiTheme.label("+%d XP" % amount, _px(15), Companies.INK, true)
-	var chip := UiTheme.card_box(UiTheme.PRIMARY, 8 * _s, 0)
+	var tag := UiTheme.label("+%d XP" % amount, _px(15), Color.WHITE, true)
+	tag.add_theme_color_override("font_outline_color", UiTheme.OUTLINE)
+	tag.add_theme_constant_override("outline_size", _px(3))
+	var chip := UiTheme.card_box(UiTheme.MINT, 8 * _s, 0)
+	chip.border_color = UiTheme.OUTLINE
 	chip.content_margin_left = 6 * _s
 	chip.content_margin_right = 6 * _s
 	chip.content_margin_top = 3 * _s
@@ -714,16 +860,17 @@ func _float_xp(amount: int) -> void:
 	tag.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(tag)
 	var r := _daily_button.get_global_rect()
-	var start := Vector2(r.get_center().x - tag.get_combined_minimum_size().x / 2.0, r.position.y - _px(6))
+	var start := Vector2(minf(r.get_center().x - tag.get_combined_minimum_size().x / 2.0, get_viewport_rect().size.x - tag.get_combined_minimum_size().x - _px(8)), r.end.y)
 	tag.global_position = start
 	var tw := create_tween().set_parallel()
-	tw.tween_property(tag, "global_position:y", start.y - _px(38), 1.4).set_ease(Tween.EASE_OUT)
+	tw.tween_property(tag, "global_position:y", start.y + _px(60), 1.4).set_ease(Tween.EASE_OUT)
 	tw.tween_property(tag, "modulate:a", 0.0, 1.4).set_ease(Tween.EASE_IN)
 	tw.chain().tween_callback(tag.queue_free)
 
 
 func _on_toggle_quests() -> void:
 	_quests_panel.visible = not _quests_panel.visible
+	_refresh_quest_badge()
 
 
 func _on_open_clubs() -> void:
@@ -748,7 +895,6 @@ func _apply_remote_config() -> void:
 func _on_cosmetic_changed(_slot: String, _id: String) -> void:
 	_felt.color = Cosmetics.table_bg_color()
 	_felt.edge_color = Cosmetics.table_edge_color()
-	UiTheme.paint_room(_room, Cosmetics.table_bg_color(), Vector2(0.5, 0.22))
 
 
 func _on_show_board() -> void:

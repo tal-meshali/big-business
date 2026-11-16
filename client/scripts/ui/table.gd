@@ -230,26 +230,25 @@ func _build_top_bar() -> void:
 	top.custom_minimum_size = Vector2(0, _px(48))
 	top.add_theme_constant_override("separation", _px(10))
 	add_child(top)
-	var brand := UiTheme.label("BIG BUSINESS", _px(12), Color.WHITE, true)
-	brand.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	var brand := LogoTitle.new()
+	brand.px = _px(17)
+	brand.tilt = 0.0
 	brand.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	var brand_box := UiTheme.card_box(Companies.ALERT, 6 * _s, 2 * _s)
-	brand_box.content_margin_left = 8 * _s
-	brand_box.content_margin_right = 8 * _s
-	brand_box.content_margin_top = 5 * _s
-	brand_box.content_margin_bottom = 5 * _s
-	brand.add_theme_stylebox_override("normal", brand_box)
 	top.add_child(brand)
-	_status = UiTheme.label("Connecting...", _px(16), UiTheme.CREAM)
+	_status = UiTheme.label("Connecting...", _px(16), Color.WHITE, true)
+	_status.add_theme_color_override("font_outline_color", UiTheme.OUTLINE)
+	_status.add_theme_constant_override("outline_size", _px(3))
 	_status.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_status.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_status.max_lines_visible = 2
 	top.add_child(_status)
-	_timer_label = UiTheme.label("", _px(16), Color("#FFB4A8"), true)
+	_timer_label = UiTheme.label("", _px(16), UiTheme.GOLD, true)
+	_timer_label.add_theme_color_override("font_outline_color", UiTheme.OUTLINE)
+	_timer_label.add_theme_constant_override("outline_size", _px(3))
 	_timer_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	top.add_child(_timer_label)
-	_leave_button = UiTheme.button("Leave", _px(14), _px(44), "ghost")
+	_leave_button = UiTheme.button("Leave", _px(13), _px(44), "danger")
 	_leave_button.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	_leave_button.pressed.connect(_on_leave_pressed)
 	top.add_child(_leave_button)
@@ -617,7 +616,7 @@ func _on_connection_failed(reason: String) -> void:
 
 ## A move or dialog button, hidden until a step shows it.
 func _make_button(parent: Control, text: String, handler: Callable, kind := "") -> Button:
-	var b := UiTheme.button(text, _px(14), _px(44), kind)
+	var b := UiTheme.button(text, _px(15), _px(50), kind)
 	b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	b.pressed.connect(handler)
 	b.visible = false
@@ -950,6 +949,40 @@ func _announce_turn(phase: String) -> void:
 		_announced_turn = turn
 		sfx.play("turn")
 		Sfx.buzz(40)
+		_slam_banner("YOUR TURN")
+
+
+## A gold "YOUR TURN" that slams onto the felt, wobbles, holds and fades,
+## as mobile games mark the moment it is your move.
+func _slam_banner(text: String) -> void:
+	var holder := Control.new()
+	holder.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var logo := LogoTitle.new()
+	logo.lines = [text]
+	logo.sizes = [1.0]
+	logo.px = _px(44)
+	logo.tilt = 0.0
+	holder.add_child(logo)
+	_fx_layer.add_child(holder)
+	var sz := logo.get_combined_minimum_size()
+	logo.size = sz
+	holder.size = sz
+	holder.pivot_offset = sz / 2.0
+	var vp := get_viewport_rect().size
+	holder.position = Vector2((vp.x - sz.x) / 2.0, vp.y * 0.4 - sz.y / 2.0)
+	holder.rotation = deg_to_rad(LogoTitle.TILT_DEG)
+	holder.scale = Vector2.ONE * 2.6
+	holder.modulate.a = 0.0
+	var tw := create_tween()
+	tw.set_parallel()
+	tw.tween_property(holder, "scale", Vector2.ONE, 0.28).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	tw.tween_property(holder, "modulate:a", 1.0, 0.12)
+	tw.chain().tween_property(holder, "rotation", deg_to_rad(LogoTitle.TILT_DEG + 2.0), 0.08)
+	tw.chain().tween_property(holder, "rotation", deg_to_rad(LogoTitle.TILT_DEG), 0.2).set_trans(Tween.TRANS_ELASTIC).set_ease(Tween.EASE_OUT)
+	tw.chain().tween_interval(0.8)
+	tw.chain().tween_property(holder, "modulate:a", 0.0, 0.3)
+	tw.parallel().tween_property(holder, "scale", Vector2.ONE * 0.85, 0.3).set_ease(Tween.EASE_IN)
+	tw.chain().tween_callback(holder.queue_free)
 
 
 func _render_status(phase: String, seats: Array, active: int) -> void:

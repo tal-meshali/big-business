@@ -1,1 +1,55 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128"><rect width="128" height="128" rx="24" fill="#121826"/><text x="64" y="84" font-family="Arial, Helvetica, sans-serif" font-size="56" font-weight="700" text-anchor="middle" fill="#F5C542">BB</text></svg>
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <radialGradient id="felt" cx="50%" cy="38%" r="75%">
+      <stop offset="0" stop-color="#3E7A4C"/>
+      <stop offset="1" stop-color="#14301D"/>
+    </radialGradient>
+  </defs>
+  <rect width="1024" height="1024" fill="url(#felt)"/>
+  <!-- table -->
+  <ellipse cx="512" cy="790" rx="420" ry="120" fill="#0E2416" opacity="0.55"/>
+  <ellipse cx="512" cy="770" rx="400" ry="110" fill="#9BBE9F" stroke="#1C1C1C" stroke-width="14"/>
+  <ellipse cx="512" cy="758" rx="360" ry="88" fill="#C7DFC9"/>
+  <!-- left card: Solar -->
+  <g transform="rotate(-18 330 520)">
+    <rect x="200" y="250" width="260" height="380" rx="28" fill="#FFFDF6" stroke="#1C1C1C" stroke-width="16"/>
+    <path d="M208 278 a20 20 0 0 1 20 -20 h204 a20 20 0 0 1 20 20 v62 h-244z" fill="#F2C230"/>
+    <line x1="208" y1="340" x2="452" y2="340" stroke="#1C1C1C" stroke-width="12"/>
+    <circle cx="330" cy="470" r="52" fill="#F2C230" stroke="#1C1C1C" stroke-width="12"/>
+  </g>
+  <!-- right card: Freight -->
+  <g transform="rotate(18 694 520)">
+    <rect x="564" y="250" width="260" height="380" rx="28" fill="#FFFDF6" stroke="#1C1C1C" stroke-width="16"/>
+    <path d="M572 278 a20 20 0 0 1 20 -20 h204 a20 20 0 0 1 20 20 v62 h-244z" fill="#2E6FD8"/>
+    <line x1="572" y1="340" x2="816" y2="340" stroke="#1C1C1C" stroke-width="12"/>
+    <path d="M694 420 v110 M650 455 h88 M634 500 q60 70 120 0" fill="none" stroke="#1C1C1C" stroke-width="16" stroke-linecap="round"/>
+  </g>
+  <!-- centre card: Motors -->
+  <rect x="382" y="190" width="260" height="400" rx="28" fill="#FFFDF6" stroke="#1C1C1C" stroke-width="16"/>
+  <path d="M390 218 a20 20 0 0 1 20 -20 h204 a20 20 0 0 1 20 20 v66 h-244z" fill="#D6262C"/>
+  <line x1="390" y1="284" x2="634" y2="284" stroke="#1C1C1C" stroke-width="12"/>
+  <circle cx="512" cy="430" r="78" fill="#1C1C1C"/>
+  <circle cx="512" cy="430" r="58" fill="#D6262C"/>
+  <circle cx="512" cy="430" r="40" fill="#FFFDF6"/>
+  <path d="M522 392 l-34 46 h26 l-12 34 l36 -48 h-26z" fill="#1C1C1C"/>
+  <!-- coin stacks -->
+  <g stroke="#1C1C1C" stroke-width="12">
+    <ellipse cx="250" cy="735" rx="78" ry="28" fill="#B8722E"/>
+    <ellipse cx="250" cy="710" rx="78" ry="28" fill="#B8722E"/>
+    <ellipse cx="250" cy="685" rx="78" ry="28" fill="#D08A44"/>
+    <ellipse cx="780" cy="740" rx="78" ry="28" fill="#B8722E"/>
+    <ellipse cx="780" cy="715" rx="78" ry="28" fill="#E2B23A"/>
+  </g>
+  <!-- regulator chip -->
+  <circle cx="512" cy="700" r="112" fill="#1C1C1C"/>
+  <circle cx="512" cy="700" r="96" fill="#E2B23A"/>
+  <g fill="none" stroke="#D6262C" stroke-width="30">
+    <path d="M512 620 a80 80 0 0 1 40 10.7"/>
+    <path d="M581.3 660 a80 80 0 0 1 0 80"/>
+    <path d="M552 769.3 a80 80 0 0 1 -40 10.7"/>
+    <path d="M472 769.3 a80 80 0 0 1 -29.3 -29.3"/>
+    <path d="M442.7 660 a80 80 0 0 1 29.3 -29.3"/>
+  </g>
+  <circle cx="512" cy="700" r="56" fill="#E2B23A" stroke="#1C1C1C" stroke-width="10"/>
+  <path d="M492 730 v-62 h26 a17 17 0 0 1 0 34 h-26 M512 702 l20 28" fill="none" stroke="#1C1C1C" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

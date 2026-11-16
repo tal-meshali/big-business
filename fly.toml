@@ -1,0 +1,26 @@
+# Fly.io deploy of the game server (docs/deploy.md "Fly.io"). Free TLS
+# address: https://big-business-server.fly.dev
+app = "big-business-server"
+primary_region = "fra"
+
+[build]
+  dockerfile = "fly/Dockerfile"
+
+[http_service]
+  internal_port = 7350
+  force_https = true
+  # Matches live in memory: one machine, never stopped for idleness.
+  auto_stop_machines = "off"
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [[http_service.checks]]
+    grace_period = "20s"
+    interval = "30s"
+    method = "GET"
+    path = "/healthcheck"
+    timeout = "5s"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"

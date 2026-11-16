@@ -10,6 +10,17 @@ One small VPS runs everything until well past 10k monthly players. Steps:
 6. **Verify**: `curl https://play.example.com/` returns Nakama's status. The console is not published; open it through an SSH tunnel (`ssh -N -L 7351:127.0.0.1:7351 user@play.example.com`, then `http://127.0.0.1:7351`).
 7. **Update**: `git pull`, `cd server && npm ci && npm run build`, then from the repo root `docker compose -f docker-compose.prod.yml up -d --build nakama`. Matches in progress are terminated on restart; deploy during quiet hours until rolling restarts are set up.
 
+## Fly.io (current deployment)
+
+The server runs on Fly.io at https://big-business-server.fly.dev (free TLS on the fly.dev name; a custom domain can be added later with `fly certs add`). Files: `fly.toml`, `fly/Dockerfile`, `fly/start.sh` (the same Nakama flags as `docker-compose.prod.yml`).
+
+- **Apps**: `big-business-server` (one shared-cpu-1x 512 MB machine in fra, never auto-stopped because matches live in memory) and `big-business-db` (Fly Postgres, attached, which sets `DATABASE_URL`).
+- **Secrets**: generated into `.env.fly` (git-ignored; keep a copy in a password manager) and loaded with `fly secrets import -a big-business-server < .env.fly`. The client's `AppInfo.SERVER_KEY` must equal `NAKAMA_SERVER_KEY`.
+- **Deploy an update**: `cd server && npm run build && cd .. && fly deploy --ha=false` (keep one machine: a second one would split matches).
+- **Console**: `fly proxy 7351 -a big-business-server`, then http://127.0.0.1:7351 with `NAKAMA_CONSOLE_USER` / `NAKAMA_CONSOLE_PASSWORD`.
+- **Logs**: `fly logs -a big-business-server`. Check that `insecure default` never appears.
+- **Server-to-server RPCs** (Remote Config, analytics, moderation) use `https://big-business-server.fly.dev/v2/rpc/...?http_key=$NAKAMA_HTTP_KEY&unwrap` exactly as below.
+
 ## Social sign-in
 
 Players start as guests: the first launch authenticates with a device id and nothing else. The lobby's Account row then offers "Link Apple" (iOS) and "Link Google" (Android) so the same account comes back after a reinstall or on a new phone; the next launch signs in with that provider first and falls back to the device id. Server-side:

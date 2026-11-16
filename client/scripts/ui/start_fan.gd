@@ -22,7 +22,11 @@ var edge_color := Companies.TABLE_EDGE:
 	set(value):
 		edge_color = value
 		queue_redraw()
+## Shrink to the height the parent leaves (the lobby fits one screen);
+## `s` then never grows past what it was set to.
+var fit := false
 var cards: Array[CardView] = []
+var _max_s := 1.85
 var _flipping := {}
 var _t := 0.0
 
@@ -32,7 +36,11 @@ func _init() -> void:
 
 
 func _ready() -> void:
-	custom_minimum_size = Vector2(0, STAGE_H * s)
+	_max_s = s
+	custom_minimum_size = Vector2(0, (STAGE_H * 0.45 if fit else STAGE_H) * s)
+	if fit:
+		size_flags_vertical = Control.SIZE_EXPAND_FILL
+		resized.connect(_fit)
 	for i in 6:
 		var cv := CardView.new()
 		cv.setup(-1, i)
@@ -46,6 +54,14 @@ func _ready() -> void:
 		add_child(cv)
 		cards.append(cv)
 	_place(0.0)
+
+
+func _fit() -> void:
+	s = minf(_max_s, size.y / STAGE_H)
+	for cv in cards:
+		if not _flipping.has(cards.find(cv)):
+			cv.scale = Vector2.ONE * _card_scale()
+	queue_redraw()
 
 
 func _card_scale() -> float:
@@ -88,7 +104,8 @@ func _place(t: float) -> void:
 
 
 func _stage_origin() -> Vector2:
-	return Vector2((size.x - 390.0 * s) / 2.0, 0.0)
+	# Bottom-aligned, so the title card always overlaps the felt's front edge.
+	return Vector2((size.x - 390.0 * s) / 2.0, size.y - STAGE_H * s if fit else 0.0)
 
 
 func _draw() -> void:

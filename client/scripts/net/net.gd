@@ -72,7 +72,8 @@ func _ready() -> void:
 
 
 func _load_settings() -> void:
-	if not AppInfo.SERVER_ADDRESS.is_empty():
+	# Exported apps only: tests and editor runs stay on the local server.
+	if OS.has_feature("template") and not AppInfo.SERVER_ADDRESS.is_empty():
 		set_server_address(AppInfo.SERVER_ADDRESS)
 	var cfg := ConfigFile.new()
 	if cfg.load(SETTINGS_PATH) == OK:

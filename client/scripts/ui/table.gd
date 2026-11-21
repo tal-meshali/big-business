@@ -16,6 +16,8 @@ extends Control
 
 const FLY_TIME := 0.35
 const COIN_TIME := 0.3
+## How long your hand takes to close up after you play a card.
+const CLOSE_UP_TIME := 0.22
 ## Tilt of the hand cards per step from the middle, in degrees.
 const HAND_TILT_DEG := 7.0
 ## Seconds left on your own step when the table starts to glow and tick.
@@ -1482,7 +1484,14 @@ func _play_events_then_render() -> void:
 					to_k = _felt_scale(p, 0.2)
 				if not mine:
 					_action_note = "%s %s %s%s." % [_seat_name(seat), "sells" if to_market else "keeps", Companies.name_of(company), " to the Market" if to_market else ""]
-				await _fly_card(from, to, company, true, from_k, to_k)
+					await _fly_card(from, to, company, true, from_k, to_k)
+				else:
+					_end_play_choice("You %s %s%s." % ["sell" if to_market else "keep", Companies.name_of(company), " to the Market" if to_market else ""])
+					var played := _take_from_hand(int(card.get("id", -1)))
+					if played != null:
+						await _fly_view(played, to, to_k)
+					else:
+						await _fly_card(from, to, company, true, from_k, to_k)
 				sfx.play("place")
 				if mine:
 					Sfx.buzz(25)
@@ -1591,16 +1600,57 @@ func _fly_card(from: Vector2, to: Vector2, company: int, face_up: bool, from_k: 
 	ghost.pivot_offset = Vector2(CardView.W, CardView.H) / 2.0
 	_fx_layer.add_child(ghost)
 	ghost.scale = Vector2(from_k, from_k)
-	var a := from - ghost.pivot_offset
-	var b := to - ghost.pivot_offset
-	ghost.global_position = a
+	ghost.global_position = from - ghost.pivot_offset
+	await _fly_view(ghost, to, to_k)
+
+
+## Hops `card` (already in the effects layer, pivot at its centre) to
+## centre `to`, scaling to `to_k` and levelling out, then frees it.
+func _fly_view(card: CardView, to: Vector2, to_k: float) -> void:
+	var a := card.global_position
+	var b := to - card.pivot_offset
 	var hop := 40.0 * _s
 	var tw := create_tween().set_parallel().set_ease(Tween.EASE_IN_OUT).set_trans(Tween.TRANS_CUBIC)
 	tw.tween_method(func(t: float) -> void:
-		ghost.global_position = a.lerp(b, t) + Vector2(0, -sin(t * PI) * hop), 0.0, 1.0, FLY_TIME)
-	tw.tween_property(ghost, "scale", Vector2(to_k, to_k), FLY_TIME)
+		card.global_position = a.lerp(b, t) + Vector2(0, -sin(t * PI) * hop), 0.0, 1.0, FLY_TIME)
+	tw.tween_property(card, "scale", Vector2(to_k, to_k), FLY_TIME)
+	tw.tween_property(card, "rotation", 0.0, FLY_TIME)
 	await tw.finished
-	ghost.queue_free()
+	card.queue_free()
+
+
+## Lifts the card you just played out of your hand so it can fly to the
+## table as itself, and closes the hand up behind it. Returns the card,
+## now in the effects layer with its pivot at its centre (null if it is
+## not in the hand on screen).
+func _take_from_hand(card_id: int) -> CardView:
+	var played: CardView = null
+	for cv in _hand_cards:
+		if cv.card_id == card_id:
+			played = cv
+	if played == null:
+		return null
+	_hand_cards.erase(played)
+	played.leave_hand()
+	# WHY: re-pivot about the centre without moving it on screen, so the
+	# flight can level it out and shrink it into place like a ghost card.
+	var center: Vector2 = played.get_global_transform() * (Vector2(CardView.W, CardView.H) / 2.0)
+	played.reparent(_fx_layer, false)
+	played.pivot_offset = Vector2(CardView.W, CardView.H) / 2.0
+	played.global_position = center - played.pivot_offset
+	var count := _hand_cards.size()
+	for i in count:
+		var slot := _hand_slot(i, count)
+		_hand_cards[i].slide_to(slot["pos"], slot["rot"], CLOSE_UP_TIME)
+	return played
+
+
+## The play is made: the Keep / Sell choice goes and `note` says what you did.
+func _end_play_choice(note: String) -> void:
+	_selected_card = -1
+	for b in [_keep_button, _sell_button, _cancel_button]:
+		b.visible = false
+	_prompt.text = note
 
 
 ## A bronze (or gold) coin hops from one point to another after `delay`.

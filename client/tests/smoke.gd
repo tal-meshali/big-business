@@ -759,15 +759,26 @@ func _get_ready_checks() -> int:
 	v["legal"] = [{"type": "take_supply"}]
 	v["drawCost"] = 0
 	table._on_view(v.duplicate(true))
+	# While GO! holds and fades, play has begun: taps pass through the shade
+	# and YOUR TURN waits for it to clear.
+	if table._ready_burst.text != "GO!":
+		push_error("the countdown should end with GO! when play begins, got %s" % table._ready_burst.text)
+		failures += 1
+	if table._ready_overlay.mouse_filter != Control.MOUSE_FILTER_IGNORE or table.sfx.history.has("turn"):
+		push_error("after GO! the shade should let taps through, and the chime should wait for it to clear")
+		failures += 1
 	for i in 40:
 		await create_timer(0.05).timeout
 		if not table._ready_overlay.visible:
 			break
-	if table._ready_overlay.visible or table._ready_burst.text != "GO!" or table._ready_ends_msec != 0:
-		push_error("the countdown should end with GO! when play begins")
+	if table._ready_overlay.visible or table._ready_burst.text != "" or table._ready_ends_msec != 0:
+		push_error("the countdown should clear once play begins")
 		failures += 1
 	if table._top_bar.get_index() != table._top_bar_home:
 		push_error("the top bar should go back under the table's overlays after the countdown")
+		failures += 1
+	if table._ready_burst.get_child_count() != 0 and not table._ready_burst.get_children().all(func(c: Node) -> bool: return c.is_queued_for_deletion()):
+		push_error("the countdown numerals should be freed once the shade is gone")
 		failures += 1
 	if table.sfx.history.count("turn") != 1:
 		push_error("the turn chime should play once the countdown ends, history %s" % [table.sfx.history])

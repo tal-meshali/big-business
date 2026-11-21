@@ -20,6 +20,10 @@ const COIN_TIME := 0.3
 const HAND_TILT_DEG := 7.0
 ## Seconds left on your own step when the table starts to glow and tick.
 const URGENT_SECONDS := 5
+## A get-ready end time that moves by less than this (ms) is view latency.
+const READY_JITTER_MS := 300
+## Longest name shown on the get-ready card.
+const READY_NAME_MAX := 18
 ## Size of a held card's close-up, relative to an unscaled card.
 const PEEK_SCALE := 2.2
 ## Card scales on the felt, as in the design (1 = a 100 dp wide card).
@@ -385,13 +389,13 @@ func _layout() -> void:
 	_place_supply()
 
 
-## The countdown before the first turn: a gold 3-2-1 over rays, then who
-## starts and the seat order. The shade covers the whole screen, notch and
-## home indicator included; the top bar is lifted above it while it shows so
-## Forfeit stays in reach.
+## The countdown before the first turn: a gold 3-2-1 over rays, who starts,
+## then the seat order on a royal card. The shade covers the whole screen,
+## notch and home indicator included; the top bar is lifted above it while
+## it shows so Forfeit stays in reach.
 func _build_get_ready() -> void:
 	_ready_overlay = ColorRect.new()
-	_ready_overlay.color = Color(UiTheme.NIGHT, 0.66)
+	_ready_overlay.color = Color(UiTheme.NIGHT, 0.82)
 	_ready_overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_ready_overlay.visible = false
 	add_child(_ready_overlay)
@@ -403,36 +407,45 @@ func _build_get_ready() -> void:
 	_ready_overlay.add_child(center)
 	var column := VBoxContainer.new()
 	column.alignment = BoxContainer.ALIGNMENT_CENTER
-	column.add_theme_constant_override("separation", _px(4))
+	column.add_theme_constant_override("separation", _px(10))
 	center.add_child(column)
 	_ready_burst = CountdownBurst.new()
-	_ready_burst.px = _px(100)
+	_ready_burst.px = _px(110)
 	column.add_child(_ready_burst)
-	var deed := UiTheme.deed_panel(Companies.CHEST, "Get ready", Color.WHITE)
-	deed["panel"].custom_minimum_size = Vector2(520, 0)
-	column.add_child(deed["panel"])
-	var box := VBoxContainer.new()
-	box.add_theme_constant_override("separation", 10)
-	deed["body"].add_child(box)
-	_ready_first = Label.new()
+	_ready_first = UiTheme.label("", _px(22), Color.WHITE, true)
 	_ready_first.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_ready_first.add_theme_font_override("font", UiTheme.display_font())
-	_ready_first.add_theme_font_size_override("font_size", 26)
-	box.add_child(_ready_first)
-	var order_title := Label.new()
-	order_title.text = "Turn order"
-	order_title.add_theme_font_size_override("font_size", 19)
-	order_title.add_theme_color_override("font_color", Companies.INK_SOFT)
+	_ready_first.add_theme_color_override("font_outline_color", UiTheme.OUTLINE)
+	_ready_first.add_theme_constant_override("outline_size", _px(4))
+	column.add_child(_ready_first)
+
+	var card := PanelContainer.new()
+	var style := StyleBoxFlat.new()
+	style.bg_color = UiTheme.ROYAL
+	style.border_color = UiTheme.OUTLINE
+	style.set_border_width_all(_px(2))
+	style.border_width_bottom = _px(5)
+	style.set_corner_radius_all(_px(16))
+	style.content_margin_left = _px(18)
+	style.content_margin_right = _px(18)
+	style.content_margin_top = _px(12)
+	style.content_margin_bottom = _px(14)
+	style.anti_aliasing = true
+	card.add_theme_stylebox_override("panel", style)
+	card.custom_minimum_size = Vector2(_px(280), 0)
+	card.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	column.add_child(card)
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", _px(6))
+	card.add_child(box)
+	var order_title := UiTheme.label("TURN ORDER", _px(11), UiTheme.LILAC, true)
 	box.add_child(order_title)
-	_ready_seats = Label.new()
-	_ready_seats.add_theme_font_size_override("font_size", 24)
+	_ready_seats = UiTheme.label("", _px(16), UiTheme.CREAM)
+	_ready_seats.add_theme_constant_override("line_spacing", _px(2))
 	box.add_child(_ready_seats)
-	var tip := Label.new()
-	tip.text = "Collect shares, hold the most of a company, and cash in on dividend day."
-	tip.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	var tip := UiTheme.label("Collect shares, hold the most of a company, and cash in on dividend day.", _px(12), UiTheme.LILAC)
+	tip.add_theme_font_override("font", UiTheme.body_font())
 	tip.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	tip.add_theme_font_size_override("font_size", 18)
-	tip.add_theme_color_override("font_color", Companies.INK_SOFT)
+	tip.custom_minimum_size = Vector2(_px(244), 0)
 	box.add_child(tip)
 
 
@@ -611,6 +624,8 @@ func _on_seat_menu(id: int) -> void:
 
 
 func _on_reconnecting(attempt: int) -> void:
+	# Above the get-ready shade and any panel that opened after it.
+	move_child(_reconnect_overlay, -1)
 	_reconnect_overlay.visible = true
 	_reconnect_label.text = "Connection lost. Trying again (%d/5)..." % attempt
 
@@ -815,7 +830,11 @@ func _process(_delta: float) -> void:
 func _update_get_ready(starts_in_ms: int) -> void:
 	if starts_in_ms > 0 and view.get("phase") != "ended":
 		var fading_out := _ready_overlay.visible and _ready_ends_msec == 0
-		_ready_ends_msec = Time.get_ticks_msec() + starts_in_ms
+		var ends := Time.get_ticks_msec() + starts_in_ms
+		# WHY: views arrive with a little latency jitter; a later view that
+		# moves the end by a few ms must not step the number back.
+		if _ready_ends_msec == 0 or absi(ends - _ready_ends_msec) > READY_JITTER_MS:
+			_ready_ends_msec = ends
 		_fill_get_ready()
 		if not _ready_overlay.visible:
 			# Fade the shade in; the first number slams in with it.
@@ -823,12 +842,14 @@ func _update_get_ready(starts_in_ms: int) -> void:
 				_ready_tween.kill()
 			_ready_burst.reset()
 			_ready_overlay.modulate.a = 0.0
+			_ready_overlay.mouse_filter = Control.MOUSE_FILTER_STOP
 			_ready_overlay.visible = true
 			_ready_tween = create_tween()
 			_ready_tween.tween_property(_ready_overlay, "modulate:a", 1.0, 0.18).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
 		elif fading_out:
 			_ready_tween.kill()
 			_ready_overlay.modulate.a = 1.0
+			_ready_overlay.mouse_filter = Control.MOUSE_FILTER_STOP
 		_lift_top_bar(true)
 		_update_countdown()
 	elif _ready_ends_msec > 0:
@@ -844,34 +865,49 @@ func _fill_get_ready() -> void:
 	for k in seats.size():
 		var i := (first + k) % seats.size()
 		var seat: Dictionary = seats[i]
-		var who := "You" if i == _my_seat else String(seat.get("name", "?"))
+		var who := "You" if i == _my_seat else _short_name(String(seat.get("name", "?")))
 		lines.append("%d.  %s%s" % [k + 1, who, "  • bot" if seat.get("isBot", false) else ""])
 	_ready_seats.text = "\n".join(lines)
-	_ready_first.text = "You go first!" if first == _my_seat else "%s goes first" % seats[first].get("name", "?")
+	_ready_first.text = "You go first!" if first == _my_seat else "%s goes first" % _short_name(String(seats[first].get("name", "?")))
+
+
+## Names longer than READY_NAME_MAX end in an ellipsis on the get-ready card.
+## WHY: player names are capped in the client, bot and server names are not.
+func _short_name(n: String) -> String:
+	return n if n.length() <= READY_NAME_MAX else n.left(READY_NAME_MAX - 1).strip_edges() + "…"
 
 
 func _update_countdown() -> void:
 	var left := _ready_ends_msec - Time.get_ticks_msec()
 	if left > 0:
-		_ready_burst.show_value(str(ceili(left / 1000.0)))
+		if _ready_burst.show_value(str(ceili(left / 1000.0))):
+			sfx.play("tick", -4.0)
+			Sfx.buzz(15)
 	else:
 		_end_get_ready()
 
 
 func _end_get_ready() -> void:
 	_ready_ends_msec = 0
-	_ready_burst.show_value("GO!")
 	if _ready_tween != null:
 		_ready_tween.kill()
+	# Play has begun: let taps through while GO! holds and fades.
+	_ready_overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_ready_tween = create_tween()
-	_ready_tween.tween_interval(0.45)
-	_ready_tween.tween_property(_ready_overlay, "modulate:a", 0.0, 0.25).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	if view.get("phase") == "ended":
+		# The game ended during the countdown: no GO! before dividend day.
+		_ready_tween.tween_property(_ready_overlay, "modulate:a", 0.0, 0.15)
+	else:
+		_ready_burst.show_value("GO!")
+		_ready_tween.tween_interval(0.45)
+		_ready_tween.tween_property(_ready_overlay, "modulate:a", 0.0, 0.25).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
 	_ready_tween.tween_callback(func() -> void:
 		_ready_overlay.visible = false
 		_ready_overlay.modulate.a = 1.0
-		_lift_top_bar(false))
-	# The turn chime waited for the countdown.
-	_announce_turn(String(view.get("phase", "")))
+		_ready_burst.reset()
+		_lift_top_bar(false)
+		# The turn chime and YOUR TURN waited for the countdown to clear.
+		_announce_turn(String(view.get("phase", ""))))
 
 
 ## Puts the top bar just above the get-ready shade (lift) or back in its
@@ -976,7 +1012,8 @@ func _render() -> void:
 
 ## A chime and a buzz once when your turn starts.
 func _announce_turn(phase: String) -> void:
-	if _ready_ends_msec > 0:
+	# Wait for the get-ready countdown, GO! included, to clear the screen.
+	if _ready_ends_msec > 0 or _ready_overlay.visible:
 		return
 	var turn := int(view.get("turn", 0))
 	if phase == "take" and _is_my_turn() and turn != _announced_turn:

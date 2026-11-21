@@ -29,6 +29,12 @@ func _run() -> void:
 		print("E2E CLIENT FAILED: a reserved name should be refused with its sentence, got '%s'" % refused)
 		quit(1)
 		return
+	# A sentence with " at " in it used to be cut short by the client.
+	var too_long: String = await names.save("A name far too long")
+	if too_long != "Too long. Use 2 to 16 characters.":
+		print("E2E CLIENT FAILED: a long name should be refused with its whole sentence, got '%s'" % too_long)
+		quit(1)
+		return
 	var wanted := "Godot %d" % (Time.get_ticks_usec() % 1000000)
 	var problem: String = await names.save(wanted)
 	var links: Dictionary = await net.get_account_links()

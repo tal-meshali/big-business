@@ -62,6 +62,8 @@ var blocked: Dictionary = {}
 var _reconnect_attempts: int = 0
 var _closing: bool = false
 var _reconnecting: bool = false
+## True while the server holds a newer name than the session token carries.
+var _identity_stale: bool = false
 
 
 func _ready() -> void:
@@ -171,9 +173,11 @@ func _make_client() -> void:
 ## device-id and social sign-ins so they behave identically after auth.
 func _open_socket() -> bool:
 	user_id = session.user_id
-	# WHY always: an existing account keeps its own name whatever the saved
-	# one says, and this is the name every other player sees.
-	display_name = session.username
+	# WHY: an existing account keeps its own name whatever the saved one
+	# says, and this is the name every other player sees. A stale token
+	# still carries the name from before the last change.
+	if not _identity_stale:
+		display_name = session.username
 
 	socket = Nakama.create_socket_from(client)
 	var connected_result: NakamaAsyncResult = await socket.connect_async(session)
@@ -276,6 +280,10 @@ func _join_match(id: String, code: String = "", watch: bool = false) -> bool:
 	if id.is_empty():
 		server_error.emit("no match id")
 		return false
+	# A name saved while the session could not be renewed: renew it before
+	# taking a seat under the old one.
+	if _identity_stale and match_id.is_empty() and not _reconnecting:
+		await refresh_identity()
 	var metadata = {"code": code} if not code.is_empty() else null
 	if watch:
 		metadata = {"watch": "1"}
@@ -528,23 +536,36 @@ func _try_reconnect() -> void:
 	connection_failed.emit("disconnected")
 
 
-## Signs the session in again and reopens the socket, so the name other
-## players see at a table follows a change of name at once (set_name on the
-## server). False, with nothing changed, while seated in a match or offline:
-## the seat is tied to this socket, and the next launch picks the name up.
+## Renews the session and reopens the socket, so the name other players
+## see at a table follows a change of name at once (set_name on the server).
+## False while seated in a match or when the server cannot be reached; the
+## name is then marked stale and renewed before the next seat is taken or
+## at the next reconnect.
 ## WHY: the session token carries the username it was issued with.
 func refresh_identity() -> bool:
-	if client == null or session == null or not match_id.is_empty():
+	_identity_stale = true
+	if client == null or session == null or session.is_exception() or not match_id.is_empty() or _reconnecting:
 		return false
+	# WHY held for the whole swap: a resume check in the middle of it would
+	# start a reconnect of its own.
+	_reconnecting = true
 	var fresh: NakamaSession = await client.session_refresh_async(session)
 	if fresh.is_exception():
+		_reconnecting = false
 		return false
-	_closing = true
-	if socket != null:
-		socket.close()
-	_closing = false
 	session = fresh
-	return await _open_socket()
+	_identity_stale = false
+	# The new socket opens before the old one closes, so a failure here
+	# leaves a reconnect to run instead of a dead lobby. The old socket's
+	# close is ignored: it is no longer `socket`.
+	var old := socket
+	var opened := await _open_socket()
+	if old != null:
+		old.close()
+	_reconnecting = false
+	if not opened:
+		_try_reconnect()
+	return opened
 
 
 ## Reopens the socket for the account we were signed in as.
@@ -553,6 +574,11 @@ func refresh_identity() -> bool:
 ## be refused and the seat would time out. The current session is reused
 ## while valid, otherwise the remembered sign-in runs again.
 func _reconnect_session() -> bool:
+	if _identity_stale and session != null and not session.is_exception():
+		var fresh: NakamaSession = await client.session_refresh_async(session)
+		if not fresh.is_exception():
+			session = fresh
+			_identity_stale = false
 	if session != null and not session.is_exception() and not session.would_expire_in(60):
 		return await _open_socket()
 	return await connect_preferred()
@@ -582,13 +608,14 @@ func list_friends() -> Array:
 	for f in res.friends:
 		if f.user == null or f.state == 3:
 			continue
-		var shown_name: String = f.user.display_name if not f.user.display_name.is_empty() else f.user.username
-		rows.append({"userId": f.user.id, "name": shown_name, "online": f.user.online, "state": int(f.state)})
+		# WHY the username only: Nakama fills display_name from an Apple or
+		# Google profile, which the name rules never saw.
+		rows.append({"userId": f.user.id, "name": f.user.username, "online": f.user.online, "state": int(f.state)})
 	return rows
 
 
-## Sends a friend request to a player by exact username (adding back accepts
-## theirs). False when no such player exists.
+## Sends a friend request to a player by username, in any letter case
+## (adding back accepts theirs). False when no such player exists.
 func add_friend_by_name(username: String) -> bool:
 	var rpc: NakamaAPI.ApiRpc = await client.rpc_async(session, "find_player", JSON.stringify({"name": username.strip_edges()}))
 	if rpc.is_exception():

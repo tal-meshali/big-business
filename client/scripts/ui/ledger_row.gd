@@ -27,15 +27,15 @@ var _tappable := false
 
 
 ## `tappable` rows are a full touch target and show a chevron.
-static func make(label: String, value: String, scale_px: float, tappable := false) -> LedgerRow:
+static func make(label_text: String, value_text: String, scale_px: float, tappable := false) -> LedgerRow:
 	var row := LedgerRow.new()
 	row.s = scale_px
 	row._tappable = tappable
-	row._build(label, value)
+	row._build(label_text, value_text)
 	return row
 
 
-func _build(label: String, value: String) -> void:
+func _build(label_text: String, value_text: String) -> void:
 	flat = true
 	focus_mode = Control.FOCUS_NONE
 	text = ""
@@ -58,7 +58,7 @@ func _build(label: String, value: String) -> void:
 	box.add_theme_constant_override("separation", int(6 * s))
 	add_child(box)
 
-	_label = UiTheme.label(label, int(14 * s), Companies.INK)
+	_label = UiTheme.label(label_text, int(14 * s), Companies.INK)
 	_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	_label.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	box.add_child(_label)
@@ -71,7 +71,7 @@ func _build(label: String, value: String) -> void:
 	_leader.draw.connect(_draw_leader)
 	box.add_child(_leader)
 
-	_value = UiTheme.label(value, int(14 * s), Companies.INK, true)
+	_value = UiTheme.label(value_text, int(14 * s), Companies.INK, true)
 	_value.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	_value.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	_value.size_flags_vertical = Control.SIZE_EXPAND_FILL

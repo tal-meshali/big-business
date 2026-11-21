@@ -58,9 +58,16 @@ var _insets := Vector2.ZERO
 ## Games on the profile; -1 until the profile has loaded.
 var _games_played := -1
 var _level := 1
-## The name in the settings file at launch, before the account's own
-## replaces it: what the player typed into an earlier build's name field.
+## The name in the settings file when the lobby loaded and nobody was
+## signed in yet: what the player typed into an earlier build's name field.
 var _saved_name := ""
+## The account the server has said is named, so the lobby does not wait
+## for that answer again after every game.
+static var _named_user := ""
+## False while the account still has the random name the server made; the
+## HUD and the profile then show a stand-in instead of it.
+var _named := true
+var _press_tween: Tween
 ## The little table on top; its `color` is the picked felt.
 var _felt: StartFan
 var _room: LobbyBackdrop
@@ -76,7 +83,8 @@ var _s := 1.85
 
 
 func _ready() -> void:
-	_saved_name = Net.display_name
+	if not Net.is_connected_to_server():
+		_saved_name = Net.display_name
 	_build()
 	Net.connected.connect(_on_connected)
 	Net.connection_failed.connect(_on_failed)
@@ -373,10 +381,8 @@ func _hud() -> Control:
 	_identity.add_child(_profile_button)
 	# The whole cluster gives under the finger, not just the invisible button.
 	_identity.resized.connect(func() -> void: _identity.pivot_offset = Vector2(_px(24), _identity.size.y / 2.0))
-	_profile_button.button_down.connect(func() -> void:
-		_identity.create_tween().tween_property(_identity, "scale", Vector2(0.96, 0.96), 0.08).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT))
-	_profile_button.button_up.connect(func() -> void:
-		_identity.create_tween().tween_property(_identity, "scale", Vector2.ONE, 0.18).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT))
+	_profile_button.button_down.connect(_press_identity.bind(Vector2(0.96, 0.96), 0.08, Tween.TRANS_CUBIC))
+	_profile_button.button_up.connect(_press_identity.bind(Vector2.ONE, 0.18, Tween.TRANS_BACK))
 	_show_name()
 
 	# Streak: a flame and the day count in a dark pill.
@@ -807,9 +813,19 @@ func _add_button(parent: Control, text: String, handler: Callable, enabled := fa
 		_buttons.append(b)
 
 
-## The HUD name and the avatar's initial follow the account's name.
+## One tween at a time on the cluster: a quick tap must not leave the
+## press and the release fighting over its scale.
+func _press_identity(to: Vector2, seconds: float, curve: Tween.TransitionType) -> void:
+	if _press_tween != null:
+		_press_tween.kill()
+	_press_tween = _identity.create_tween()
+	_press_tween.tween_property(_identity, "scale", to, seconds).set_trans(curve).set_ease(Tween.EASE_OUT)
+
+
+## The HUD name and the avatar's initial follow the account's name; an
+## account that has not picked one shows a stand-in, not the random string.
 func _show_name() -> void:
-	var who := Net.display_name.strip_edges()
+	var who := Net.display_name.strip_edges() if _named else ""
 	_name_label.text = who if not who.is_empty() else "New investor"
 	_avatar_label.text = who.substr(0, 1).to_upper() if not who.is_empty() else "?"
 
@@ -837,9 +853,19 @@ func _on_profile_navigate(to: String) -> void:
 
 ## The name step saved a name; Net has already signed in again with it.
 func _on_name_saved(_player_name: String) -> void:
+	_set_named(true)
+	if Net.is_connected_to_server():
+		_status.text = _connected_text()
+
+
+## Records whether the account has a name of its own and shows it (or the
+## stand-in) on the HUD and the profile.
+func _set_named(named: bool) -> void:
+	_named = named
+	if named:
+		_named_user = Net.user_id
+	_profile_panel.unnamed = not named
 	_show_name()
-	_profile_panel.refresh_name()
-	_status.text = "Connected as %s" % Net.display_name
 
 
 func _set_online_buttons(enabled: bool) -> void:
@@ -868,15 +894,28 @@ func _on_connect_pressed() -> void:
 
 func _on_connected() -> void:
 	_connected = true
-	_status.text = "Connected as %s" % Net.display_name
-	_show_name()
 	_board_button.disabled = false
 	_refresh_profile()
 	# WHY the wait: a new player is asked for a name before they can start
-	# a game, and the account answer says whether this one is new.
+	# a game, and the account answer says whether this one is new. An
+	# account already known to be named (back from a game) does not wait.
+	if _named_user == Net.user_id and not Net.user_id.is_empty():
+		_set_named(true)
+		_status.text = _connected_text()
+		_set_online_buttons(true)
+		_refresh_account_row()
+		return
+	_status.text = "Connected"
 	await _refresh_account_row()
 	if _connected:
+		_status.text = _connected_text()
 		_set_online_buttons(true)
+
+
+## "Connected as Tal", or without the name while the account has only the
+## random one the server made.
+func _connected_text() -> String:
+	return "Connected as %s" % Net.display_name if _named else "Connected"
 
 
 func _refresh_profile() -> void:
@@ -1011,11 +1050,15 @@ func _refresh_account_row() -> void:
 	_ask_name_if_new(links)
 
 
-## First launch: the account still has the random name the server made, so
-## ask for one before anything else. `named` is missing from a server that
-## predates set_name; then nobody is asked.
+## Takes the account's answer on whether the player has picked a name.
+## First launch: it still has the random name the server made, so ask for
+## one before anything else. `named` is missing from a server that predates
+## set_name; then nobody is asked. {} (offline) changes nothing.
 func _ask_name_if_new(links: Dictionary) -> void:
-	if links.get("named") != false or _name_prompt.visible or _in_lobby or not Net.match_id.is_empty():
+	if links.is_empty():
+		return
+	_set_named(links.get("named") != false)
+	if _named or _name_prompt.is_open() or _in_lobby or not Net.match_id.is_empty():
 		return
 	# A name typed into an earlier build's name field is offered back; the
 	# random one the settings file may hold instead is not.
@@ -1027,6 +1070,7 @@ func _on_link_apple() -> void:
 	var token: String = SocialTokens.request_apple()
 	if token.is_empty():
 		_status.text = "Apple sign-in was cancelled."
+		_profile_panel.say(_status.text)
 		return
 	_account_switched = false
 	if await Net.link_apple(token) and not _account_switched:
@@ -1046,6 +1090,7 @@ func _on_link_google() -> void:
 	var token: String = SocialTokens.request_google()
 	if token.is_empty():
 		_status.text = "Google sign-in was cancelled."
+		_profile_panel.say(_status.text)
 		return
 	_account_switched = false
 	if await Net.link_google(token) and not _account_switched:
@@ -1172,5 +1217,5 @@ func _on_leave_room() -> void:
 	_ready_button.disabled = false
 	_start_now_button.visible = false
 	_start_now_button.disabled = false
-	_status.text = "Connected as %s" % Net.display_name if _connected else "Not connected"
+	_status.text = _connected_text() if _connected else "Not connected"
 	_show_room_box(false)

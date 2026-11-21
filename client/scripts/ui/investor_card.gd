@@ -37,6 +37,11 @@ var face_up := true
 var avatar_color := SeatView.AVATARS[0]
 
 var _back: CardView
+## The back is drawn in CardView's own 120 x 168 units; this viewport
+## renders it at the card's real size, so its lettering stays as sharp as
+## the face's.
+var _back_port: SubViewport
+var _back_view: TextureRect
 var _flip: Tween
 ## 0..1 while the light sweeps across the face; above 1 it is off.
 var _sheen := 2.0
@@ -49,11 +54,25 @@ func _init() -> void:
 	tooltip_text = "Your investor card. Tap to see your card back."
 	for state in ["normal", "hover", "pressed", "hover_pressed", "focus", "disabled"]:
 		add_theme_stylebox_override(state, StyleBoxEmpty.new())
+	_back_port = SubViewport.new()
+	_back_port.size_2d_override = Vector2i(int(CardView.W), int(CardView.H))
+	_back_port.size_2d_override_stretch = true
+	_back_port.transparent_bg = true
+	_back_port.disable_3d = true
+	_back_port.render_target_update_mode = SubViewport.UPDATE_DISABLED
+	add_child(_back_port)
 	_back = CardView.new()
 	_back.setup(-1, 0, 0, false)
+	_back.size = Vector2(CardView.W, CardView.H)
 	_back.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_back.visible = false
-	add_child(_back)
+	_back_port.add_child(_back)
+	_back_view = TextureRect.new()
+	_back_view.texture = _back_port.get_texture()
+	_back_view.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	_back_view.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_back_view.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_back_view.visible = false
+	add_child(_back_view)
 	resized.connect(_on_resized)
 	pressed.connect(flip)
 
@@ -70,9 +89,16 @@ func _unit() -> float:
 
 func _on_resized() -> void:
 	pivot_offset = size / 2.0
-	_back.scale = Vector2.ONE * _unit()
-	_back.position = Vector2.ZERO
+	_back_port.size = Vector2i(maxi(1, int(ceil(size.x))), maxi(1, int(ceil(size.y))))
+	if not face_up:
+		_render_back()
 	queue_redraw()
+
+
+## Draws the equipped card back once into its viewport.
+func _render_back() -> void:
+	_back.queue_redraw()
+	_back_port.render_target_update_mode = SubViewport.UPDATE_ONCE
 
 
 ## Turns the card over with a quick squash, like the shares in the lobby.
@@ -83,8 +109,9 @@ func flip() -> void:
 	_flip.tween_property(self, "scale:x", 0.0, FLIP_OUT).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
 	_flip.tween_callback(func() -> void:
 		face_up = not face_up
-		_back.visible = not face_up
-		_back.queue_redraw()
+		_back_view.visible = not face_up
+		if not face_up:
+			_render_back()
 		queue_redraw())
 	_flip.tween_property(self, "scale:x", 1.0, FLIP_IN).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
 
@@ -95,7 +122,7 @@ func show_face() -> void:
 		_flip.kill()
 	scale.x = scale.y
 	face_up = true
-	_back.visible = false
+	_back_view.visible = false
 	queue_redraw()
 
 
@@ -126,6 +153,7 @@ func _draw() -> void:
 	outer.shadow_size = int(7 * u)
 	outer.shadow_offset = Vector2(0, 5 * u)
 	draw_style_box(outer, rect)
+	# The back covers the face; only the card's edge and shadow show round it.
 	if not face_up:
 		return
 
@@ -152,7 +180,7 @@ func _draw() -> void:
 	var mid := (left + right) / 2.0
 	_centered("INVESTOR", Vector2(mid, (INSET + 13) * u), int(8 * u), Companies.INK, text, right - left)
 	var shown := player_name if not player_name.is_empty() else "Your name"
-	_centered(shown, Vector2(mid, (INSET + 30) * u), int(15 * u), Color(Companies.INK, 1.0 if not player_name.is_empty() else 0.45), display, right - left, int(9 * u))
+	_centered(shown, Vector2(mid, (INSET + 30) * u), int(15 * u), Color(Companies.INK, 1.0 if not player_name.is_empty() else 0.45), display, right - left, int(7 * u))
 
 	# The club line over a rule, as a company's full name.
 	var name_y := (INSET + BAND_H + 4) * u

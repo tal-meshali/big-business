@@ -18,7 +18,7 @@ export const RATE_WINDOW_MS = 60_000;
 /** Calls allowed per user per minute. */
 export const RATE_LIMITS = {
   find_player: 20,
-  set_name: 6,
+  set_name: 10,
   invite_friend: 10,
   report_player: 5,
   create_room: 6,

@@ -4,10 +4,12 @@ class_name NamesApi
 ## server owns the rules (server/src/match/names.ts); the length is checked
 ## here too so the field can say so before a round trip.
 
-const MIN_LENGTH := 3
+const MIN_LENGTH := 2
 const MAX_LENGTH := 16
 
-const TOO_SHORT := "Use at least 3 characters."
+## What a name may be, shown under the field before anything is wrong.
+const RULES := "2 to 16 letters or numbers."
+const TOO_SHORT := "Too short. Use 2 to 16 characters."
 const OFFLINE := "Connect to save your name."
 const BUSY := "Too many tries. Wait a minute and try again."
 const FAILED := "Could not save your name. Try again."
@@ -36,11 +38,15 @@ static func save(typed: String) -> String:
 	var early := problem(wanted)
 	if not early.is_empty():
 		return early
+	if not Net.is_connected_to_server():
+		return OFFLINE
 	var res: Dictionary = await DesignerApi._call("set_name", {"name": wanted})
 	if res.is_empty():
 		return _message(DesignerApi.last_error)
 	Net.display_name = String(res.get("name", wanted))
 	Net.save_settings()
+	# The name is saved either way; when the session cannot be renewed now,
+	# Net renews it before the next seat is taken.
 	await Net.refresh_identity()
 	return ""
 

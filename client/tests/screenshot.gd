@@ -303,11 +303,14 @@ func _profile_shots(lobby, out_dir: String, suffix: String) -> void:
 	lobby._name_prompt._show_error("That name is taken. Try another.")
 	await create_timer(0.4).timeout
 	await _save(out_dir + "/name_taken%s.png" % suffix)
-	lobby._name_prompt.visible = false
+	lobby._name_prompt._on_cancel()
+	await create_timer(0.2).timeout
+	lobby._set_named(true)
 	lobby._name_prompt.open("Tal", false, 5)
 	await create_timer(1.0).timeout
 	await _save(out_dir + "/name_change%s.png" % suffix)
-	lobby._name_prompt.visible = false
+	lobby._name_prompt._on_cancel()
+	await create_timer(0.2).timeout
 	net.display_name = "Tal"
 	lobby._show_name()
 

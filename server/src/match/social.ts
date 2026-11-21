@@ -7,6 +7,7 @@
  */
 import { isUserId, normalizeCode, parseBody, readString, reject, requireUser, USERNAME_MAX } from './input';
 import { isNamed } from './names';
+import { userByName } from './rpc_names';
 import { INVITE_CODE } from './protocol';
 import { checkRate } from './ratelimit';
 import { roomMatchId } from './rooms';
@@ -86,16 +87,15 @@ export function mutualFriends(nk: nkruntime.Nakama, userId: string): string[] {
   return Object.keys(friendStates(nk, userId, FRIEND_STATE_MUTUAL));
 }
 
-/** RPC find_player: exact username lookup; never returns the caller. */
+/** RPC find_player: username lookup in any letter case; never returns the caller. */
 export const rpcFindPlayer: nkruntime.RpcFunction = (ctx, logger, nk, payload) => {
   void logger;
   const callerId = requireUser(ctx);
   const name = readString(parseBody(payload), 'name', USERNAME_MAX + 1);
   if (!name || name.length > USERNAME_MAX) reject('not found');
   checkRate(nk, callerId, 'find_player', Date.now());
-  const users = nk.usersGetUsername([name]);
-  const user = users.find((u) => u.username === name && u.userId !== callerId);
-  if (!user) reject('not found');
+  const user = userByName(nk, name);
+  if (!user || user.userId === callerId) reject('not found');
   return JSON.stringify({ userId: user.userId, username: user.username });
 };
 

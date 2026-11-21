@@ -12,14 +12,13 @@ extends Control
 ## fetches the rest. Every `apply_*` takes the server's dictionaries, so
 ## tests and screenshots feed it without a server.
 
-signal closed
 ## A row or button that belongs to another screen: "season", "clubs",
 ## "look" (the card-back and felt picker) or "plus" (the shop).
 signal navigate(to: String)
 signal link_requested(provider: String)
 signal rename_requested
 
-const HERO_MIN_DP := 200.0
+const HERO_MIN_DP := 220.0
 const HERO_MAX_DP := 420.0
 const WAITING := "…"
 const UNKNOWN := "—"
@@ -29,12 +28,18 @@ const UNKNOWN := "—"
 var s := 1.85
 var insets := Vector2.ZERO
 
+## True while the account still has the random name the server made: the
+## card then asks for a name instead of printing it.
+var unnamed := false:
+	set(v):
+		unnamed = v
+		refresh_name()
+
 var card: InvestorCard
 var _room: LobbyBackdrop
 var _column: VBoxContainer
 var _hero: Control
 var _below: Array[Control] = []
-var _level_label: Label
 var _xp_bar: ProgressBar
 var _xp_label: Label
 var _scroll: ScrollContainer
@@ -54,6 +59,10 @@ var _link_apple_button: Button
 var _link_google_button: Button
 var _close_button: Button
 var _tween: Tween
+var _fit_tween: Tween
+## True while the card flies in from the avatar; a new size waits for it.
+var _flying := false
+var _fit_waiting := false
 var _xp_tween: Tween
 var _xp := 0
 ## Bumped by every open, so answers to an earlier open are dropped.
@@ -108,7 +117,7 @@ func _ready() -> void:
 
 	_below = [xp_row, _scroll, _close_button]
 	resized.connect(_fit)
-	_content.minimum_size_changed.connect(_fit)
+	_content.minimum_size_changed.connect(_fit.bind(true))
 	apply_progress({})
 	apply_stats({})
 	apply_look()
@@ -120,21 +129,11 @@ func _px(dp: float) -> int:
 	return int(round(dp * s))
 
 
-## Level, the XP bar and how far along it is, as in the lobby HUD.
+## The XP bar with how far along it is. The level itself is on the card.
 func _build_xp() -> Control:
-	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", _px(8))
-	_level_label = UiTheme.label("Level 1", _px(14), UiTheme.GOLD, true)
-	_level_label.add_theme_color_override("font_outline_color", UiTheme.OUTLINE)
-	_level_label.add_theme_constant_override("outline_size", _px(4))
-	_level_label.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	row.add_child(_level_label)
 	_xp_bar = ProgressBar.new()
 	_xp_bar.custom_minimum_size = Vector2(0, _px(20))
-	_xp_bar.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_xp_bar.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	_xp_bar.show_percentage = false
-	row.add_child(_xp_bar)
 	_xp_label = UiTheme.label("", _px(11), Color.WHITE, true)
 	_xp_label.add_theme_color_override("font_outline_color", UiTheme.OUTLINE)
 	_xp_label.add_theme_constant_override("outline_size", _px(3))
@@ -142,7 +141,7 @@ func _build_xp() -> Control:
 	_xp_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	_xp_label.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_xp_bar.add_child(_xp_label)
-	return row
+	return _xp_bar
 
 
 func _panel() -> PanelContainer:
@@ -290,7 +289,9 @@ func _build_account() -> Control:
 
 ## The card takes the room the record leaves, between its smallest and
 ## largest size; on a short screen the record scrolls under it instead.
-func _fit() -> void:
+## `eased`: a panel came or went under an open profile, so the card moves
+## to its new size instead of jumping.
+func _fit(eased := false) -> void:
 	if _column == null or _content == null:
 		return
 	var fixed := 0.0
@@ -298,11 +299,21 @@ func _fit() -> void:
 		if c != _scroll:
 			fixed += c.get_combined_minimum_size().y
 	fixed += _column.get_theme_constant("separation") * _below.size()
+	if _flying:
+		_fit_waiting = true
+		return
 	var room := _column.size.y - fixed - _content.get_combined_minimum_size().y
 	var hero_h := clampf(room, _px(HERO_MIN_DP), _px(HERO_MAX_DP))
-	if absf(_hero.custom_minimum_size.y - hero_h) > 0.5:
+	if _fit_tween != null:
+		_fit_tween.kill()
+	if absf(_hero.custom_minimum_size.y - hero_h) <= 0.5:
+		return
+	if eased and visible:
+		_fit_tween = create_tween()
+		_fit_tween.tween_property(_hero, "custom_minimum_size:y", hero_h, 0.2).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	else:
 		_hero.custom_minimum_size.y = hero_h
-	_place_card()
+		_place_card()
 
 
 func _place_card() -> void:
@@ -320,9 +331,11 @@ func open(origin := Rect2()) -> void:
 	_serial += 1
 	visible = true
 	_scroll.scroll_vertical = 0
-	card.player_name = Net.display_name
+	refresh_name()
 	card.show_face()
 	apply_look()
+	_refresh_rename()
+	_flying = false
 	_fit()
 	_play_open(origin)
 	_load()
@@ -332,6 +345,7 @@ func close() -> void:
 	if not visible:
 		return
 	_serial += 1
+	_flying = false
 	if _tween != null:
 		_tween.kill()
 	# Out faster than in: the player is already looking at the lobby.
@@ -339,14 +353,15 @@ func close() -> void:
 	_tween.tween_property(self, "modulate:a", 0.0, 0.12).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
 	_tween.tween_callback(func() -> void:
 		visible = false
-		modulate.a = 1.0
-		closed.emit())
+		modulate.a = 1.0)
 
 
 func _play_open(origin: Rect2) -> void:
 	if _tween != null:
 		_tween.kill()
 	modulate.a = 0.0
+	_flying = true
+	_fit_waiting = false
 	var rest := card.position
 	var tilt := deg_to_rad(LogoTitle.TILT_DEG)
 	card.pivot_offset = card.size / 2.0
@@ -363,9 +378,13 @@ func _play_open(origin: Rect2) -> void:
 	_tween = create_tween().set_parallel()
 	_tween.tween_property(self, "modulate:a", 1.0, 0.14).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
 	if from_avatar:
+		# One curve for the whole flight, so the card travels in a straight
+		# line and never grows past the screen's top edge.
 		_tween.tween_property(card, "position", rest, 0.3).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
 		_tween.tween_property(card, "rotation", tilt, 0.3).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
-	_tween.tween_property(card, "scale", Vector2.ONE, 0.32).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+		_tween.tween_property(card, "scale", Vector2.ONE, 0.3).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	else:
+		_tween.tween_property(card, "scale", Vector2.ONE, 0.28).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 	var delay := 0.08
 	for c in _below:
 		_tween.tween_property(c, "modulate:a", 1.0, 0.2).set_delay(delay).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
@@ -373,7 +392,10 @@ func _play_open(origin: Rect2) -> void:
 	# WHY the re-place: a resize during the flight would leave the card at
 	# the spot it was heading for.
 	_tween.chain().tween_callback(func() -> void:
+		_flying = false
 		_place_card()
+		if _fit_waiting:
+			_fit(true)
 		card.play_sheen())
 	_fill_xp(true)
 
@@ -423,8 +445,7 @@ func apply_progress(p: Dictionary) -> void:
 	var level := maxi(1, int(p.get("level", 1)))
 	_xp = int(p.get("xp", 0))
 	card.level = level
-	card.player_name = Net.display_name
-	_level_label.text = "Level %d" % level
+	refresh_name()
 	var span := Leveling.span(level)
 	_xp_bar.min_value = span.x
 	_xp_bar.max_value = span.y
@@ -458,7 +479,8 @@ func _fill_xp(animated: bool) -> void:
 func apply_stats(data: Dictionary) -> void:
 	var plus := bool(data.get("plus", false))
 	_plus_rows.visible = plus
-	_plus_teaser.visible = not plus and RemoteConfig.plus_enabled and not data.is_empty()
+	# The teaser leads to the shop, so it needs the shop as well as the offer.
+	_plus_teaser.visible = not plus and RemoteConfig.plus_enabled and RemoteConfig.shop_enabled and not data.is_empty()
 	_plus_panel.visible = _plus_rows.visible or _plus_teaser.visible
 	if not plus:
 		return
@@ -486,7 +508,7 @@ func apply_season(rows: Array) -> void:
 			var points := "%s pts" % thousands(int(r.get("score", 0)))
 			_rows["season"].value = "#%s · %s" % [thousands(rank), points] if rank > 0 else points
 			return
-	_rows["season"].value = "No games yet"
+	_rows["season"].value = "No season games yet"
 
 
 ## A club_state answer: {club: null | {name, ...}}.
@@ -511,24 +533,46 @@ func apply_account(links: Dictionary) -> void:
 	_link_google_button.visible = bool(avail.get("google", false)) and not links.get("google", false)
 	_link_apple_button.disabled = not online
 	_link_google_button.disabled = not online
-	# WHY not in a room: the seat was taken under the old name, and the
-	# session can only take the new one between rooms.
-	_rename_button.disabled = not online or not Net.match_id.is_empty()
-	_copy_button.disabled = Net.display_name.is_empty()
+	_refresh_rename()
 	var kept := Net.describe_account_links(links)
 	if _link_apple_button.visible or _link_google_button.visible:
 		kept += ". Link it so your progress survives a reinstall."
-	_account_label.text = kept if online else "Not connected. Your record shows when you are back online."
+	if not online:
+		kept = "Not connected. Your record shows when you are back online."
+	elif not Net.match_id.is_empty():
+		kept = "You can change your name between games. " + kept
+	_account_label.text = kept
+
+
+## Change name works online and between rooms.
+## WHY not in a room: the seat was taken under the old name, and the
+## session can only take the new one between rooms.
+func _refresh_rename() -> void:
+	_rename_button.disabled = not Net.is_connected_to_server() or not Net.match_id.is_empty()
+	_copy_button.disabled = _shown_name().is_empty()
+
+
+## A line for the player about something they just did here (a sign-in
+## they cancelled), where the lobby's own status line is out of sight.
+func say(text: String) -> void:
+	_account_label.text = text
+
+
+## The player's name, or "" while they have not picked one.
+func _shown_name() -> String:
+	return "" if unnamed else Net.display_name
 
 
 ## The name changed (the name step saved it): redraw it on the card.
 func refresh_name() -> void:
-	card.player_name = Net.display_name
-	_copy_button.disabled = Net.display_name.is_empty()
+	if card == null:
+		return
+	card.player_name = _shown_name()
+	_copy_button.disabled = _shown_name().is_empty()
 
 
 func _on_copy() -> void:
-	DisplayServer.clipboard_set(Net.display_name)
+	DisplayServer.clipboard_set(_shown_name())
 	_copy_button.text = "Copied!"
 	# A tween, not a timer: it ends with the panel.
 	create_tween().tween_callback(func() -> void: _copy_button.text = "Copy name").set_delay(1.4)

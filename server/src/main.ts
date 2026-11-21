@@ -116,6 +116,12 @@ function InitModule(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkrunt
   initializer.registerBeforeAuthenticateDevice(names.beforeAuthenticateDevice);
   initializer.registerBeforeAuthenticateApple(names.beforeAuthenticateApple);
   initializer.registerBeforeAuthenticateGoogle(names.beforeAuthenticateGoogle);
+  initializer.registerBeforeAuthenticateCustom(names.refuseSignIn);
+  initializer.registerBeforeAuthenticateEmail(names.refuseSignIn);
+  initializer.registerBeforeAuthenticateFacebook(names.refuseSignIn);
+  initializer.registerBeforeAuthenticateFacebookInstantGame(names.refuseSignIn);
+  initializer.registerBeforeAuthenticateGameCenter(names.refuseSignIn);
+  initializer.registerBeforeAuthenticateSteam(names.refuseSignIn);
   initializer.registerBeforeUpdateAccount(names.beforeUpdateAccount);
   initializer.registerBeforeWriteStorageObjects(beforeWriteStorageObjects);
   initializer.registerBeforeDeleteStorageObjects(beforeDeleteStorageObjects);

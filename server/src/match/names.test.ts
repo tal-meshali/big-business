@@ -1,12 +1,18 @@
 import { describe, expect, it } from 'vitest';
-import { cleanName, fold, isNamed, NAME_BAD_CHARACTERS, NAME_NOT_ALLOWED, NAME_TOO_LONG, NAME_TOO_SHORT, nameLength, nameProblem } from './names';
+import { cleanName, fold, isNamed, NAME_BAD_CHARACTERS, NAME_LOCKED, NAME_MIXED, NAME_NOT_ALLOWED, NAME_TAKEN, NAME_TOO_LONG, NAME_TOO_SHORT, nameLength, nameProblem } from './names';
 import { ALICE, BOB } from './test_support';
-import { beforeAuthenticateDevice, beforeUpdateAccount, rpcSetName } from './rpc_names';
+import { beforeAuthenticateDevice, beforeUpdateAccount, refuseSignIn, rpcSetName, userByName } from './rpc_names';
 
 describe('cleanName', () => {
   it('trims and collapses spaces', () => {
     expect(cleanName('  Tal   Meshali ')).toBe('Tal Meshali');
     expect(cleanName('Tal\t\nM')).toBe('Tal M');
+  });
+
+  it('folds compatibility forms to the plain ones', () => {
+    expect(cleanName('Ｔａｌ')).toBe('Tal');
+    expect(cleanName('Tal 　M')).toBe('Tal M');
+    expect(cleanName('Zoë')).toBe('Zoë');
   });
 
   it('answers an empty string for anything that is not text', () => {
@@ -17,40 +23,59 @@ describe('cleanName', () => {
 });
 
 describe('nameProblem', () => {
-  it('accepts ordinary names in any script', () => {
-    for (const ok of ['Tal', 'Golden Broker 41', 'maya_k', 'J.R.', 'Noa-Lee', 'טל משעלי', 'Zoë', '山田太郎', 'Cassandra', 'Dickens', 'Analyst Amy', 'Grape Soda']) {
-      expect(nameProblem(ok)).toBeNull();
-    }
+  it('accepts ordinary names in the listed alphabets', () => {
+    const ok = ['Tal', 'Bo', 'Golden Broker 41', 'maya_k', 'Noa-Lee', 'Zoë', 'Nguyễn', 'טל', 'טל משעלי', 'Tal טל',
+      '太郎', '山田太郎', '지민', 'Иван', 'Νίκος', 'علي', 'Player 7'];
+    for (const name of ok) expect(nameProblem(name)).toBeNull();
   });
 
   it('counts characters, not UTF-16 units', () => {
     expect(nameLength('🙂🙂🙂')).toBe(3);
-    expect(nameProblem('🙂🙂🙂')).toBeNull();
-    expect(nameProblem('ab')).toBe(NAME_TOO_SHORT);
+    expect(nameProblem('a')).toBe(NAME_TOO_SHORT);
     expect(nameProblem('')).toBe(NAME_TOO_SHORT);
     expect(nameProblem('a'.repeat(16))).toBeNull();
     expect(nameProblem('a'.repeat(17))).toBe(NAME_TOO_LONG);
   });
 
-  it('refuses symbols, controls and invisible characters', () => {
-    for (const bad of ['tal@home', 'a<b>c', 'x/y/z', 'semi;colon', 'quote"d', 'new\nline', 'zero​width', 'flip‮ped', 'nb sp', '...', '_-_']) {
-      expect(nameProblem(bad)).toBe(NAME_BAD_CHARACTERS);
-    }
+  it('refuses symbols, emoji, controls and anything invisible', () => {
+    const bad = ['tal@home', 'a<b>c', 'x/y/z', 'semi;colon', 'quote"d', 'new\nline', 't.me.kiddo', 'J.R.', '...', '_-_', '🙂🙂🙂',
+      // Zero width space, right-to-left override, no-break space (when not cleaned), Hangul filler,
+      // braille blank, variation selector, Arabic letter mark, a lone surrogate, a tag character, a combining mark left over.
+      'zero​width', 'flip‮ped', 'nb sp', 'ㅤㅤㅤ', '⠀⠀⠀', 'Tal️', 'Tal؜', 'Tal\ud800', 'Tal󠁁', 'Ta̶l'];
+    for (const name of bad) expect(nameProblem(name)).toBe(NAME_BAD_CHARACTERS);
+  });
+
+  it('refuses a name that borrows look-alike letters from another alphabet', () => {
+    // Cyrillic A in "Admin", Cyrillic es in a listed word, Greek omicron in "Tom".
+    for (const name of ['Аdmin', 'fuсk', 'Tοm']) expect(nameProblem(name)).toBe(NAME_MIXED);
   });
 
   it('refuses listed words however they are spaced or spelled', () => {
-    expect(fold('F.u_c-K 5h1t')).toBe('fuckshit');
-    for (const bad of ['fuck', 'FuCk you', 'f u c k', 'sh1t head', 'b1tch', 'xXn1ggerXx', 'H1tler']) {
-      expect(nameProblem(bad)).toBe(NAME_NOT_ALLOWED);
+    expect(fold('F-u_c K 5h1t')).toBe('fuckshit');
+    for (const bad of ['fuck', 'FuCk you', 'f u c k', 'sh1t head', 'Sh1tHead', 's h i t', 'shit99', 'b1tch', 'xXn1ggerXx', 'H1tler', 'fück', 'NaziKing', 'nazis', 'Porn Hub']) {
+      expect(nameProblem(cleanName(bad))).toBe(NAME_NOT_ALLOWED);
+    }
+    expect(nameProblem(cleanName('ｆｕｃｋ'))).toBe(NAME_NOT_ALLOWED);
+  });
+
+  it('lets ordinary names through that only contain a listed word', () => {
+    for (const ok of ['Yamashita', 'Nazir', 'Benazir', 'Therapist', 'Swank', 'Pornchai', 'Push It', 'Mass Hit', 'Cassandra', 'Dickens', 'Analyst Amy', 'Grape Soda', 'Badminton', 'Botanist', 'Modesty', 'Devon', 'Systematic']) {
+      expect(nameProblem(ok)).toBeNull();
     }
   });
 
   it('reserves the names of the game, its staff and its bots', () => {
-    for (const bad of ['Admin', 'MODERATOR', 'Big Business', 'big_business', 'Intern Ivy', 'analyst avi', 'Bot', 'adm1n']) {
-      expect(nameProblem(bad)).toBe(NAME_NOT_ALLOWED);
+    const bad = ['Admin', 'Admin1', 'Admin 2', 'adm1n', 'Administrator Al', 'MODERATOR', 'Moderator 7', 'Support Team', 'Official Mod', 'Tal Mod', 'Staff', 'System', 'Owner', 'Dev',
+      'Big Business', 'big_business', 'Big Business HQ', 'Intern Ivy', 'analyst avi', 'CEO Cal', 'Bot', 'Tal Bot'];
+    for (const name of bad) expect(nameProblem(name)).toBe(NAME_NOT_ALLOWED);
+  });
+
+  it('never says " at ", where the client cuts a server error', () => {
+    for (const sentence of [NAME_TOO_SHORT, NAME_TOO_LONG, NAME_BAD_CHARACTERS, NAME_MIXED, NAME_NOT_ALLOWED, NAME_TAKEN, NAME_LOCKED]) {
+      expect(sentence).not.toContain(' at ');
+      expect(sentence.endsWith('.')).toBe(true);
+      expect(sentence.length).toBeLessThan(80);
     }
-    expect(nameProblem('Botanist')).toBeNull();
-    expect(nameProblem('Administrator Al')).toBeNull();
   });
 });
 
@@ -72,9 +97,11 @@ function fakeAccounts(accounts: { [id: string]: { username: string; metadata: { 
     accountGetId: (id: string) => ({ user: { userId: id, ...accounts[id] } }),
     usersGetUsername: (names: string[]) =>
       Object.keys(accounts).filter((id) => names.indexOf(accounts[id]!.username) >= 0).map((id) => ({ userId: id, username: accounts[id]!.username })),
-    // The one query set_name runs: who else has this name in any casing.
+    // The name lookups: who else has this name in any casing, the exact spelling first.
     sqlQuery: (_q: string, params: string[]) =>
-      Object.keys(accounts).filter((id) => id !== params[1] && accounts[id]!.username.toLowerCase() === params[0]!.toLowerCase()).map((id) => ({ id })),
+      Object.keys(accounts).filter((id) => id !== params[1] && accounts[id]!.username.toLowerCase() === params[0]!.toLowerCase())
+        .sort((a, b) => Number(accounts[b]!.username === params[0]) - Number(accounts[a]!.username === params[0]))
+        .map((id) => ({ id, username: accounts[id]!.username })),
     accountUpdateId: (id: string, username: string | null, _d: unknown, _t: unknown, _l: unknown, _g: unknown, _a: unknown, metadata: { [k: string]: unknown }) => {
       if (username !== null) {
         for (const other of Object.keys(accounts)) if (other !== id && accounts[other]!.username === username) throw new Error('unique violation');
@@ -116,7 +143,7 @@ describe('set_name', () => {
     expect(() => rpcSetName(as(ALICE), logger, nk, JSON.stringify({ name: 'Tal' }))).toThrow('That name is taken. Try another.');
     // The same letters in another casing are the same name to a reader.
     expect(() => rpcSetName(as(ALICE), logger, nk, JSON.stringify({ name: 'tAL' }))).toThrow('That name is taken. Try another.');
-    expect(() => rpcSetName(as(ALICE), logger, nk, JSON.stringify({ name: 'ab' }))).toThrow(NAME_TOO_SHORT);
+    expect(() => rpcSetName(as(ALICE), logger, nk, JSON.stringify({ name: 'a' }))).toThrow(NAME_TOO_SHORT);
     expect(() => rpcSetName(as(ALICE), logger, nk, JSON.stringify({ name: 'sh1t' }))).toThrow(NAME_NOT_ALLOWED);
     expect(() => rpcSetName(as(ALICE), logger, nk, JSON.stringify({ name: 7 }))).toThrow(NAME_TOO_SHORT);
     expect(() => rpcSetName(as(ALICE), logger, nk, 'not json')).toThrow('bad payload');
@@ -126,12 +153,44 @@ describe('set_name', () => {
   it('is rate limited', () => {
     const accounts = { [ALICE]: { username: 'NmnqzZdeZg', metadata: {} as { [k: string]: unknown } } };
     const nk = fakeAccounts(accounts);
-    for (let i = 0; i < 6; i++) rpcSetName(as(ALICE), logger, nk, JSON.stringify({ name: `Tal ${i}` }));
-    expect(() => rpcSetName(as(ALICE), logger, nk, JSON.stringify({ name: 'Tal 7' }))).toThrow('too many requests');
+    for (let i = 0; i < 10; i++) rpcSetName(as(ALICE), logger, nk, JSON.stringify({ name: `Tal ${i}` }));
+    expect(() => rpcSetName(as(ALICE), logger, nk, JSON.stringify({ name: 'Tal 11' }))).toThrow('too many requests');
+  });
+
+  it('keeps a name a moderator locked', () => {
+    const accounts = { [ALICE]: { username: 'Player 4821', metadata: { named: true, nameLocked: true } as { [k: string]: unknown } } };
+    expect(() => rpcSetName(as(ALICE), logger, fakeAccounts(accounts), JSON.stringify({ name: 'Tal' }))).toThrow(NAME_LOCKED);
+    expect(accounts[ALICE]!.username).toBe('Player 4821');
+  });
+
+  it('reports an outage as an outage, not as a taken name', () => {
+    const accounts = { [ALICE]: { username: 'NmnqzZdeZg', metadata: {} as { [k: string]: unknown } } };
+    const nk = fakeAccounts(accounts) as unknown as { accountUpdateId: () => void };
+    nk.accountUpdateId = () => { throw new Error('connection refused'); };
+    expect(() => rpcSetName(as(ALICE), logger, nk as unknown as nkruntime.Nakama, JSON.stringify({ name: 'Tal' }))).toThrow('connection refused');
+  });
+
+  it('says taken when another player won the name between the lookup and the write', () => {
+    const accounts: { [id: string]: { username: string; metadata: { [k: string]: unknown } } } = { [ALICE]: { username: 'NmnqzZdeZg', metadata: {} } };
+    const nk = fakeAccounts(accounts) as unknown as { accountUpdateId: () => void };
+    nk.accountUpdateId = () => {
+      accounts[BOB] = { username: 'tal', metadata: { named: true } };
+      throw new Error('unique violation');
+    };
+    expect(() => rpcSetName(as(ALICE), logger, nk as unknown as nkruntime.Nakama, JSON.stringify({ name: 'Tal' }))).toThrow(NAME_TAKEN);
   });
 
   it('needs a signed-in caller', () => {
     expect(() => rpcSetName(as(''), logger, fakeAccounts({}), JSON.stringify({ name: 'Tal' }))).toThrow('unauthenticated');
+  });
+});
+
+describe('userByName', () => {
+  it('finds a player in any letter case, the exact spelling first', () => {
+    const nk = fakeAccounts({ [ALICE]: { username: 'tal', metadata: {} }, [BOB]: { username: 'Tal', metadata: {} } });
+    expect(userByName(nk, 'Tal')).toEqual({ userId: BOB, username: 'Tal' });
+    expect(userByName(nk, 'TAL')).not.toBeNull();
+    expect(userByName(nk, 'Dana')).toBeNull();
   });
 });
 
@@ -148,6 +207,10 @@ describe('name hooks', () => {
     expect(beforeAuthenticateDevice(as(''), logger, nk, { account: { id: 'd' }, create: true, username: 'DANA' })).toMatchObject({ username: '' });
     // The holder signing in again with its own name is left alone.
     expect(beforeAuthenticateDevice(as(''), logger, nk, { account: { id: 'd' }, create: true, username: 'Dana' })).toMatchObject({ username: 'Dana' });
+  });
+
+  it('refuse the sign-in methods the game does not offer', () => {
+    expect(() => refuseSignIn()).toThrow('sign-in method not available');
   });
 
   it('refuse a direct account update from a client but not from the server', () => {

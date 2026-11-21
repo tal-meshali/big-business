@@ -2,7 +2,8 @@ class_name QuestsPanel
 extends PanelContainer
 ## Quests overlay for the lobby: today's and this week's quests with progress
 ## bars and Claim buttons, the free cosmetic track, and a picker for the card
-## back and table felt (only unlocked ones enabled). Built in code on a deed
+## back and table felt (only unlocked ones enabled), on two tabs (Quests,
+## Looks) so neither needs scrolling on a phone. Built in code on a deed
 ## panel; fed by the `get_profile` dictionary through `apply_profile`.
 
 signal closed
@@ -23,6 +24,10 @@ var _track_bar: ProgressBar
 var _back_buttons: Dictionary = {}
 var _table_buttons: Dictionary = {}
 var _status: Label
+## Quests / Looks tabs and their two pages.
+var tabs: TabStrip
+var quests_page: VBoxContainer
+var looks_page: VBoxContainer
 
 
 func _init() -> void:
@@ -46,36 +51,52 @@ func _init() -> void:
 	_track_bar = _make_bar(Companies.CHANCE)
 	column.add_child(_track_bar)
 
+	# Two pages instead of one long list: the quests, and the looks the
+	# track unlocks. The status line stays under both.
+	tabs = TabStrip.new()
+	tabs.setup([{"label": "Quests"}, {"label": "Looks"}], 1.35)
+	column.add_child(tabs)
+
 	var scroll := ScrollContainer.new()
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	column.add_child(scroll)
-	var content := VBoxContainer.new()
-	content.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	content.add_theme_constant_override("separation", 8)
-	scroll.add_child(content)
+	var pages := VBoxContainer.new()
+	pages.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.add_child(pages)
+	quests_page = VBoxContainer.new()
+	quests_page.add_theme_constant_override("separation", 8)
+	pages.add_child(quests_page)
+	looks_page = VBoxContainer.new()
+	looks_page.add_theme_constant_override("separation", 8)
+	looks_page.visible = false
+	pages.add_child(looks_page)
+	tabs.tab_selected.connect(func(i: int) -> void:
+		quests_page.visible = i == 0
+		looks_page.visible = i == 1
+		scroll.scroll_vertical = 0)
 
-	content.add_child(_heading("Today"))
+	quests_page.add_child(_heading("Today"))
 	_daily_box = VBoxContainer.new()
 	_daily_box.add_theme_constant_override("separation", 6)
-	content.add_child(_daily_box)
-	content.add_child(_heading("This week"))
+	quests_page.add_child(_daily_box)
+	quests_page.add_child(_heading("This week"))
 	_weekly_box = VBoxContainer.new()
 	_weekly_box.add_theme_constant_override("separation", 6)
-	content.add_child(_weekly_box)
+	quests_page.add_child(_weekly_box)
 
-	content.add_child(_heading("Card back"))
+	looks_page.add_child(_heading("Card back"))
 	var backs := HFlowContainer.new()
 	backs.add_theme_constant_override("h_separation", 8)
 	backs.add_theme_constant_override("v_separation", 8)
-	content.add_child(backs)
+	looks_page.add_child(backs)
 	for e in Cosmetics.CARD_BACKS:
 		_back_buttons[e["id"]] = _make_pick_button(backs, "cardBack", e["id"])
-	content.add_child(_heading("Table felt"))
+	looks_page.add_child(_heading("Table felt"))
 	var felts := HFlowContainer.new()
 	felts.add_theme_constant_override("h_separation", 8)
 	felts.add_theme_constant_override("v_separation", 8)
-	content.add_child(felts)
+	looks_page.add_child(felts)
 	for e in Cosmetics.TABLES:
 		_table_buttons[e["id"]] = _make_pick_button(felts, "table", e["id"])
 
@@ -83,7 +104,7 @@ func _init() -> void:
 	_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_status.add_theme_font_size_override("font_size", 17)
 	_status.text = "Quests reset at midnight UTC; weekly ones on Monday."
-	content.add_child(_status)
+	column.add_child(_status)
 
 	var close := Button.new()
 	close.text = "Close"

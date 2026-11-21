@@ -299,7 +299,8 @@ func _build_bottom_bar() -> void:
 	help.tooltip_text = "Rules"
 	help.custom_minimum_size.x = maxf(48, _px(40))
 	help.add_theme_font_override("font", UiTheme.display_font())
-	help.pressed.connect(func() -> void: HelpScreen.open_over(self))
+	# Mid-game, the rules open on the turn page.
+	help.pressed.connect(func() -> void: HelpScreen.open_over(self, HelpScreen.Tab.TURN))
 	me_row.add_child(help)
 
 	_prompt = UiTheme.label("", _px(14))

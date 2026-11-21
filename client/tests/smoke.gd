@@ -443,26 +443,98 @@ func _help_checks() -> int:
 		push_error("Rules and help should open one help screen, got %d" % helps.size())
 		return failures + 1
 	var help: HelpScreen = helps[0]
+	await process_frame
+	if help.tab_count() != help.pages.size() or help.tabs.tab_count() != help.tab_count():
+		push_error("help should have one page per tab")
+		failures += 1
+	if help.current != 0 or not help.pages[0].visible:
+		push_error("help opens on its first page")
+		failures += 1
+	# Every rule, on some page, with every page fitting a 720x1280 phone.
 	var text := ""
+	for i in help.tab_count():
+		help.select_tab(i, false)
+		await process_frame
+		await process_frame
+		if help.pages.filter(func(p: Control) -> bool: return p.visible).size() != 1 or not help.pages[i].visible:
+			push_error("help tab %d should show exactly its own page" % i)
+			failures += 1
+		var page: ScrollContainer = help.pages[i]
+		var content: Control = page.get_child(0)
+		if content.size.y > page.size.y + 1.0:
+			push_error("help page %s scrolls on a 720x1280 phone (%.0f > %.0f)" % [HelpScreen.PAGES[i]["tab"], content.size.y, page.size.y])
+			failures += 1
+		if help._next_button.visible != (i < help.tab_count() - 1):
+			push_error("Next shows on every page but the last (page %d)" % i)
+			failures += 1
+		failures += _check_button_sizes(help, "help page %d" % i)
 	for l in help.find_children("*", "Label", true, false):
 		text += l.text + "\n"
-	for section in HelpScreen.SECTIONS:
-		if not text.contains(section["title"]):
-			push_error("help is missing section %s" % section["title"])
-			failures += 1
-	for c in Companies.DATA:
-		if not text.contains("%s: %d" % [c["name"], c["shares"]]):
-			push_error("help should list %s's share count" % c["name"])
-			failures += 1
+	for r in help.find_children("*", "RichTextLabel", true, false):
+		text += r.get_parsed_text() + "\n"
+	for page in HelpScreen.PAGES:
+		for section in page["sections"] + page.get("after", []):
+			if section.has("title") and not text.contains(section["title"]):
+				push_error("help is missing section %s" % section["title"])
+				failures += 1
+			if not text.contains(String(section["body"]).replace("**", "")):
+				push_error("help is missing the text of %s" % section.get("title", page["title"]))
+				failures += 1
+	if text.contains("**"):
+		push_error("help shows raw ** markup")
+		failures += 1
+	var shown: Array = []
+	for card in help.pages[HelpScreen.Tab.GOAL].find_children("*", "CardView", true, false):
+		shown.append(card.company)
+	shown.sort()
+	if shown != [0, 1, 2, 3, 4, 5]:
+		push_error("the Goal page should show one share of each company, got %s" % [shown])
+		failures += 1
 	if help._email_button.disabled != AppInfo.SUPPORT_EMAIL.is_empty() or help._privacy_button.disabled != AppInfo.PRIVACY_URL.is_empty():
 		push_error("contact buttons should be enabled exactly when AppInfo is filled in")
 		failures += 1
-	failures += _check_button_sizes(help, "help")
+	# Next walks forward; a sideways swipe on the page turns it either way.
+	help.select_tab(0, false)
+	help._next_button.pressed.emit()
+	if help.current != 1 or help.tabs.current != 1:
+		push_error("Next should go to the second page, at %d" % help.current)
+		failures += 1
+	var mid := help._page_holder.get_global_rect().get_center()
+	for step in [[-200.0, 2], [200.0, 1], [30.0, 1]]:
+		var down := InputEventMouseButton.new()
+		down.button_index = MOUSE_BUTTON_LEFT
+		down.pressed = true
+		down.position = mid
+		help._input(down)
+		var up := InputEventMouseButton.new()
+		up.button_index = MOUSE_BUTTON_LEFT
+		up.pressed = false
+		up.position = mid + Vector2(step[0], 0)
+		help._input(up)
+		if help.current != step[1]:
+			push_error("a %+.0f px swipe should land on page %d, at %d" % [step[0], step[1], help.current])
+			failures += 1
+	# The settings page's switches flip and save.
+	var sound_before: bool = Sfx.sound_on
+	help._sound_button.pressed.emit()
+	if Sfx.sound_on == sound_before or help._sound_button.text != ("On" if Sfx.sound_on else "Off"):
+		push_error("the sound switch should flip and show its state")
+		failures += 1
+	help._sound_button.pressed.emit()
 	help.close_help()
 	await process_frame
 	if main.find_children("*", "HelpScreen", true, false).size() != 0:
 		push_error("Close should remove the help screen")
 		failures += 1
+	# The table's "?" opens the rules on the turn page.
+	var at_table := Control.new()
+	root.add_child(at_table)
+	var opened := HelpScreen.open_over(at_table, HelpScreen.Tab.TURN)
+	await process_frame
+	if opened.current != HelpScreen.Tab.TURN or not opened.pages[HelpScreen.Tab.TURN].visible:
+		push_error("open_over should start on the asked tab")
+		failures += 1
+	at_table.queue_free()
 	main.queue_free()
 	return failures
 
@@ -547,7 +619,7 @@ func _feedback_checks() -> int:
 	await process_frame
 	var was: bool = Sfx.sound_on
 	help._on_toggle_sound()
-	if Sfx.sound_on == was or not help._sound_button.text.ends_with("off" if was else "on"):
+	if Sfx.sound_on == was or help._sound_button.text != ("Off" if was else "On"):
 		push_error("the sound toggle should flip and relabel")
 		failures += 1
 	help._on_toggle_sound()
@@ -1114,6 +1186,14 @@ func _quests_checks() -> int:
 	if panel.rows.size() != 5 or panel._daily_box.get_child_count() != 3 or panel._weekly_box.get_child_count() != 2:
 		push_error("quests panel should list 3 daily and 2 weekly rows, got %d" % panel.rows.size())
 		failures += 1
+	if not panel.quests_page.visible or panel.looks_page.visible:
+		push_error("quests open on the Quests tab")
+		failures += 1
+	panel.tabs.select(1, false)
+	if panel.quests_page.visible or not panel.looks_page.visible:
+		push_error("the Looks tab shows the card backs and felts instead of the quests")
+		failures += 1
+	panel.tabs.select(0, false)
 	var by_id := {}
 	for r in panel.rows:
 		by_id[r["id"]] = r

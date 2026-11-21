@@ -57,6 +57,37 @@ static func draw(ci: CanvasItem, kind: String, c: Vector2, k: float, fill := Col
 		"play":
 			var tri := PackedVector2Array([c + Vector2(-k * 0.5, -k * 0.75), c + Vector2(k * 0.8, 0), c + Vector2(-k * 0.5, k * 0.75)])
 			_poly(ci, tri, fill, o)
+		"cards":
+			# Two shares, the back one tilted: the Market.
+			for i in 2:
+				var at := c + Vector2((i - 0.5) * k * 0.55, (0.5 - i) * k * 0.12)
+				var r := Rect2(at - Vector2(k * 0.5, k * 0.72), Vector2(k * 1.0, k * 1.44))
+				_rect(ci, r, fill if i == 1 else fill.darkened(0.18), o, k * 0.16)
+				ci.draw_rect(Rect2(r.position + Vector2(o, o), Vector2(r.size.x - o * 2.0, k * 0.36)), Companies.DATA[5 - i * 3]["color"])
+				ci.draw_line(r.position + Vector2(o, k * 0.36 + o), r.position + Vector2(r.size.x - o, k * 0.36 + o), INK, o * 0.7, true)
+		"seal":
+			# The regulator token: a gold seal with an R.
+			ci.draw_circle(c + Vector2(0, k * 0.1), k * 0.9, INK)
+			ci.draw_circle(c, k * 0.9, INK)
+			ci.draw_circle(c, k * 0.9 - o, UiTheme.GOLD)
+			ci.draw_arc(c, k * 0.62, 0, TAU, 24, UiTheme.GOLD_DEEP, o * 0.6, true)
+			var font := UiTheme.display_font()
+			var px := int(k * 1.05)
+			var w := font.get_string_size("R", HORIZONTAL_ALIGNMENT_LEFT, -1, px).x
+			ci.draw_string(font, c + Vector2(-w / 2.0, px * 0.36), "R", HORIZONTAL_ALIGNMENT_LEFT, -1, px, INK)
+		"coins":
+			# A gold coin on a bronze one: capital.
+			_coin_face(ci, c + Vector2(-k * 0.28, k * 0.28), k * 0.58, Companies.BRONZE, o)
+			_coin_face(ci, c + Vector2(k * 0.26, -k * 0.22), k * 0.58, UiTheme.GOLD, o)
+		"gear":
+			var teeth := PackedVector2Array()
+			for i in 32:
+				var a := TAU * i / 32.0
+				var r := k * (0.92 if (i / 2) % 2 == 0 else 0.68)
+				teeth.append(c + Vector2.from_angle(a + PI / 32.0) * r)
+			_poly(ci, teeth, fill, o)
+			ci.draw_circle(c, k * 0.3, INK)
+			ci.draw_circle(c, k * 0.3 - o * 0.8, UiTheme.VIOLET.darkened(0.3))
 		"flame":
 			var pts := PackedVector2Array()
 			for i in 24:
@@ -88,6 +119,14 @@ static func _coin(ci: CanvasItem, c: Vector2, r: float, o: float) -> void:
 	ci.draw_circle(c, r, INK)
 	ci.draw_circle(c, r - o, UiTheme.GOLD)
 	ci.draw_circle(c - Vector2(r * 0.2, r * 0.2), r * 0.35, UiTheme.GOLD_PALE)
+
+
+static func _coin_face(ci: CanvasItem, c: Vector2, r: float, face: Color, o: float) -> void:
+	ci.draw_circle(c + Vector2(0, r * 0.14), r, INK)
+	ci.draw_circle(c, r, INK)
+	ci.draw_circle(c, r - o, face)
+	ci.draw_arc(c, r * 0.66, 0, TAU, 20, face.darkened(0.25), o * 0.6, true)
+	ci.draw_circle(c - Vector2(r * 0.3, r * 0.3), r * 0.22, Color(1, 1, 1, 0.45))
 
 
 static func _check(ci: CanvasItem, c: Vector2, k: float, color: Color, o: float) -> void:

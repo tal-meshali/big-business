@@ -63,6 +63,9 @@ static var _fonts: Dictionary = {}
 static var _icons: Dictionary = {}
 ## Design points to px, as last worked out by `layout_scale`.
 static var _scale := 1.85
+## Set to a Vector2(top, bottom) to stand in for a phone's safe-area
+## insets off-device (the screenshot scripts use it); null on real runs.
+static var insets_override = null
 
 
 static func get_theme() -> Theme:
@@ -178,8 +181,9 @@ static func _menu_styles(t: Theme) -> void:
 			var icon_name := ("checked" if on else "unchecked") + ("" if enabled else "_disabled")
 			var picture := _switch_image(on, enabled)
 			t.set_icon(icon_name, "CheckButton", ImageTexture.create_from_image(picture))
-			picture.flip_x()
-			t.set_icon(icon_name + "_mirrored", "CheckButton", ImageTexture.create_from_image(picture))
+			var mirrored: Image = picture.duplicate()
+			mirrored.flip_x()
+			t.set_icon(icon_name + "_mirrored", "CheckButton", ImageTexture.create_from_image(mirrored))
 
 	# Sliders (the Designer's zoom): a well for the track, violet up to a
 	# cream knob.
@@ -197,9 +201,13 @@ static func _menu_styles(t: Theme) -> void:
 		t.set_icon(knob, "HSlider", dot_icon(TEXT, 40))
 
 	# Scroll bars: a thin lilac grabber, no track, clear of the rows.
+	# WHY margins on an empty track: the bar takes its width from the track
+	# box, and with none it collapsed to nothing and no list showed a bar.
+	var track_gap := StyleBoxEmpty.new()
+	track_gap.set_content_margin_all(4)
 	for bar in ["VScrollBar", "HScrollBar"]:
-		t.set_stylebox("scroll", bar, StyleBoxEmpty.new())
-		t.set_stylebox("scroll_focus", bar, StyleBoxEmpty.new())
+		t.set_stylebox("scroll", bar, track_gap)
+		t.set_stylebox("scroll_focus", bar, track_gap)
 		for state in ["grabber", "grabber_highlight", "grabber_pressed"]:
 			var grabber := StyleBoxFlat.new()
 			grabber.bg_color = Color(LILAC, 0.45 if state == "grabber" else 0.7)
@@ -287,6 +295,8 @@ static func dp(v: float) -> int:
 ## (bottom) take from the screen, in canvas units; zero off phones.
 ## WHY: desktop safe areas are relative to the monitor, not the window.
 static func safe_insets(ci: CanvasItem) -> Vector2:
+	if insets_override != null:
+		return insets_override
 	if not OS.has_feature("mobile"):
 		return Vector2.ZERO
 	var win := ci.get_window()
@@ -340,6 +350,10 @@ static func _font_with_fallbacks(key: String, path: String) -> Font:
 	# Names in other scripts fall back to the engine font.
 	fallbacks.append(ThemeDB.fallback_font)
 	font.fallbacks = fallbacks
+	if key == "display":
+		# WHY: Archivo Black's word space is narrow, and the ink outline on
+		# buttons and bands closes what is left ("Goodmove", "Leaveclub").
+		font.spacing_space = 3
 	_fonts[key] = font
 	return font
 
@@ -650,6 +664,11 @@ static func standing_row(rank: int, who: String, detail: String, score: String, 
 		var px := int(r * (1.05 if rank < 10 else 0.8))
 		var txt := str(rank)
 		var w := f.get_string_size(txt, HORIZONTAL_ALIGNMENT_LEFT, -1, px).x
+		# A place in the hundreds or thousands shrinks to stay on the medal.
+		var room := (r - maxf(2.0, r * 0.16)) * 1.7
+		if w > room:
+			px = int(px * room / w)
+			w = f.get_string_size(txt, HORIZONTAL_ALIGNMENT_LEFT, -1, px).x
 		medal.draw_string(f, c + Vector2(-w / 2.0, px * 0.36), txt, HORIZONTAL_ALIGNMENT_LEFT, -1, px, OUTLINE if rank >= 1 and rank <= 3 else TEXT_SOFT))
 	line.add_child(medal)
 

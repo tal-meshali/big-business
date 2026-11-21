@@ -130,7 +130,7 @@ func _build() -> void:
 	box.add_child(_felt)
 	box.add_child(_logo())
 
-	_status = UiTheme.label("Not connected", _px(12), UiTheme.LILAC)
+	_status = UiTheme.label("Not connected", _px(UiTheme.TYPE_LABEL), UiTheme.LILAC)
 	_status.add_theme_font_override("font", UiTheme.body_font())
 	_status.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -829,7 +829,9 @@ func _apply_progress(p: Dictionary, daily_available: bool) -> void:
 	var next_xp := 50 * level * level
 	_profile_label.text = "Level %d" % level
 	_profile_label.tooltip_text = "%d games, %d wins" % [int(p.get("gamesPlayed", 0)), int(p.get("wins", 0))]
-	_xp_label.text = "%d / %d" % [xp, next_xp]
+	# From 10,000 on the figures are rounded ("12.3k / 20k") to stay inside
+	# the bar; the tooltip keeps them whole.
+	_xp_label.text = "%s / %s" % [_short_count(xp), _short_count(next_xp)]
 	_xp_label.tooltip_text = "%d / %d XP to level %d" % [xp, next_xp, level + 1]
 	_streak_label.text = str(int(p.get("streak", 0)))
 	_xp_bar.min_value = floor_xp
@@ -930,10 +932,14 @@ func _show_board_rows(rows: Array, my_id: String) -> void:
 	# The server sends your own record again after the top ten; inside the
 	# top ten that would show you twice.
 	var seen := {}
+	var own := {}
+	for r in rows:
+		if _board_is_mine(r, my_id):
+			own[_board_key(r)] = true
 	for r in rows:
 		var rank := int(r.get("rank", 0))
-		var mine: bool = bool(r.get("mine", false)) or (not my_id.is_empty() and String(r.get("userId", "")) == my_id)
-		var key := String(r.get("userId", "")) if r.has("userId") else "rank %d %s" % [rank, r.get("name", "")]
+		var key := _board_key(r)
+		var mine: bool = own.has(key)
 		if seen.has(key):
 			continue
 		seen[key] = true
@@ -953,6 +959,24 @@ func _show_board_rows(rows: Array, my_id: String) -> void:
 	# the margins.
 	var room := get_viewport_rect().size.y - _insets.x - _insets.y - _px(230 + (70 if _board_mine.visible else 0))
 	_board_scroll.custom_minimum_size.y = minf(maxf(tall, 0.0), room)
+
+
+## What makes two standings records the same player: the user id, or
+## place and name where the server sent none.
+static func _board_key(r: Dictionary) -> String:
+	var uid := String(r.get("userId", ""))
+	return uid if not uid.is_empty() else "rank %d %s" % [int(r.get("rank", 0)), r.get("name", "")]
+
+
+static func _board_is_mine(r: Dictionary, my_id: String) -> bool:
+	return bool(r.get("mine", false)) or (not my_id.is_empty() and String(r.get("userId", "")) == my_id)
+
+
+static func _short_count(n: int) -> String:
+	if n < 10000:
+		return str(n)
+	var k := n / 1000.0
+	return ("%dk" % int(k)) if is_equal_approx(k, floorf(k)) or k >= 100.0 else ("%.1fk" % (floorf(k * 10.0) / 10.0))
 
 
 ## Account row: the label follows the server's view of the account; a link

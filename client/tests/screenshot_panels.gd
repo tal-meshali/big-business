@@ -7,10 +7,10 @@ extends SceneTree
 ## friends.png, friend_menu.png, designer.png, designer_editor.png,
 ## stats.png, season.png, season_full.png, join.png, more.png, room.png,
 ## waiting.png, notice.png, emotes.png, reconnect.png, seat_menu.png,
-## long_names.png.
-## After the folder: a locale ("he" runs right to left, "en" is the
-## default), then the screen's height in px (1560 by default; 1280 is the
-## shortest phone the layout serves).
+## long_names.png, friends_long.png, notch.png.
+## After the folder: a locale ("en" is the default; the layout stays left
+## to right in every locale), then the screen's height in px (1560 by
+## default; 1280 is the shortest phone the layout serves).
 
 
 func _init() -> void:
@@ -106,6 +106,12 @@ func _run() -> void:
 	bo_row.get_child(bo_row.get_child_count() - 1).pressed.emit()
 	await _shot(out_dir, "friend_menu")
 	main._friends_panel._row_menu.hide()
+	# A list longer than the screen: it scrolls, with a bar.
+	var many := []
+	for i in 15:
+		many.append({"userId": "u-%d" % i, "name": ["Maximilian-Alexa", "Bo", "אבישג", "W"][i % 4], "online": i % 2 == 0, "state": 0})
+	main._friends_panel.set_friends(many)
+	await _shot(out_dir, "friends_long")
 	main._friends_sheet.visible = false
 
 	main._season_sheet.visible = true
@@ -181,6 +187,7 @@ func _run() -> void:
 	root.add_child(crowded)
 	await process_frame
 	var hard := _view()
+	hard["seats"][0]["portfolio"] = [{"id": 60, "company": 0}, {"id": 61, "company": 0}, {"id": 62, "company": 0}, {"id": 63, "company": 0}, {"id": 64, "company": 1}, {"id": 65, "company": 3}]
 	hard["seats"][0]["bronze"] = 128
 	hard["seats"][0]["gold"] = 12
 	hard["seats"][1]["name"] = "Maximilian-Alexander"
@@ -200,6 +207,20 @@ func _run() -> void:
 	await _settle()
 	await _shot(out_dir, "long_names")
 	crowded.queue_free()
+
+	# A notched phone (insets as on an iPhone 14): the strip under the top
+	# bar is gone, so the notice lies on the bar's own row.
+	UiTheme.insets_override = Vector2(87, 63)
+	var notched = load("res://scenes/table.tscn").instantiate()
+	root.add_child(notched)
+	await process_frame
+	notched._on_view(view)
+	await _settle()
+	notched._show_notice("Bo forfeited. A bot plays their seat.")
+	await _settle()
+	await _shot(out_dir, "notch")
+	notched.queue_free()
+	UiTheme.insets_override = null
 	print("PANEL SCREENSHOTS OK")
 	quit(0)
 

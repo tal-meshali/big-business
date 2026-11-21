@@ -21,6 +21,7 @@ var _track_bar: ProgressBar
 var _back_buttons: Dictionary = {}
 var _table_buttons: Dictionary = {}
 var _status: Label
+const RESET_NOTE := "Quests reset at midnight UTC; weekly ones on Monday."
 
 
 func _init() -> void:
@@ -39,7 +40,7 @@ func _init() -> void:
 	column.add_child(_track_bar)
 	# WHY above the list and not at its end: this line also answers a tap on
 	# Claim, and at the end of a long list nobody saw it.
-	_status = UiTheme.body("Quests reset at midnight UTC; weekly ones on Monday.", UiTheme.dp(UiTheme.TYPE_LABEL), UiTheme.TEXT_SOFT)
+	_status = UiTheme.body(RESET_NOTE, UiTheme.dp(UiTheme.TYPE_LABEL), UiTheme.TEXT_SOFT)
 	column.add_child(_status)
 
 	var scroll := ScrollContainer.new()
@@ -116,8 +117,8 @@ func apply_profile(data: Dictionary) -> void:
 		_add_row(_daily_box, q)
 	for q in quests.get("weekly", []):
 		_add_row(_weekly_box, q)
-	if rows.is_empty():
-		_status.text = "No quests loaded yet. Connect to see today's quests."
+	# Fresh data clears an old "could not claim" or "no quests" line.
+	_status.text = "No quests loaded yet. Connect to see today's quests." if rows.is_empty() else RESET_NOTE
 	_refresh_track()
 	_refresh_picker()
 

@@ -107,8 +107,10 @@ func _build() -> void:
 	_row_menu = PopupMenu.new()
 	_row_menu.transparent_bg = true
 	_row_menu.add_item("Remove friend", 0)
+	# WHY the user id and not the row: the list is rebuilt whenever fresh
+	# data lands, which frees the row the menu was opened from.
 	_row_menu.id_pressed.connect(func(_id: int) -> void:
-		if is_instance_valid(_menu_button):
+		if not _menu_user.is_empty():
 			_on_remove_pressed(_menu_user, _menu_button))
 	add_child(_row_menu)
 	_render_friends()
@@ -116,7 +118,7 @@ func _build() -> void:
 
 ## A row button: touch-sized, in the display face at the row's text size.
 func _button(text: String, kind := "") -> Button:
-	var b := UiTheme.button(text, UiTheme.dp(12), maxi(TOUCH, UiTheme.dp(44)), kind)
+	var b := UiTheme.button(text, UiTheme.dp(UiTheme.TYPE_LABEL), maxi(TOUCH, UiTheme.dp(44)), kind)
 	b.custom_minimum_size.x = UiTheme.dp(52)
 	return b
 
@@ -305,7 +307,8 @@ func _on_accept_pressed(user_id: String, button: Button) -> void:
 
 
 func _on_remove_pressed(user_id: String, button: Button) -> void:
-	button.disabled = true
+	if is_instance_valid(button):
+		button.disabled = true
 	var ok: bool = await Net.remove_friend(user_id)
 	if ok:
 		refresh()

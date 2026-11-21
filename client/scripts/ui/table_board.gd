@@ -168,8 +168,8 @@ func _draw() -> void:
 	# WHY not under the Portfolio as before: the hand stands there and
 	# covered the words whenever a card was picked.
 	# A second Market row reaches down over the Portfolio's top line, so
-	# while the Market wraps the Portfolio's name stands inside its zone,
-	# on the bottom line under your shares.
+	# while the Market wraps the Portfolio's name is a tab on the zone's
+	# bottom line instead (see draw_portfolio_tag).
 	var market := _legend_rect("THE MARKET", ZONE_MARKET)
 	var portfolio := _legend_rect("YOUR PORTFOLIO", ZONE_PORTFOLIO, market_wraps)
 	# The Market's bottom line runs behind the Portfolio's name: it skips it.
@@ -177,7 +177,8 @@ func _draw() -> void:
 	_draw_zone(ZONE_SUPPLY, glow.has("supply"))
 	_draw_zone(ZONE_PORTFOLIO, glow.has("portfolio"))
 	_draw_legend("THE MARKET", market, glow.has("market"))
-	_draw_legend("YOUR PORTFOLIO", portfolio, glow.has("portfolio"))
+	if not market_wraps:
+		_draw_legend("YOUR PORTFOLIO", portfolio, glow.has("portfolio"))
 	_draw_supply_stack()
 	for h in hands:
 		_draw_hand_backs(h["at"], float(h["angle"]), int(h["count"]))
@@ -260,6 +261,19 @@ func _draw_legend(text: String, rect: Rect2, on: bool) -> void:
 	draw_string(_label_font, base, text, HORIZONTAL_ALIGNMENT_LEFT, -1, px, UiTheme.GOLD if on else _print_color())
 
 
+## The Portfolio's name while the Market wraps: an ink tab on the zone's
+## bottom line, lilac letters or gold while the zone can be used. `canvas`
+## is a node above your shares, at the board's origin, so a tall stack
+## cannot cover the name.
+func draw_portfolio_tag(canvas: CanvasItem) -> void:
+	if not market_wraps:
+		return
+	var rect := _legend_rect("YOUR PORTFOLIO", ZONE_PORTFOLIO, true)
+	var px := int(rect.size.y / 1.5)
+	canvas.draw_style_box(_tab, rect)
+	canvas.draw_string(_label_font, Vector2(rect.position.x + px * 0.55, rect.get_center().y + px * 0.36), "YOUR PORTFOLIO", HORIZONTAL_ALIGNMENT_LEFT, -1, px, UiTheme.GOLD if glow.has("portfolio") else UiTheme.TEXT_SOFT)
+
+
 ## How many shares are left to draw: a gold number on an ink tab at the
 ## foot of the pile it counts. `canvas` is a node above the pile, at the
 ## board's origin.
@@ -301,7 +315,7 @@ func _draw_supply_stack() -> void:
 func _draw_hand_backs(at: Vector2, angle: float, count: int) -> void:
 	var c := project(at)
 	var k := 0.42 * depth(at) * s
-	var card := Vector2(100, 140) * k
+	var card := CARD_DP * k
 	for i in count:
 		var off := i - (count - 1) / 2.0
 		var rot := deg_to_rad(angle + off * 9.0)

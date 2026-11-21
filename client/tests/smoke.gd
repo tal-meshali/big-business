@@ -996,6 +996,16 @@ func _friends_checks() -> int:
 		push_error("a request row has no Gift")
 		failures += 1
 	var bo_id := String(panel._friends[0].get("userId", ""))
+	# The menu remembers the friend, not the row: rebuilding the list while
+	# it is open frees the row, and Remove friend must still know whom.
+	bo_row.get_child(bo_row.get_child_count() - 1).pressed.emit()
+	var menu_button = panel._menu_button
+	panel.set_friends(panel._friends)
+	if panel._menu_user != bo_id or is_instance_valid(menu_button):
+		push_error("the row menu should outlive its row and remember the friend")
+		failures += 1
+	panel._row_menu.hide()
+	bo_row = panel._list.get_child(0).get_child(0)
 	panel.set_extras({"waiting": 2, "names": ["Cara", "Dev"], "claimLeft": 5, "sentToday": [bo_id], "sendLeft": 9, "points": 5}, [bo_id])
 	await process_frame
 	bo_row = panel._list.get_child(0).get_child(0)
@@ -1533,14 +1543,60 @@ func _plus_checks() -> int:
 		failures += 1
 
 	var stats_script = load("res://scripts/ui/stats_panel.gd")
-	var locked: String = stats_script.describe({"plus": false, "games": 4, "wins": 1})
-	var full: String = stats_script.describe({"plus": true, "games": 4, "wins": 1, "winRate": 25, "averageScore": 12.5, "bestScore": 20, "podiums": 3, "peopleGames": 2,
-		"majorities": [0, 2, 0, 0, 1, 0], "recent": [{"rank": 2}, {"rank": 1}]})
-	if not locked.begins_with("4 games, 1 wins") or not locked.contains("Plus shows"):
-		push_error("without Plus the stats show games and wins and what Plus adds, got '%s'" % locked)
+	var full_stats := {"plus": true, "games": 4, "wins": 1, "winRate": 25, "averageScore": 12.5, "bestScore": 20, "podiums": 3, "peopleGames": 2,
+		"majorities": [0, 2, 0, 0, 1, 0], "recent": [{"rank": 2}, {"rank": 1}]}
+	var locked_facts: Array = stats_script.facts({"plus": false, "games": 4, "wins": 1})
+	if locked_facts != [["Games", "4"], ["Wins", "1"]] or not stats_script.note({"plus": false, "games": 4, "wins": 1}).contains("Plus shows"):
+		push_error("without Plus the stats show games and wins and what Plus adds, got %s" % str(locked_facts))
 		failures += 1
-	if not full.contains("(25%)") or not full.contains("Foods 2") or not full.contains("#2 #1"):
-		push_error("Plus stats should show the breakdown, got '%s'" % full)
+	var full_facts: Array = stats_script.facts(full_stats)
+	if not full_facts.has(["Win rate", "25%"]) or not full_facts.has(["Recent places", "2 · 1"]) or not stats_script.note(full_stats).is_empty():
+		push_error("Plus stats should list the breakdown, got %s" % str(full_facts))
+		failures += 1
+	var stats_panel = stats_script.new()
+	root.add_child(stats_panel)
+	await process_frame
+	stats_panel.apply(full_stats)
+	await process_frame
+	var stats_texts := _texts(stats_panel)
+	if not stats_texts.has("Win rate") or not stats_texts.has("25%") or not stats_texts.has("Majorities won") or not stats_texts.has("Foods"):
+		push_error("the stats panel should show the figures and the majorities, got %s" % str(stats_texts))
+		failures += 1
+	stats_panel.queue_free()
+
+	# Season standings: your own record sent twice shows once, lit; past the
+	# top ten it is pinned under the list.
+	var board_lobby = load("res://scripts/ui/main.gd").new()
+	root.add_child(board_lobby)
+	await process_frame
+	board_lobby._show_board_rows([
+		{"rank": 1, "name": "Maya", "score": 9, "wins": 2, "userId": "a"},
+		{"rank": 2, "name": "Tal", "score": 7, "wins": 1, "userId": "me"},
+		{"rank": 2, "name": "Tal", "score": 7, "wins": 1, "userId": "me", "mine": true}], "me")
+	if _ranks(board_lobby._board_rows) != [1, 2] or board_lobby._board_mine.visible or not _texts(board_lobby._board_rows).has("1 win · you"):
+		push_error("your record inside the top ten shows once and lit, got %s" % str(_ranks(board_lobby._board_rows)))
+		failures += 1
+	var long_board := []
+	for i in 10:
+		long_board.append({"rank": i + 1, "name": "P%d" % i, "score": 50 - i, "wins": 3, "userId": "u%d" % i})
+	long_board.append({"rank": 57, "name": "Tal", "score": 1, "wins": 0, "userId": "me", "mine": true})
+	board_lobby._show_board_rows(long_board, "me")
+	await process_frame
+	if _ranks(board_lobby._board_rows).size() != 10 or _ranks(board_lobby._board_mine) != [57] or not board_lobby._board_mine.visible:
+		push_error("a place past the top ten is pinned under the list")
+		failures += 1
+	if board_lobby._short_count(9999) != "9999" or board_lobby._short_count(12345) != "12.3k" or board_lobby._short_count(20000) != "20k":
+		push_error("XP figures from 10,000 on are rounded to thousands")
+		failures += 1
+	board_lobby.queue_free()
+
+	# A wrapped Market keeps one pitch: the second row lies a full row lower.
+	var table_script = load("res://scripts/ui/table.gd")
+	if not is_equal_approx(table_script._market_pos(0, 5).y, table_script._market_pos(0, 6).y) or not is_equal_approx(table_script._market_pos(5, 6).y - table_script._market_pos(0, 6).y, 72.0):
+		push_error("Market rows keep their pitch when the Market wraps")
+		failures += 1
+	if SeatView.short_name({"name": "Maximilian-Alexander"}, 9) != "Maximili…" or SeatView.short_name({"name": "Broker Bo", "isBot": true}) != "Bo":
+		push_error("short_name cuts long names and keeps a bot's last word")
 		failures += 1
 
 	var shop = load("res://scripts/ui/shop_panel.gd").new()

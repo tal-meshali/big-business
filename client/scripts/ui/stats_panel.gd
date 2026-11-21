@@ -70,7 +70,7 @@ func apply(data: Dictionary) -> void:
 		line.add_child(value)
 		_rows.add_child(row)
 	var maj: Array = data.get("majorities", [])
-	if not data.get("plus", false) or int(data.get("games", 0)) == 0:
+	if not data.get("plus", false) or int(data.get("games", 0)) == 0 or maj.is_empty():
 		return
 	var row := UiTheme.well()
 	var col := VBoxContainer.new()
@@ -123,31 +123,3 @@ static func note(data: Dictionary) -> String:
 	if int(data.get("games", 0)) == 0:
 		return "No games yet. Your stats start with your next game."
 	return ""
-
-
-## The stats as plain text (the same facts as the rows), for logs and tests:
-## a short line without Plus, the breakdown with it.
-static func describe(data: Dictionary) -> String:
-	var games := int(data.get("games", 0))
-	var wins := int(data.get("wins", 0))
-	if not data.get("plus", false):
-		return "%d games, %d wins.\n\nPlus shows your win rate, average and best capital, which companies you corner most, and your recent form." % [games, wins]
-	if games == 0:
-		return "No games yet. Your stats start with your next game."
-	var lines: Array[String] = []
-	lines.append("%d games, %d wins (%s%%)" % [games, wins, str(data.get("winRate", 0))])
-	lines.append("Average capital %s, best %d" % [str(data.get("averageScore", 0)), int(data.get("bestScore", 0))])
-	lines.append("Top three finishes: %d" % int(data.get("podiums", 0)))
-	lines.append("Games with other people: %d" % int(data.get("peopleGames", 0)))
-	var maj: Array = data.get("majorities", [])
-	var parts: Array[String] = []
-	for c in mini(6, maj.size()):
-		if int(maj[c]) > 0:
-			parts.append("%s %d" % [Companies.short_name_of(c), int(maj[c])])
-	lines.append("Majorities: " + (", ".join(parts) if not parts.is_empty() else "none yet"))
-	var form: Array[String] = []
-	for g in data.get("recent", []).slice(0, 10):
-		form.append("#%d" % int(g.get("rank", 0)))
-	if not form.is_empty():
-		lines.append("Recent places: " + " ".join(form))
-	return "\n".join(lines)

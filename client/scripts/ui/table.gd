@@ -50,6 +50,9 @@ const PLATE_H := 66.0
 const MARKET_PER_ROW := 5
 ## Highest place for the notice pill (dp from the top): the logo's foot.
 const NOTICE_TOP := 46.0
+## The top bar's row (dp from the top, and its height).
+const TOP_BAR_Y := 8.0
+const TOP_BAR_H := 48.0
 
 var view: Dictionary = {}
 var _my_seat: int = -1
@@ -185,6 +188,13 @@ func _build_layout() -> void:
 	_portfolio_layer = Control.new()
 	_portfolio_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_board.add_child(_portfolio_layer)
+	# While the Market wraps, the Portfolio's name is a tab on the zone's
+	# bottom line; a node above your shares draws it so they cannot hide it.
+	var portfolio_tag := Control.new()
+	portfolio_tag.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	portfolio_tag.draw.connect(func() -> void: _board.draw_portfolio_tag(portfolio_tag))
+	_board.draw.connect(portfolio_tag.queue_redraw)
+	_board.add_child(portfolio_tag)
 	_supply_pile = CardView.new()
 	_supply_pile.setup(-1, 0, 0, false)
 	_supply_pile.selectable = false
@@ -254,8 +264,8 @@ func _build_top_bar() -> void:
 	top.set_anchors_and_offsets_preset(Control.PRESET_TOP_WIDE)
 	top.offset_left = _px(12)
 	top.offset_right = -_px(12)
-	top.offset_top = _px(8) + _insets.x
-	top.custom_minimum_size = Vector2(0, _px(48))
+	top.offset_top = _px(TOP_BAR_Y) + _insets.x
+	top.custom_minimum_size = Vector2(0, _px(TOP_BAR_H))
 	top.add_theme_constant_override("separation", _px(10))
 	add_child(top)
 	var brand := LogoTitle.new()
@@ -289,7 +299,7 @@ func _build_top_bar() -> void:
 	# WHY: wide enough for two digits, so the pill does not twitch at 9s.
 	_timer_label.custom_minimum_size.x = UiTheme.display_font().get_string_size("00s", HORIZONTAL_ALIGNMENT_LEFT, -1, _px(15)).x
 	_timer_pill.add_child(_timer_label)
-	_leave_button = UiTheme.button("Leave", _px(13), _px(44), "danger")
+	_leave_button = UiTheme.button("Leave", _px(13), _px(44), "ghost")
 	_leave_button.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	_leave_button.pressed.connect(_on_leave_pressed)
 	top.add_child(_leave_button)
@@ -419,10 +429,17 @@ func _layout() -> void:
 	# The notice stands in the strip between the top bar and the highest
 	# seat plate, which grows with the screen's height: centred in it, and
 	# never higher than the logo's foot.
+	# WHY the second case: safe-area insets (notched phones) and a tall
+	# prompt both push the plates up until no strip is left; the pill then
+	# lies on the top bar's own row, over the status words, instead of on
+	# the players' names.
 	var strip_top := _px(NOTICE_TOP + 4) + _insets.x
 	var plate_top := _board.origin.y + (float(PLATE_SLOTS[0][0][2]) - 400.0) * _s
 	var one_line := _px(UiTheme.TYPE_LABEL * 1.35 + 7)
-	_notice_holder.offset_top = maxf(_px(NOTICE_TOP) + _insets.x, (strip_top + plate_top - one_line) / 2.0)
+	if plate_top - strip_top >= one_line:
+		_notice_holder.offset_top = maxf(_px(NOTICE_TOP) + _insets.x, (strip_top + plate_top - one_line) / 2.0)
+	else:
+		_notice_holder.offset_top = _px(TOP_BAR_Y) + _insets.x + (_px(TOP_BAR_H) - one_line) / 2.0
 	_place_supply()
 
 
@@ -521,6 +538,9 @@ func _build_notice() -> void:
 	_notice_label = UiTheme.body("", _px(UiTheme.TYPE_LABEL))
 	_notice_label.add_theme_constant_override("line_spacing", 0)
 	_notice_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	# Two lines at most: a third would cover the names on the far plates.
+	_notice_label.max_lines_visible = 2
+	_notice_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	_notice.add_child(_notice_label)
 	holder.add_child(_notice)
 	_notice.resized.connect(func() -> void: _notice.pivot_offset = _notice.size / 2.0)
@@ -731,13 +751,14 @@ func _on_reconnecting(attempt: int) -> void:
 func _on_reconnected() -> void:
 	_reconnect_overlay.visible = false
 	if Net.match_id.is_empty():
-		_status.text = "Could not rejoin the game"
+		_status.text = "Could not rejoin"
 
 
 func _on_connection_failed(reason: String) -> void:
 	_reconnect_overlay.visible = false
 	_status.text = "Connection lost"
-	_prompt.text = reason.substr(0, 1).to_upper() + reason.substr(1)
+	var why := reason.rstrip(".! ")
+	_prompt.text = "%s. Go back to the lobby to play again." % (why.substr(0, 1).to_upper() + why.substr(1))
 
 
 ## A move or dialog button, hidden until a step shows it.
@@ -859,7 +880,7 @@ func _on_player_forfeited(seat: int) -> void:
 	if seat < 0 or seat >= seats.size() or seat == _my_seat:
 		return
 	_show_bubble(seat, "Forfeited")
-	_show_notice("%s forfeited. A bot plays their seat." % seats[seat].get("name", "A player"))
+	_show_notice("%s forfeited. A bot plays their seat." % SeatView.short_name(seats[seat], 12))
 
 
 func _on_play_again() -> void:
@@ -870,6 +891,7 @@ func _on_play_again() -> void:
 		coach.queue_free()
 		coach = null
 		_restriction = {}
+	_turns_announced = 0
 	_status.text = "Finding a new game…"
 	_result_backdrop.visible = false
 	var ok: bool = await Net.quick_play()
@@ -1243,18 +1265,17 @@ static func _stacks_of(seat: Dictionary) -> Array:
 	return out
 
 
-## Market slot k of m on the felt: rows of at least five, two rows at most,
+## Where Market share `k` of `m` lies: rows of five, or two even rows
 ## squeezed together as the Market grows (dp from the felt's centre).
-## WHY two rows sit higher and closer: at the one-row pitch the second row
-## reached the Portfolio's line and covered its name.
+## WHY one pitch for both cases: a tighter second row hid half of each
+## coin on the first, and coins are what you read before taking a share.
 static func _market_pos(k: int, m: int) -> Vector2:
 	var per := maxi(MARKET_PER_ROW, ceili(m / 2.0))
 	var row := k / per
 	var in_row := mini(per, m) if row == 0 else m - per
 	var col := k % per
 	var spacing := minf(54.0, 264.0 / per)
-	var two_rows := m > per
-	return Vector2((col - (in_row - 1) / 2.0) * spacing, (-56.0 if two_rows else -52.0) + row * (64.0 if two_rows else 72.0))
+	return Vector2((col - (in_row - 1) / 2.0) * spacing, -52.0 + row * 72.0)
 
 
 ## Lays a card on the felt at `p` (dp from the centre), `card` = its design

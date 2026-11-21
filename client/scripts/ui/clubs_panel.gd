@@ -77,9 +77,12 @@ func apply_state(data: Dictionary, listing: Dictionary = {}) -> void:
 		_build_join(listing.get("clubs", []))
 	_build_league(data.get("league", []), String(club.get("id", "")) if club is Dictionary else "")
 	if club is Dictionary:
-		# Last and quiet: the one button here that takes something away.
+		# Last, quiet and narrow (so it is not mistaken for Close under it):
+		# the one button here that takes something away. The first tap only
+		# arms it.
 		var leave := _button("Leave club", "ghost")
-		leave.pressed.connect(_on_leave)
+		leave.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+		leave.pressed.connect(_on_leave.bind(leave))
 		var pad := MarginContainer.new()
 		pad.add_theme_constant_override("margin_top", UiTheme.dp(10))
 		pad.add_child(leave)
@@ -225,7 +228,14 @@ func _on_join(club_id: String) -> void:
 	await refresh()
 
 
-func _on_leave() -> void:
+func _on_leave(button: Button) -> void:
+	if not button.has_meta("armed"):
+		button.set_meta("armed", true)
+		button.text = "Tap again to leave the club"
+		button.theme_type_variation = "DangerButton"
+		button.add_theme_constant_override("outline_size", UiTheme.dp(4))
+		return
+	button.disabled = true
 	if not await ClubsApi.leave():
 		_say(ClubsApi.last_error)
 		return

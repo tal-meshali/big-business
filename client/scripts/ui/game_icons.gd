@@ -60,11 +60,11 @@ static func draw(ci: CanvasItem, kind: String, c: Vector2, k: float, fill := Col
 		"cards":
 			# Two shares, the back one tilted: the Market.
 			for i in 2:
-				var at := c + Vector2((i - 0.5) * k * 0.55, (0.5 - i) * k * 0.12)
-				var r := Rect2(at - Vector2(k * 0.5, k * 0.72), Vector2(k * 1.0, k * 1.44))
-				_rect(ci, r, fill if i == 1 else fill.darkened(0.18), o, k * 0.16)
-				ci.draw_rect(Rect2(r.position + Vector2(o, o), Vector2(r.size.x - o * 2.0, k * 0.36)), Companies.DATA[5 - i * 3]["color"])
-				ci.draw_line(r.position + Vector2(o, k * 0.36 + o), r.position + Vector2(r.size.x - o, k * 0.36 + o), INK, o * 0.7, true)
+				var at := c + Vector2((i - 0.5) * k * 0.62, (0.5 - i) * k * 0.14)
+				var r := Rect2(at - Vector2(k * 0.6, k * 0.85), Vector2(k * 1.2, k * 1.7))
+				_rect(ci, r, fill if i == 1 else fill.darkened(0.18), o, k * 0.18)
+				ci.draw_rect(Rect2(r.position + Vector2(o, o), Vector2(r.size.x - o * 2.0, k * 0.42)), Companies.DATA[5 - i * 3]["color"])
+				ci.draw_line(r.position + Vector2(o, k * 0.42 + o), r.position + Vector2(r.size.x - o, k * 0.42 + o), INK, o * 0.7, true)
 		"seal":
 			# The regulator token: a gold seal with an R.
 			ci.draw_circle(c + Vector2(0, k * 0.1), k * 0.9, INK)
@@ -77,8 +77,8 @@ static func draw(ci: CanvasItem, kind: String, c: Vector2, k: float, fill := Col
 			ci.draw_string(font, c + Vector2(-w / 2.0, px * 0.36), "R", HORIZONTAL_ALIGNMENT_LEFT, -1, px, INK)
 		"coins":
 			# A gold coin on a bronze one: capital.
-			_coin_face(ci, c + Vector2(-k * 0.28, k * 0.28), k * 0.58, Companies.BRONZE, o)
-			_coin_face(ci, c + Vector2(k * 0.26, -k * 0.22), k * 0.58, UiTheme.GOLD, o)
+			coin_face(ci, c + Vector2(-k * 0.28, k * 0.28), k * 0.58, Companies.BRONZE, o)
+			coin_face(ci, c + Vector2(k * 0.26, -k * 0.22), k * 0.58, UiTheme.GOLD, o)
 		"gear":
 			var teeth := PackedVector2Array()
 			for i in 32:
@@ -121,7 +121,8 @@ static func _coin(ci: CanvasItem, c: Vector2, r: float, o: float) -> void:
 	ci.draw_circle(c - Vector2(r * 0.2, r * 0.2), r * 0.35, UiTheme.GOLD_PALE)
 
 
-static func _coin_face(ci: CanvasItem, c: Vector2, r: float, face: Color, o: float) -> void:
+## A capital coin face (bronze or gold), without a number.
+static func coin_face(ci: CanvasItem, c: Vector2, r: float, face: Color, o: float) -> void:
 	ci.draw_circle(c + Vector2(0, r * 0.14), r, INK)
 	ci.draw_circle(c, r, INK)
 	ci.draw_circle(c, r - o, face)

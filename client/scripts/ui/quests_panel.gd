@@ -3,7 +3,7 @@ extends PanelContainer
 ## Quests overlay for the lobby: today's and this week's quests with progress
 ## bars and Claim buttons, the free cosmetic track, and a picker for the card
 ## back and table felt (only unlocked ones enabled), on two tabs (Quests,
-## Looks) so neither needs scrolling on a phone. Built in code on a deed
+## Looks) so neither needs scrolling on a phone. Built in code on a royal
 ## panel; fed by the `get_profile` dictionary through `apply_profile`.
 
 signal closed
@@ -11,6 +11,16 @@ signal closed
 signal cosmetic_changed(slot: String, id: String)
 
 const ROW_HEIGHT := 48.0
+## Px per design point for the sheet and tabs.
+## WHY fixed: this panel is laid out in canvas px on the 720-wide canvas
+## (18 px text, 48 px rows); 1.35 matches the tabs to that text size.
+const K := 1.35
+const HINTS := [
+	"Quests reset at midnight UTC; weekly ones on Monday.",
+	"Points from quests unlock new looks along the track.",
+]
+## Text on the royal sheet.
+const CREAM := Color("#FFF6DE")
 
 ## One entry per quest row: {id, claimable, claimed, label, bar, count, button}.
 var rows: Array[Dictionary] = []
@@ -28,33 +38,35 @@ var _status: Label
 var tabs: TabStrip
 var quests_page: VBoxContainer
 var looks_page: VBoxContainer
+var _scroll: ScrollContainer
+var _status_is_hint := true
 
 
 func _init() -> void:
-	add_theme_stylebox_override("panel", StyleBoxEmpty.new())
-	var deed := UiTheme.deed_panel(Companies.CHANCE, "Quests", Color.WHITE)
-	deed["title"].add_theme_font_size_override("font_size", 28)
-	deed["panel"].size_flags_vertical = Control.SIZE_EXPAND_FILL
-	add_child(deed["panel"])
-	var body: MarginContainer = deed["body"]
-	body.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	# The same royal sheet as the rules, so the overlays read as one family.
+	add_theme_stylebox_override("panel", UiTheme.royal_sheet_style(K))
 	var column := VBoxContainer.new()
 	column.add_theme_constant_override("separation", 10)
 	column.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	body.add_child(column)
+	add_child(column)
+	var title := UiTheme.outlined("Quests", 30)
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	column.add_child(title)
 
 	# Track summary stays visible above the scrolling list.
 	_track_label = Label.new()
 	_track_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_track_label.add_theme_font_size_override("font_size", 19)
+	_track_label.add_theme_color_override("font_color", CREAM)
 	column.add_child(_track_label)
-	_track_bar = _make_bar(Companies.CHANCE)
+	_track_bar = _make_bar(UiTheme.MINT)
 	column.add_child(_track_bar)
 
 	# Two pages instead of one long list: the quests, and the looks the
 	# track unlocks. The status line stays under both.
 	tabs = TabStrip.new()
-	tabs.setup([{"label": "Quests"}, {"label": "Looks"}], 1.35)
+	tabs.setup([{"label": "Quests"}, {"label": "Looks"}], K)
+	tabs.tab_selected.connect(select_tab)
 	column.add_child(tabs)
 
 	var scroll := ScrollContainer.new()
@@ -71,10 +83,7 @@ func _init() -> void:
 	looks_page.add_theme_constant_override("separation", 8)
 	looks_page.visible = false
 	pages.add_child(looks_page)
-	tabs.tab_selected.connect(func(i: int) -> void:
-		quests_page.visible = i == 0
-		looks_page.visible = i == 1
-		scroll.scroll_vertical = 0)
+	_scroll = scroll
 
 	quests_page.add_child(_heading("Today"))
 	_daily_box = VBoxContainer.new()
@@ -103,12 +112,18 @@ func _init() -> void:
 	_status = Label.new()
 	_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_status.add_theme_font_size_override("font_size", 17)
-	_status.text = "Quests reset at midnight UTC; weekly ones on Monday."
+	_status.add_theme_color_override("font_color", UiTheme.LILAC)
 	column.add_child(_status)
+	_show_hint()
+	# Opening from the dock always starts on the quests, where the badge points.
+	visibility_changed.connect(func() -> void:
+		if visible:
+			select_tab(0))
 
 	var close := Button.new()
 	close.text = "Close"
 	close.custom_minimum_size = Vector2(0, ROW_HEIGHT)
+	close.theme_type_variation = "GhostButton"
 	close.pressed.connect(func() -> void:
 		visible = false
 		closed.emit())
@@ -121,7 +136,7 @@ func _heading(text: String) -> Label:
 	var l := Label.new()
 	l.text = text.to_upper()
 	l.add_theme_font_size_override("font_size", 15)
-	l.add_theme_color_override("font_color", Companies.INK_SOFT)
+	l.add_theme_color_override("font_color", UiTheme.LILAC)
 	return l
 
 
@@ -133,9 +148,9 @@ func _make_bar(fill_color: Color) -> ProgressBar:
 	fill.bg_color = fill_color
 	fill.set_corner_radius_all(6)
 	var back := StyleBoxFlat.new()
-	back.bg_color = Color("#E8E8E8")
-	back.border_color = Companies.INK
-	back.set_border_width_all(1)
+	back.bg_color = UiTheme.NIGHT
+	back.border_color = UiTheme.OUTLINE
+	back.set_border_width_all(2)
 	back.set_corner_radius_all(6)
 	bar.add_theme_stylebox_override("fill", fill)
 	bar.add_theme_stylebox_override("background", back)
@@ -150,6 +165,23 @@ func _make_pick_button(parent: Control, slot: String, id: String) -> Button:
 	b.pressed.connect(func() -> void: _on_pick(slot, id))
 	parent.add_child(b)
 	return b
+
+
+## Shows the Quests (0) or Looks (1) page and moves the tab pill there.
+func select_tab(i: int) -> void:
+	tabs.select(i, is_inside_tree())
+	quests_page.visible = i == 0
+	looks_page.visible = i == 1
+	_scroll.scroll_vertical = 0
+	if _status_is_hint:
+		_show_hint()
+
+
+## The status line's resting text, for the page on show. Messages (an
+## unlock, an error) replace it until the next profile load.
+func _show_hint() -> void:
+	_status.text = HINTS[1 if looks_page.visible else 0]
+	_status_is_hint = true
 
 
 ## Feeds the whole `get_profile` result (or any dictionary with the same keys).
@@ -168,6 +200,9 @@ func apply_profile(data: Dictionary) -> void:
 		_add_row(_weekly_box, q)
 	if rows.is_empty():
 		_status.text = "No quests loaded yet. Connect to see today's quests."
+		_status_is_hint = false
+	else:
+		_show_hint()
 	_refresh_track()
 	_refresh_picker()
 
@@ -184,15 +219,16 @@ func _add_row(parent: Control, q: Dictionary) -> void:
 	label.text = "%s  (+%d pts)" % [String(q.get("text", "")), int(q.get("points", 0))]
 	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	label.add_theme_font_size_override("font_size", 18)
+	label.add_theme_color_override("font_color", CREAM)
 	col.add_child(label)
-	var bar := _make_bar(Companies.GOLD)
+	var bar := _make_bar(UiTheme.GOLD)
 	bar.max_value = maxf(1.0, float(q.get("target", 1)))
 	bar.value = float(q.get("progress", 0))
 	col.add_child(bar)
 	var count := Label.new()
 	count.text = "%d / %d" % [int(q.get("progress", 0)), int(q.get("target", 1))]
 	count.add_theme_font_size_override("font_size", 14)
-	count.add_theme_color_override("font_color", Companies.INK_SOFT)
+	count.add_theme_color_override("font_color", UiTheme.LILAC)
 	col.add_child(count)
 	var button := Button.new()
 	button.custom_minimum_size = Vector2(104, ROW_HEIGHT)
@@ -228,6 +264,7 @@ func _on_claim(id: String) -> void:
 	if res.is_empty() or not res.get("ok", false):
 		entry["button"].disabled = false
 		_status.text = "Could not claim right now. Try again in a moment."
+		_status_is_hint = false
 		return
 	_apply_claim(id, int(res.get("trackPoints", track_points)), res.get("unlocked", unlocked))
 
@@ -246,6 +283,7 @@ func _apply_claim(id: String, new_points: int, new_unlocked: Array) -> void:
 	_refresh_picker()
 	if unlocked.size() > before:
 		_status.text = "Unlocked: %s" % Cosmetics.name_of(String(unlocked.back()))
+		_status_is_hint = false
 
 
 func _row_by_id(id: String) -> Dictionary:

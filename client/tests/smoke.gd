@@ -404,6 +404,24 @@ func _check_button_sizes(scene: Node, where: String) -> int:
 	return failures
 
 
+## A press at `from`, a drag of `dx` px and a release, as the help sheet sees them.
+func _swipe(help: HelpScreen, from: Vector2, dx: float) -> void:
+	var down := InputEventMouseButton.new()
+	down.button_index = MOUSE_BUTTON_LEFT
+	down.pressed = true
+	down.position = from
+	help._input(down)
+	for k in [0.25, 0.5, 1.0]:
+		var move := InputEventMouseMotion.new()
+		move.position = from + Vector2(dx * k, 0)
+		help._input(move)
+	var up := InputEventMouseButton.new()
+	up.button_index = MOUSE_BUTTON_LEFT
+	up.pressed = false
+	up.position = from + Vector2(dx, 0)
+	help._input(up)
+
+
 ## Server field parsing, and the rules / help overlay from the lobby and table.
 func _help_checks() -> int:
 	var failures := 0
@@ -464,8 +482,8 @@ func _help_checks() -> int:
 		if content.size.y > page.size.y + 1.0:
 			push_error("help page %s scrolls on a 720x1280 phone (%.0f > %.0f)" % [HelpScreen.PAGES[i]["tab"], content.size.y, page.size.y])
 			failures += 1
-		if help._next_button.visible != (i < help.tab_count() - 1):
-			push_error("Next shows on every page but the last (page %d)" % i)
+		if not help._next_button.visible or (help._next_button.text == "Done") != (i == help.tab_count() - 1):
+			push_error("the footer keeps Next, reading Done only on the last page (page %d: %s)" % [i, help._next_button.text])
 			failures += 1
 		failures += _check_button_sizes(help, "help page %d" % i)
 	for l in help.find_children("*", "Label", true, false):
@@ -499,21 +517,75 @@ func _help_checks() -> int:
 	if help.current != 1 or help.tabs.current != 1:
 		push_error("Next should go to the second page, at %d" % help.current)
 		failures += 1
+	# Swipes: [start, travel, page it should land on]. A drag on the tabs
+	# never turns the page, and the last page does not turn past itself.
 	var mid := help._page_holder.get_global_rect().get_center()
-	for step in [[-200.0, 2], [200.0, 1], [30.0, 1]]:
-		var down := InputEventMouseButton.new()
-		down.button_index = MOUSE_BUTTON_LEFT
-		down.pressed = true
-		down.position = mid
-		help._input(down)
-		var up := InputEventMouseButton.new()
-		up.button_index = MOUSE_BUTTON_LEFT
-		up.pressed = false
-		up.position = mid + Vector2(step[0], 0)
-		help._input(up)
-		if help.current != step[1]:
-			push_error("a %+.0f px swipe should land on page %d, at %d" % [step[0], step[1], help.current])
+	var on_tabs := help.tabs.get_global_rect().get_center()
+	for step in [[mid, -200.0, 2], [mid, 200.0, 1], [mid, 30.0, 1], [on_tabs, -200.0, 1]]:
+		_swipe(help, step[0], step[1])
+		if help.current != step[2]:
+			push_error("a %+.0f px swipe should land on page %d, at %d" % [step[1], step[2], help.current])
 			failures += 1
+	help.select_tab(help.tab_count() - 1, false)
+	_swipe(help, mid, -200.0)
+	await create_timer(HelpScreen.SLIDE + 0.05).timeout
+	if help.current != help.tab_count() - 1 or absf(help.pages[help.current].offset_left) > 1.0:
+		push_error("swiping past the last page should stay there and spring back")
+		failures += 1
+	# A real tap on a tab, through the strip's own input.
+	for want in [3, 0]:
+		var at := help.tabs.tab_rect(want).get_center()
+		for pressed in [true, false]:
+			var tap := InputEventMouseButton.new()
+			tap.button_index = MOUSE_BUTTON_LEFT
+			tap.pressed = pressed
+			tap.position = at
+			help.tabs._gui_input(tap)
+		if help.current != want or not help.pages[want].visible:
+			push_error("tapping tab %d should show its page, at %d" % [want, help.current])
+			failures += 1
+	# A tap that lets go below the strip picks nothing, like a button.
+	var before_tap := help.current
+	var tab_at := help.tabs.tab_rect(5).get_center()
+	for pressed in [true, false]:
+		var off := InputEventMouseButton.new()
+		off.button_index = MOUSE_BUTTON_LEFT
+		off.pressed = pressed
+		off.position = tab_at if pressed else tab_at + Vector2(0, 400)
+		help.tabs._gui_input(off)
+	if help.current != before_tap:
+		push_error("letting go off the tab strip should not pick a tab")
+		failures += 1
+	# A swipe that starts on the Sound switch turns the page and leaves Sound alone.
+	help.select_tab(HelpScreen.Tab.SETTINGS, false)
+	await process_frame
+	await process_frame
+	var sound_was: bool = Sfx.sound_on
+	var on_switch := help._sound_button.get_global_rect()
+	var from := on_switch.position + Vector2(8, on_switch.size.y / 2.0)
+	var events: Array[InputEvent] = []
+	var press := InputEventMouseButton.new()
+	press.button_index = MOUSE_BUTTON_LEFT
+	press.pressed = true
+	press.position = from
+	events.append(press)
+	for k in [0.3, 0.6, 1.0]:
+		var drag := InputEventMouseMotion.new()
+		drag.position = from + Vector2(110 * k, 0)
+		events.append(drag)
+	var lift := InputEventMouseButton.new()
+	lift.button_index = MOUSE_BUTTON_LEFT
+	lift.pressed = false
+	lift.position = from + Vector2(110, 0)
+	events.append(lift)
+	for e in events:
+		root.push_input(e)
+		await process_frame
+	if Sfx.sound_on != sound_was or help.current != HelpScreen.Tab.SCORING:
+		push_error("a swipe from the Sound switch should turn the page without toggling it (sound %s, page %d)" % [Sfx.sound_on, help.current])
+		failures += 1
+	Sfx.sound_on = sound_was
+	Sfx.save_settings()
 	# The settings page's switches flip and save.
 	var sound_before: bool = Sfx.sound_on
 	help._sound_button.pressed.emit()
@@ -522,7 +594,7 @@ func _help_checks() -> int:
 		failures += 1
 	help._sound_button.pressed.emit()
 	help.close_help()
-	await process_frame
+	await create_timer(HelpScreen.CLOSE + 0.1).timeout
 	if main.find_children("*", "HelpScreen", true, false).size() != 0:
 		push_error("Close should remove the help screen")
 		failures += 1
@@ -1189,11 +1261,20 @@ func _quests_checks() -> int:
 	if not panel.quests_page.visible or panel.looks_page.visible:
 		push_error("quests open on the Quests tab")
 		failures += 1
-	panel.tabs.select(1, false)
+	panel.select_tab(1)
 	if panel.quests_page.visible or not panel.looks_page.visible:
 		push_error("the Looks tab shows the card backs and felts instead of the quests")
 		failures += 1
-	panel.tabs.select(0, false)
+	if panel.find_children("*", "ScrollContainer", true, false).any(func(sc: Node) -> bool: return sc.is_ancestor_of(panel._status)):
+		push_error("the quests status line should stay outside the scrolling pages")
+		failures += 1
+	panel.select_tab(1)
+	panel.visible = false
+	panel.visible = true
+	if not panel.quests_page.visible:
+		push_error("reopening Quests starts on the Quests tab")
+		failures += 1
+	panel.select_tab(0)
 	var by_id := {}
 	for r in panel.rows:
 		by_id[r["id"]] = r

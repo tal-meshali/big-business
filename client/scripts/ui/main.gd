@@ -987,7 +987,9 @@ func _on_play_bots() -> void:
 
 
 func _on_help() -> void:
-	HelpScreen.open_over(self)
+	# One rules sheet at a time.
+	if find_children("*", "HelpScreen", false, false).is_empty():
+		HelpScreen.open_over(self)
 
 
 func _on_tutorial() -> void:

@@ -4,9 +4,10 @@ extends Control
 ## More sheet or the "?" button at the table. A royal sheet over the dimmed
 ## room, split into tabs (Goal, Turn, Market, Tokens, Scoring, Settings) so
 ## every page fits a phone screen without scrolling. Each rule page pairs a
-## few short paragraphs with a picture of the thing it explains. Swipe
-## sideways or tap a tab to change page; closing returns to wherever it
-## was opened.
+## few short paragraphs with a picture of the thing it explains. Drag the
+## page sideways or tap a tab to change page; Next walks forward and
+## becomes Done on the last page. Closing returns to wherever it was
+## opened.
 
 signal closed
 
@@ -15,6 +16,8 @@ enum Tab { GOAL, TURN, MARKET, TOKENS, SCORING, SETTINGS }
 
 ## Page slide when the tab changes, seconds.
 const SLIDE := 0.2
+## Closing fade, seconds: exits are quicker than entrances.
+const CLOSE := 0.14
 ## Finger travel (dp) that turns a sideways drag into a page change.
 const SWIPE_DP := 56.0
 
@@ -67,7 +70,7 @@ const PAGES := [
 			{"title": "Who wins", "body": "The most capital wins. Ties go to more gold coins, then to fewer shares in the portfolio."},
 		],
 	},
-	{"tab": "Settings", "icon": "gear", "title": "Settings and help", "sections": []},
+	{"tab": "Settings", "icon": "gear", "title": "Settings", "sections": []},
 ]
 
 ## Text on the royal sheet: cream for reading, gold for the words that matter.
@@ -86,10 +89,16 @@ var _sheet: PanelContainer
 var _page_holder: Control
 var _s := 1.85
 var _start_tab := 0
-var _swipe_from := Vector2.INF
 var _page_tween: Tween
-## Whether the next tab change slides (false while opening on a start tab).
-var _animate := true
+var _closing := false
+## A finger on the page: where it went down, when, and whether it is
+## dragging the page sideways yet.
+var _swipe_from := Vector2.INF
+var _swipe_at := 0
+var _dragging := false
+## True for the rest of the frame after a drag turned or moved the page, so
+## a button under the finger does not also fire on that release.
+var _swiped := false
 
 
 func _ready() -> void:
@@ -119,43 +128,20 @@ func _build() -> void:
 	_sheet.offset_right = -_px(10)
 	_sheet.offset_top = insets.x + _px(10)
 	_sheet.offset_bottom = -insets.y - _px(10)
-	var face := StyleBoxFlat.new()
-	face.bg_color = UiTheme.ROYAL
-	face.border_color = UiTheme.OUTLINE
-	face.set_border_width_all(_px(2.5))
-	face.border_width_bottom = _px(6)
-	face.set_corner_radius_all(_px(22))
-	face.shadow_color = Color(0, 0, 0, 0.4)
-	face.shadow_size = _px(14)
-	face.shadow_offset = Vector2(0, _px(6))
-	face.content_margin_left = _px(14)
-	face.content_margin_right = _px(14)
-	face.content_margin_top = _px(14)
-	face.content_margin_bottom = _px(12)
-	face.anti_aliasing = true
-	_sheet.add_theme_stylebox_override("panel", face)
+	_sheet.add_theme_stylebox_override("panel", UiTheme.royal_sheet_style(_s))
 	add_child(_sheet)
 
 	var column := VBoxContainer.new()
-	column.add_theme_constant_override("separation", _px(12))
+	column.add_theme_constant_override("separation", _px(14))
 	_sheet.add_child(column)
 
-	var title := UiTheme.label("How Big Business works", _px(21), UiTheme.GOLD, true)
-	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	title.add_theme_color_override("font_outline_color", UiTheme.OUTLINE)
-	title.add_theme_constant_override("outline_size", _px(6))
-	title.add_theme_color_override("font_shadow_color", Color("#6B2A00"))
-	title.add_theme_constant_override("shadow_offset_x", 0)
-	title.add_theme_constant_override("shadow_offset_y", _px(2.5))
-	title.add_theme_constant_override("shadow_outline_size", _px(6))
-	column.add_child(title)
-
+	# The tabs are the header: each page's own title says what it is.
 	tabs = TabStrip.new()
 	var tab_list := []
 	for p in PAGES:
 		tab_list.append({"label": p["tab"], "icon": p["icon"]})
 	tabs.setup(tab_list, _s)
-	tabs.tab_selected.connect(func(i: int) -> void: _show_page(i, _animate))
+	tabs.tab_selected.connect(func(i: int) -> void: _show_page(i, true))
 	column.add_child(tabs)
 
 	# Pages stack in one clipped box; only the current one is shown.
@@ -176,10 +162,16 @@ func _build() -> void:
 	close.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	close.pressed.connect(close_help)
 	footer.add_child(close)
+	# Next walks the pages; on the last one it becomes Done, so the footer
+	# never changes shape under the thumb.
 	_next_button = UiTheme.button("Next", _px(15), _px(48), "primary")
 	_next_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_next_button.size_flags_stretch_ratio = 1.4
-	_next_button.pressed.connect(func() -> void: select_tab(current + 1))
+	_next_button.pressed.connect(func() -> void:
+		if current < PAGES.size() - 1:
+			select_tab(current + 1)
+		else:
+			close_help())
 	footer.add_child(_next_button)
 
 
@@ -213,16 +205,14 @@ func _page_scroll() -> ScrollContainer:
 	scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
 	var box := VBoxContainer.new()
 	box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	box.add_theme_constant_override("separation", _px(14))
+	box.add_theme_constant_override("separation", _px(16))
 	scroll.add_child(box)
 	return scroll
 
 
 func _page_title(text: String) -> Label:
-	var l := UiTheme.label(text, _px(21), Color.WHITE, true)
+	var l := UiTheme.outlined(text, _px(25))
 	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	l.add_theme_color_override("font_outline_color", UiTheme.OUTLINE)
-	l.add_theme_constant_override("outline_size", _px(5))
 	return l
 
 
@@ -230,7 +220,7 @@ func _add_section(box: VBoxContainer, section: Dictionary) -> void:
 	var group := VBoxContainer.new()
 	group.add_theme_constant_override("separation", _px(4))
 	if section.has("title"):
-		var h := UiTheme.label(section["title"], _px(16.5), KEYWORD, true)
+		var h := UiTheme.outlined(section["title"], _px(20))
 		h.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		group.add_child(h)
 	group.add_child(_body(section["body"]))
@@ -247,10 +237,10 @@ func _body(text: String) -> RichTextLabel:
 	r.mouse_filter = Control.MOUSE_FILTER_PASS
 	r.add_theme_font_override("normal_font", UiTheme.body_font())
 	r.add_theme_font_override("bold_font", UiTheme.ui_font())
-	r.add_theme_font_size_override("normal_font_size", _px(16.5))
-	r.add_theme_font_size_override("bold_font_size", _px(16.5))
+	r.add_theme_font_size_override("normal_font_size", _px(17.5))
+	r.add_theme_font_size_override("bold_font_size", _px(17.5))
 	r.add_theme_color_override("default_color", CREAM)
-	r.add_theme_constant_override("line_separation", _px(2))
+	r.add_theme_constant_override("line_separation", _px(2.5))
 	r.text = markup(text)
 	return r
 
@@ -267,22 +257,15 @@ static func markup(text: String) -> String:
 	return out
 
 
-## A numbered step on a tinted plate: gold number, title, one line.
+## A numbered step on a sunk plate: gold number, title, one line.
 func _step(n: int, title: String, body: String) -> PanelContainer:
 	var plate := PanelContainer.new()
-	var tint := StyleBoxFlat.new()
-	tint.bg_color = Color(UiTheme.NIGHT, 0.45)
-	tint.set_corner_radius_all(_px(16))
-	tint.content_margin_left = _px(12)
-	tint.content_margin_right = _px(14)
-	tint.content_margin_top = _px(12)
-	tint.content_margin_bottom = _px(14)
-	plate.add_theme_stylebox_override("panel", tint)
+	plate.add_theme_stylebox_override("panel", UiTheme.plate_style(_s))
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", _px(12))
 	plate.add_child(row)
 	var badge := Control.new()
-	badge.custom_minimum_size = Vector2(_px(40), _px(40))
+	badge.custom_minimum_size = Vector2(_px(42), _px(42))
 	badge.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
 	badge.draw.connect(func() -> void:
 		var c := badge.size / 2.0
@@ -292,7 +275,7 @@ func _step(n: int, title: String, body: String) -> PanelContainer:
 		badge.draw_circle(c, r - _px(2.5), UiTheme.GOLD)
 		badge.draw_circle(c - Vector2(0, r * 0.25), r * 0.55, Color(UiTheme.GOLD_PALE, 0.5))
 		var font := UiTheme.display_font()
-		var px := _px(21)
+		var px := _px(22)
 		var w := font.get_string_size(str(n), HORIZONTAL_ALIGNMENT_LEFT, -1, px).x
 		badge.draw_string(font, c + Vector2(-w / 2.0, px * 0.36), str(n), HORIZONTAL_ALIGNMENT_LEFT, -1, px, UiTheme.OUTLINE))
 	row.add_child(badge)
@@ -300,39 +283,42 @@ func _step(n: int, title: String, body: String) -> PanelContainer:
 	text.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	text.add_theme_constant_override("separation", _px(3))
 	row.add_child(text)
-	var h := UiTheme.label(title, _px(18), Color.WHITE, true)
-	h.add_theme_color_override("font_outline_color", UiTheme.OUTLINE)
-	h.add_theme_constant_override("outline_size", _px(4))
-	text.add_child(h)
+	text.add_child(UiTheme.outlined(title, _px(20)))
 	text.add_child(_body(body))
 	return plate
 
 
 ## The picture on a rule page, drawn with the game's own cards and coins.
+## Sized to fill a phone page: the picture is what makes the rule stick.
 func _art(kind: String) -> Control:
 	var row := HBoxContainer.new()
 	row.alignment = BoxContainer.ALIGNMENT_CENTER
 	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	match kind:
 		"companies":
-			# The six companies as a small hand, smallest to largest.
-			row.add_theme_constant_override("separation", _px(2))
+			# The six companies as a hand, smallest to largest, overlapping
+			# like cards held in a fan: the count and colour stay in view.
+			# Six cards each 76% visible, inside the sheet's width (screen
+			# less the sheet's margins and padding, 48 dp, and room to tilt).
+			var room := get_viewport_rect().size.x - _px(48 + 20)
+			var k := minf(0.58, room / (CardView.W * _s * (1.0 + 5.0 * 0.76)))
+			row.add_theme_constant_override("separation", -int(CardView.W * k * _s * 0.24))
 			for c in Companies.DATA:
 				var i := int(c["id"])
-				row.add_child(_card(i, 0, 0.44, (i - 2.5) * 3.0, absf(i - 2.5) * _px(2.5)))
+				row.add_child(_card(i, 0, k, (i - 2.5) * 4.0, absf(i - 2.5) * absf(i - 2.5) * _px(1.6)))
 		"market":
 			# A Market of three shares with coins on two of them.
-			row.add_theme_constant_override("separation", _px(10))
-			row.add_child(_card(1, 2, 0.56))
-			row.add_child(_card(4, 0, 0.56))
-			row.add_child(_card(2, 1, 0.56))
+			row.add_theme_constant_override("separation", _px(12))
+			row.add_child(_card(1, 2, 0.7))
+			row.add_child(_card(4, 0, 0.7))
+			row.add_child(_card(2, 1, 0.7))
 		"token":
 			# The seal, and the share it keeps you from taking.
-			row.add_theme_constant_override("separation", _px(22))
-			row.add_child(_icon("seal", 38))
-			row.add_child(_card(3, 1, 0.56, 0.0, 0.0, true))
+			row.add_theme_constant_override("separation", _px(28))
+			row.add_child(_icon("seal", 46))
+			row.add_child(_card(3, 1, 0.7, 0.0, 0.0, true))
 		"coins":
-			row.add_theme_constant_override("separation", _px(26))
+			row.add_theme_constant_override("separation", _px(36))
 			row.add_child(_coin(false))
 			row.add_child(_coin(true))
 	return row
@@ -370,29 +356,23 @@ func _icon(kind: String, half_dp: float) -> Control:
 func _coin(gold: bool) -> Control:
 	var box := VBoxContainer.new()
 	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	box.add_theme_constant_override("separation", _px(6))
+	box.add_theme_constant_override("separation", _px(8))
 	var c := Control.new()
 	c.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	c.custom_minimum_size = Vector2(_px(76), _px(76))
+	c.custom_minimum_size = Vector2(_px(100), _px(100))
 	c.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	c.draw.connect(func() -> void:
-		var at := c.size / 2.0 - Vector2(0, _px(2))
-		var r := _px(33)
-		var face_color := UiTheme.GOLD if gold else Companies.BRONZE
-		c.draw_circle(at + Vector2(0, _px(4)), r, UiTheme.OUTLINE)
-		c.draw_circle(at, r, UiTheme.OUTLINE)
-		c.draw_circle(at, r - _px(2.5), face_color)
-		c.draw_arc(at, r * 0.7, 0, TAU, 32, face_color.darkened(0.25), _px(2), true)
-		c.draw_circle(at - Vector2(r * 0.34, r * 0.34), r * 0.2, Color(1, 1, 1, 0.45))
+		var at := c.size / 2.0 - Vector2(0, _px(3))
+		GameIcons.coin_face(c, at, _px(44), UiTheme.GOLD if gold else Companies.BRONZE, _px(3))
 		var font := UiTheme.display_font()
-		var px := _px(28)
+		var px := _px(36)
 		var label := "3" if gold else "1"
 		var w := font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, px).x
 		var p := at + Vector2(-w / 2.0, px * 0.36)
-		c.draw_string_outline(font, p, label, HORIZONTAL_ALIGNMENT_LEFT, -1, px, _px(4), UiTheme.OUTLINE)
+		c.draw_string_outline(font, p, label, HORIZONTAL_ALIGNMENT_LEFT, -1, px, _px(5), UiTheme.OUTLINE)
 		c.draw_string(font, p, label, HORIZONTAL_ALIGNMENT_LEFT, -1, px, Color.WHITE))
 	box.add_child(c)
-	var caption := UiTheme.label("Gold: worth 3" if gold else "Bronze: worth 1", _px(13.5), UiTheme.LILAC, true)
+	var caption := UiTheme.label("Bronze: worth 1" if not gold else "Gold: worth 3", _px(14), UiTheme.LILAC, true)
 	caption.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	box.add_child(caption)
 	return box
@@ -404,8 +384,8 @@ func _build_settings_page() -> ScrollContainer:
 	var box: VBoxContainer = scroll.get_child(0)
 	box.add_child(_page_title("Settings"))
 	Sfx.load_settings()
-	_sound_button = _switch_row(box, "Sound", _on_toggle_sound)
-	_vibration_button = _switch_row(box, "Vibration", _on_toggle_vibration)
+	_sound_button = _switch_row(box, "Sound", _unless_swiped(_on_toggle_sound))
+	_vibration_button = _switch_row(box, "Vibration", _unless_swiped(_on_toggle_vibration))
 	_refresh_toggles()
 
 	var gap := Control.new()
@@ -416,46 +396,45 @@ func _build_settings_page() -> ScrollContainer:
 	var links := HBoxContainer.new()
 	links.add_theme_constant_override("separation", _px(10))
 	box.add_child(links)
-	_email_button = _link_button(links, "Email support", func() -> void: OS.shell_open("mailto:" + AppInfo.SUPPORT_EMAIL))
+	_email_button = _link_button(links, "Email support", _unless_swiped(func() -> void: OS.shell_open("mailto:" + AppInfo.SUPPORT_EMAIL)))
 	_email_button.disabled = AppInfo.SUPPORT_EMAIL.is_empty()
-	_privacy_button = _link_button(links, "Privacy policy", func() -> void: OS.shell_open(AppInfo.PRIVACY_URL))
+	_privacy_button = _link_button(links, "Privacy policy", _unless_swiped(func() -> void: OS.shell_open(AppInfo.PRIVACY_URL)))
 	_privacy_button.disabled = AppInfo.PRIVACY_URL.is_empty()
-	var version := UiTheme.label("Big Business %s" % AppInfo.version(), _px(12), UiTheme.LILAC)
+	var version := UiTheme.label("Big Business %s" % AppInfo.version(), _px(13), UiTheme.LILAC)
 	version.add_theme_font_override("font", UiTheme.body_font())
 	box.add_child(version)
 	return scroll
 
 
+## Wraps a page button's handler so a sideways drag that starts on the
+## button turns the page without also pressing it.
+func _unless_swiped(handler: Callable) -> Callable:
+	return func() -> void:
+		if not _swiped:
+			handler.call()
+
+
 ## A row with a name on the left and an On / Off switch button on the right.
 func _switch_row(box: VBoxContainer, text: String, handler: Callable) -> Button:
 	var plate := PanelContainer.new()
-	var tint := StyleBoxFlat.new()
-	tint.bg_color = Color(UiTheme.NIGHT, 0.45)
-	tint.set_corner_radius_all(_px(16))
-	tint.content_margin_left = _px(14)
-	tint.content_margin_right = _px(8)
-	tint.content_margin_top = _px(6)
-	tint.content_margin_bottom = _px(6)
-	plate.add_theme_stylebox_override("panel", tint)
+	plate.add_theme_stylebox_override("panel", UiTheme.plate_style(_s, 14, 8, 6, 6))
 	box.add_child(plate)
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", _px(10))
 	plate.add_child(row)
-	var l := UiTheme.label(text, _px(16), Color.WHITE, true)
-	l.add_theme_color_override("font_outline_color", UiTheme.OUTLINE)
-	l.add_theme_constant_override("outline_size", _px(4))
+	var l := UiTheme.outlined(text, _px(18))
 	l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	l.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	row.add_child(l)
-	var b := UiTheme.button("", _px(14), _px(44), "green")
-	b.custom_minimum_size.x = _px(84)
+	var b := UiTheme.button("", _px(15), _px(46), "green")
+	b.custom_minimum_size.x = _px(88)
 	b.pressed.connect(handler)
 	row.add_child(b)
 	return b
 
 
 func _link_button(parent: Control, text: String, handler: Callable) -> Button:
-	var b := UiTheme.button(text, _px(13), _px(44))
+	var b := UiTheme.button(text, _px(14), _px(46))
 	b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	b.pressed.connect(handler)
 	parent.add_child(b)
@@ -469,31 +448,32 @@ func tab_count() -> int:
 ## Shows page `i` and moves the tab pill to it.
 func select_tab(i: int, animate := true) -> void:
 	i = clampi(i, 0, PAGES.size() - 1)
-	if tabs.current != i:
-		# The strip emits tab_selected, which shows the page.
-		_animate = animate
-		tabs.select(i, animate)
-		_animate = true
-	else:
-		tabs.select(i, false)
-		_show_page(i, false)
+	tabs.select(i, animate)
+	_show_page(i, animate)
 
 
 func _show_page(i: int, animate: bool) -> void:
 	var from := current
+	var from_x := pages[from].offset_left if from < pages.size() else 0.0
 	current = i
-	_next_button.visible = i < PAGES.size() - 1
-	if _next_button.visible:
-		_next_button.text = "Next: %s" % PAGES[i + 1]["tab"]
+	_next_button.text = "Next: %s" % PAGES[i + 1]["tab"] if i < PAGES.size() - 1 else "Done"
 	for p in pages.size():
 		pages[p].visible = p == i
 	var page: Control = pages[i]
 	(page as ScrollContainer).scroll_vertical = 0
 	if _page_tween != null:
 		_page_tween.kill()
-	_shift(page, 0.0)
+	for p in pages:
+		_shift(p, 0.0)
 	page.modulate.a = 1.0
-	if not animate or from == i:
+	if not animate:
+		return
+	if from == i:
+		# A drag that did not turn the page springs back.
+		if absf(from_x) > 0.5:
+			_shift(page, from_x)
+			_page_tween = create_tween().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+			_page_tween.tween_method(func(x: float) -> void: _shift(page, x), from_x, 0.0, SLIDE)
 		return
 	# The new page slides in from the side it comes from, and fades up.
 	var dir := 1.0 if i > from else -1.0
@@ -524,24 +504,57 @@ func _play_open() -> void:
 	tw.tween_property(_sheet, "scale", Vector2.ONE, 0.22)
 
 
-## A sideways drag across the page turns it, like flipping a rule book.
+## The page follows a sideways drag and turns when let go far enough (or
+## flicked); at the first and last page it gives a little and springs back.
+## WHY _input: the page's ScrollContainer and its text take the touches,
+## so the sheet watches them on the way in, without consuming any, and
+## only for presses that start on the page itself.
 func _input(event: InputEvent) -> void:
-	if not (event is InputEventMouseButton) or event.button_index != MOUSE_BUTTON_LEFT:
+	if _closing or not is_visible_in_tree():
 		return
-	if event.pressed:
-		var inside := _page_holder.get_global_rect().has_point(event.position)
-		_swipe_from = event.position if inside else Vector2.INF
-		return
-	if _swipe_from == Vector2.INF:
-		return
-	var d: Vector2 = event.position - _swipe_from
-	_swipe_from = Vector2.INF
-	if absf(d.x) < _px(SWIPE_DP) or absf(d.x) < absf(d.y) * 1.5:
-		return
-	var step := -1 if d.x > 0 else 1
-	if is_layout_rtl():
-		step = -step
-	select_tab(current + step)
+	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
+		if event.pressed:
+			var inside := _page_holder.get_global_rect().has_point(event.position)
+			_swipe_from = event.position if inside else Vector2.INF
+			_swipe_at = Time.get_ticks_msec()
+			_dragging = false
+			return
+		if _swipe_from == Vector2.INF:
+			return
+		var d: Vector2 = event.position - _swipe_from
+		var quick := Time.get_ticks_msec() - _swipe_at < 250
+		var was_dragging := _dragging
+		_swipe_from = Vector2.INF
+		_dragging = false
+		if was_dragging:
+			_swiped = true
+			(func() -> void: _swiped = false).call_deferred()
+		var far := absf(d.x) >= minf(_px(SWIPE_DP), _page_holder.size.x * 0.3)
+		var flick := quick and absf(d.x) >= _px(24)
+		var sideways := absf(d.x) >= absf(d.y) * 1.5
+		var target := current + _swipe_step(d.x)
+		if sideways and (far or flick) and target >= 0 and target < PAGES.size():
+			select_tab(target)
+		elif was_dragging:
+			_show_page(current, true)
+	elif event is InputEventMouseMotion and _swipe_from != Vector2.INF:
+		var d: Vector2 = event.position - _swipe_from
+		if not _dragging and absf(d.x) > _px(10) and absf(d.x) > absf(d.y) * 1.5:
+			_dragging = true
+		if _dragging:
+			var target := current + _swipe_step(d.x)
+			# Past the first or last page the page only gives a little.
+			var x := d.x if target >= 0 and target < PAGES.size() else d.x * 0.3
+			if _page_tween != null:
+				_page_tween.kill()
+			pages[current].modulate.a = 1.0
+			_shift(pages[current], x)
+
+
+## Which way a sideways drag of `dx` turns: +1 next page, -1 previous.
+func _swipe_step(dx: float) -> int:
+	var step := -1 if dx > 0 else 1
+	return -step if is_layout_rtl() else step
 
 
 func _on_toggle_sound() -> void:
@@ -567,9 +580,18 @@ func _set_switch(b: Button, on: bool) -> void:
 	b.add_theme_constant_override("outline_size", _px(4) if on else 0)
 
 
+## Closes the sheet: a quick fade and settle, faster than it opened.
 func close_help() -> void:
+	if _closing:
+		return
+	_closing = true
 	closed.emit()
-	queue_free()
+	mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_sheet.pivot_offset = _sheet.size / 2.0
+	var tw := create_tween().set_parallel().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
+	tw.tween_property(self, "modulate:a", 0.0, CLOSE)
+	tw.tween_property(_sheet, "scale", Vector2(0.98, 0.98), CLOSE)
+	tw.chain().tween_callback(queue_free)
 
 
 ## Opens the help overlay on top of `parent` at `start_tab` and returns it.

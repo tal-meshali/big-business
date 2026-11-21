@@ -117,6 +117,7 @@ func _run() -> void:
 	failures += await _forfeit_checks()
 	failures += await _peek_checks()
 	failures += await _draw_landing_checks()
+	failures += await _play_leaves_hand_checks()
 	failures += await _friends_checks()
 	failures += await _quests_checks()
 	failures += await _account_checks()
@@ -940,14 +941,160 @@ func _draw_landing_checks() -> int:
 	if ghost == null or not ghost.face_up or ghost.company != 4:
 		push_error("your own draw should fly face up")
 		failures += 1
-	for i in 40:
-		await create_timer(0.05).timeout
+	var landed := Vector2.ZERO
+	for i in 200:
+		if ghost != null and is_instance_valid(ghost):
+			landed = table._center_of(ghost)
+		await process_frame
 		if not table._animating:
 			break
 	if table._hand_cards.size() != 4 or table._hand_cards[3].card_id != 9 or table._hand_cards[3].position != want["pos"]:
 		push_error("the new hand should show the drawn share in the slot it landed in")
 		failures += 1
+	elif landed.distance_to(table._center_of(table._hand_cards[3])) > 1.5:
+		push_error("the drawn share should land on its slot, off by %s" % [table._center_of(table._hand_cards[3]) - landed])
+		failures += 1
 	table.queue_free()
+	return failures
+
+
+## Playing a card: the card itself leaves your hand the moment the play
+## animates (no copy left behind), without a jump, the hand closes up
+## behind it, the Keep / Sell choice goes away, the bar and felt hold
+## still, and the hand drawn after matches. Also when the server plays a
+## card for you (timeout) while you had another one selected.
+func _play_leaves_hand_checks() -> int:
+	var failures := 0
+	failures += await _play_once(2, 2, "market")
+	failures += await _play_once(1, 3, "portfolio")
+	# The bar (and so the felt and hand above it) keeps one height whether
+	# the prompt takes one line or two.
+	var table = load("res://scenes/table.tscn").instantiate()
+	root.add_child(table)
+	await process_frame
+	table._prompt.text = "Bo is thinking…"
+	for i in 3:
+		await process_frame
+	var one_line: float = table._bar.size.y
+	table._prompt.text = "Cogwheel Robotics: keep it in your Portfolio or sell it to the Market? Tap Keep or Sell."
+	for i in 3:
+		await process_frame
+	if table._prompt.get_line_count() < 2 or absf(table._bar.size.y - one_line) > 0.5:
+		push_error("the bar should be as tall with one prompt line as with two (%s vs %s)" % [one_line, table._bar.size.y])
+		failures += 1
+	table.queue_free()
+	await process_frame
+	return failures
+
+
+func _play_once(select_id: int, play_id: int, to: String) -> int:
+	var failures := 0
+	var table = load("res://scenes/table.tscn").instantiate()
+	root.add_child(table)
+	await process_frame
+	var hand := [{"id": 1, "company": 0}, {"id": 2, "company": 3}, {"id": 3, "company": 5}, {"id": 9, "company": 4}]
+	var v := _live_view()
+	v["startsInMs"] = 0
+	v["active"] = 1
+	v["turn"] = 2
+	v["phase"] = "play"
+	v["tookCompany"] = 4
+	v["seats"][1]["hand"] = hand.duplicate(true)
+	v["seats"][1]["portfolio"] = [{"id": 30, "company": 1}, {"id": 31, "company": 2}]
+	v["legal"] = [{"type": "play_portfolio", "cardId": 1}, {"type": "play_portfolio", "cardId": 2}, {"type": "play_portfolio", "cardId": 3}, {"type": "play_market", "cardId": 2}]
+	table._on_view(v.duplicate(true))
+	await process_frame
+	table._on_hand_card_pressed(select_id)
+	for i in 15:
+		await process_frame
+	if not table._sell_button.visible:
+		push_error("selecting a card should offer Keep / Sell")
+		failures += 1
+	var center_before := Vector2.ZERO
+	for cv in table._hand_cards:
+		if cv.card_id == play_id:
+			center_before = table._center_of(cv)
+	var hand_y: float = table._hand_layer.global_position.y
+	var played: Dictionary = {}
+	for c in hand:
+		if c["id"] == play_id:
+			played = c
+	table._on_events(3, [{"type": "played", "seat": 1, "card": played, "to": to}])
+	v["phase"] = "take"
+	v["active"] = 2
+	v["turn"] = 3
+	v["tookCompany"] = null
+	v["seats"][1]["hand"] = hand.filter(func(c: Dictionary) -> bool: return c["id"] != play_id)
+	if to == "portfolio":
+		v["seats"][1]["portfolio"].append(played)
+	else:
+		v["market"] = [{"card": played, "coins": 0}]
+	v["legal"] = []
+	table._on_view(v.duplicate(true))
+	# WHY no frame wait: everything checked here is set before the flight's
+	# first await, and a slow frame could otherwise finish the flight.
+	var want: Array = v["seats"][1]["hand"].map(func(c: Dictionary) -> int: return c["id"])
+	var ids: Array = table._hand_cards.map(func(cv: CardView) -> int: return cv.card_id)
+	if not table._animating or ids != want:
+		push_error("the played card should leave the hand as it flies, hand shows %s" % [ids])
+		failures += 1
+	for cv in table._hand_layer.get_children():
+		if cv is CardView and cv.card_id == play_id and not cv.is_queued_for_deletion():
+			push_error("the played card should not stay in the hand layer")
+			failures += 1
+	var flying: Array = table._fx_layer.get_children().filter(func(c: Node) -> bool: return c is CardView)
+	if flying.size() != 1 or flying[0].card_id != play_id or flying[0].selected or flying[0].mouse_filter != Control.MOUSE_FILTER_IGNORE:
+		push_error("the played card itself should fly, unselected and untappable")
+		failures += 1
+	elif table._center_of(flying[0]).distance_to(center_before) > 0.5:
+		push_error("the played card should start its flight where it sat, moved %s" % [table._center_of(flying[0]) - center_before])
+		failures += 1
+	if table._keep_button.visible or table._sell_button.visible or table._cancel_button.visible:
+		push_error("Keep / Sell should go away once the card is played")
+		failures += 1
+	if table._hand_cards.any(func(cv: CardView) -> bool: return cv.selectable or cv.selected):
+		push_error("the cards left in hand should not be selected or tappable during the flight")
+		failures += 1
+	var landed := Vector2.ZERO
+	var card_in_flight: CardView = flying[0] if flying.size() == 1 else null
+	await process_frame
+	if table._animating and absf(table._hand_layer.global_position.y - hand_y) > 0.5:
+		push_error("the hand should not shift while the played card flies")
+		failures += 1
+	for i in 200:
+		if card_in_flight != null and is_instance_valid(card_in_flight) and not card_in_flight.is_queued_for_deletion():
+			landed = table._center_of(card_in_flight)
+		await process_frame
+		if not table._animating:
+			break
+	await process_frame
+	if to == "portfolio":
+		var kept: CardView = null
+		for c in table._portfolio_layer.get_children():
+			if c is CardView and c.card_id == play_id:
+				kept = c
+		if kept == null or landed.distance_to(table._center_of(kept)) > 6.0:
+			push_error("a kept share should land on its own spot in the Portfolio, off by %s" % [table._center_of(kept) - landed if kept != null else "(not drawn)"])
+			failures += 1
+	ids = table._hand_cards.map(func(cv: CardView) -> int: return cv.card_id)
+	if ids != want:
+		push_error("the hand after the play should be %s, got %s" % [want, ids])
+		failures += 1
+	await process_frame
+	if absf(table._hand_layer.global_position.y - hand_y) > 0.5:
+		push_error("the hand should not shift after the card lands either")
+		failures += 1
+	for i in table._hand_cards.size():
+		var slot: Dictionary = table._hand_slot(i, ids.size())
+		if table._hand_cards[i].position != slot["pos"]:
+			push_error("hand card %d should rest in slot %d of %d" % [i, i, ids.size()])
+			failures += 1
+	await process_frame
+	if table._fx_layer.get_children().any(func(c: Node) -> bool: return c is CardView):
+		push_error("no card should be left in flight")
+		failures += 1
+	table.queue_free()
+	await process_frame
 	return failures
 
 

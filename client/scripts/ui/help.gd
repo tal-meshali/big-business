@@ -315,8 +315,8 @@ func _art(kind: String) -> Control:
 		"token":
 			# The seal, and the share it keeps you from taking.
 			row.add_theme_constant_override("separation", _px(28))
-			row.add_child(_icon("seal", 46))
-			row.add_child(_card(3, 1, 0.7, 0.0, 0.0, true))
+			row.add_child(_icon("seal", 54))
+			row.add_child(_card(3, 1, 0.85, 0.0, 0.0, true))
 		"coins":
 			row.add_theme_constant_override("separation", _px(36))
 			row.add_child(_coin(false))
@@ -397,9 +397,10 @@ func _build_settings_page() -> ScrollContainer:
 	links.add_theme_constant_override("separation", _px(10))
 	box.add_child(links)
 	_email_button = _link_button(links, "Email support", _unless_swiped(func() -> void: OS.shell_open("mailto:" + AppInfo.SUPPORT_EMAIL)))
-	_email_button.disabled = AppInfo.SUPPORT_EMAIL.is_empty()
+	# A link with nothing behind it yet is left out rather than shown greyed.
+	_email_button.visible = not AppInfo.SUPPORT_EMAIL.is_empty()
 	_privacy_button = _link_button(links, "Privacy policy", _unless_swiped(func() -> void: OS.shell_open(AppInfo.PRIVACY_URL)))
-	_privacy_button.disabled = AppInfo.PRIVACY_URL.is_empty()
+	_privacy_button.visible = not AppInfo.PRIVACY_URL.is_empty()
 	var version := UiTheme.label("Big Business %s" % AppInfo.version(), _px(13), UiTheme.LILAC)
 	version.add_theme_font_override("font", UiTheme.body_font())
 	box.add_child(version)
@@ -475,10 +476,25 @@ func _show_page(i: int, animate: bool) -> void:
 			_page_tween = create_tween().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
 			_page_tween.tween_method(func(x: float) -> void: _shift(page, x), from_x, 0.0, SLIDE)
 		return
-	# The new page slides in from the side it comes from, and fades up.
 	var dir := 1.0 if i > from else -1.0
 	if is_layout_rtl():
 		dir = -dir
+	if absf(from_x) > 0.5:
+		# Let go mid-drag: carry on from where the finger left the page.
+		# The old page keeps going off the side and the new one follows it
+		# in, one page-width apart, so nothing jumps on release.
+		var old: Control = pages[from]
+		var w := _page_holder.size.x
+		old.visible = true
+		_page_tween = create_tween().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+		_page_tween.tween_method(func(x: float) -> void:
+			_shift(old, x)
+			_shift(page, x + dir * w), from_x, -dir * w, SLIDE)
+		_page_tween.tween_callback(func() -> void:
+			old.visible = false
+			_shift(old, 0.0))
+		return
+	# A tab tap: the new page slides in a little from its side, and fades up.
 	_shift(page, dir * _px(36))
 	page.modulate.a = 0.0
 	_page_tween = create_tween().set_parallel().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
@@ -497,10 +513,10 @@ func _shift(page: Control, x: float) -> void:
 ## The sheet rises a little and fades in, so it reads as one object arriving.
 func _play_open() -> void:
 	_sheet.pivot_offset = _sheet.size / 2.0
-	_sheet.modulate.a = 0.0
+	modulate.a = 0.0
 	_sheet.scale = Vector2(0.96, 0.96)
 	var tw := create_tween().set_parallel().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
-	tw.tween_property(_sheet, "modulate:a", 1.0, 0.16)
+	tw.tween_property(self, "modulate:a", 1.0, 0.16)
 	tw.tween_property(_sheet, "scale", Vector2.ONE, 0.22)
 
 
@@ -580,6 +596,12 @@ func _set_switch(b: Button, on: bool) -> void:
 	b.add_theme_constant_override("outline_size", _px(4) if on else 0)
 
 
+## The phone's back gesture or button closes the sheet, like any overlay.
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_WM_GO_BACK_REQUEST and is_visible_in_tree():
+		close_help()
+
+
 ## Closes the sheet: a quick fade and settle, faster than it opened.
 func close_help() -> void:
 	if _closing:
@@ -588,7 +610,7 @@ func close_help() -> void:
 	closed.emit()
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_sheet.pivot_offset = _sheet.size / 2.0
-	var tw := create_tween().set_parallel().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
+	var tw := create_tween().set_parallel().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
 	tw.tween_property(self, "modulate:a", 0.0, CLOSE)
 	tw.tween_property(_sheet, "scale", Vector2(0.98, 0.98), CLOSE)
 	tw.chain().tween_callback(queue_free)

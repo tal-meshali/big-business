@@ -171,7 +171,8 @@ func _gui_input(event: InputEvent) -> void:
 
 
 func _draw() -> void:
-	if tabs.is_empty() or _track == null:
+	# Nothing to draw before the first layout gives the strip a width.
+	if tabs.is_empty() or _track == null or size.x < tabs.size() * 12.0 * s:
 		return
 	draw_style_box(_track, Rect2(Vector2.ZERO, size))
 	# Feedback while a finger is down on a tab: the pill sinks, others light up.

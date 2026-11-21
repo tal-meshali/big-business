@@ -10,10 +10,10 @@ signal closed
 ## Emitted after a cosmetic is picked, once `Cosmetics` already reflects it.
 signal cosmetic_changed(slot: String, id: String)
 
-const ROW_HEIGHT := 48.0
+const ROW_HEIGHT := 56.0
 ## Px per design point for the sheet and tabs.
 ## WHY fixed: this panel is laid out in canvas px on the 720-wide canvas
-## (18 px text, 48 px rows); 1.35 matches the tabs to that text size.
+## (23 px text, 56 px rows); 1.35 matches the tabs to that text size.
 const K := 1.35
 const HINTS := [
 	"Quests reset at midnight UTC; weekly ones on Monday.",
@@ -49,14 +49,12 @@ func _init() -> void:
 	column.add_theme_constant_override("separation", 10)
 	column.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	add_child(column)
-	var title := UiTheme.outlined("Quests", 30)
-	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	column.add_child(title)
-
+	# No title: the dock button and the tabs already say Quests; the
+	# track line leads.
 	# Track summary stays visible above the scrolling list.
 	_track_label = Label.new()
 	_track_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_track_label.add_theme_font_size_override("font_size", 19)
+	_track_label.add_theme_font_size_override("font_size", 24)
 	_track_label.add_theme_color_override("font_color", CREAM)
 	column.add_child(_track_label)
 	_track_bar = _make_bar(UiTheme.MINT)
@@ -66,7 +64,7 @@ func _init() -> void:
 	# track unlocks. The status line stays under both.
 	tabs = TabStrip.new()
 	tabs.setup([{"label": "Quests"}, {"label": "Looks"}], K)
-	tabs.tab_selected.connect(select_tab)
+	tabs.tab_selected.connect(func(i: int) -> void: select_tab(i))
 	column.add_child(tabs)
 
 	var scroll := ScrollContainer.new()
@@ -111,14 +109,15 @@ func _init() -> void:
 
 	_status = Label.new()
 	_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_status.add_theme_font_size_override("font_size", 17)
+	_status.add_theme_font_size_override("font_size", 19)
 	_status.add_theme_color_override("font_color", UiTheme.LILAC)
 	column.add_child(_status)
 	_show_hint()
-	# Opening from the dock always starts on the quests, where the badge points.
+	# Opening from the dock always starts on the quests, where the badge
+	# points; the pill is already there when the sheet appears.
 	visibility_changed.connect(func() -> void:
 		if visible:
-			select_tab(0))
+			select_tab(0, false))
 
 	var close := Button.new()
 	close.text = "Close"
@@ -135,14 +134,14 @@ func _init() -> void:
 func _heading(text: String) -> Label:
 	var l := Label.new()
 	l.text = text.to_upper()
-	l.add_theme_font_size_override("font_size", 15)
+	l.add_theme_font_size_override("font_size", 18)
 	l.add_theme_color_override("font_color", UiTheme.LILAC)
 	return l
 
 
 func _make_bar(fill_color: Color) -> ProgressBar:
 	var bar := ProgressBar.new()
-	bar.custom_minimum_size = Vector2(0, 12)
+	bar.custom_minimum_size = Vector2(0, 14)
 	bar.show_percentage = false
 	var fill := StyleBoxFlat.new()
 	fill.bg_color = fill_color
@@ -168,8 +167,9 @@ func _make_pick_button(parent: Control, slot: String, id: String) -> Button:
 
 
 ## Shows the Quests (0) or Looks (1) page and moves the tab pill there.
-func select_tab(i: int) -> void:
-	tabs.select(i, is_inside_tree())
+func select_tab(i: int, animate := true) -> void:
+	if tabs.current != i or not animate:
+		tabs.select(i, animate and is_inside_tree())
 	quests_page.visible = i == 0
 	looks_page.visible = i == 1
 	_scroll.scroll_vertical = 0
@@ -218,7 +218,7 @@ func _add_row(parent: Control, q: Dictionary) -> void:
 	var label := Label.new()
 	label.text = "%s  (+%d pts)" % [String(q.get("text", "")), int(q.get("points", 0))]
 	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	label.add_theme_font_size_override("font_size", 18)
+	label.add_theme_font_size_override("font_size", 23)
 	label.add_theme_color_override("font_color", CREAM)
 	col.add_child(label)
 	var bar := _make_bar(UiTheme.GOLD)
@@ -227,7 +227,7 @@ func _add_row(parent: Control, q: Dictionary) -> void:
 	col.add_child(bar)
 	var count := Label.new()
 	count.text = "%d / %d" % [int(q.get("progress", 0)), int(q.get("target", 1))]
-	count.add_theme_font_size_override("font_size", 14)
+	count.add_theme_font_size_override("font_size", 17)
 	count.add_theme_color_override("font_color", UiTheme.LILAC)
 	col.add_child(count)
 	var button := Button.new()
@@ -244,12 +244,15 @@ func _add_row(parent: Control, q: Dictionary) -> void:
 
 func _refresh_row(entry: Dictionary) -> void:
 	var button: Button = entry["button"]
+	button.theme_type_variation = ""
 	if entry["claimed"]:
 		button.text = "Claimed"
 		button.disabled = true
 	elif entry["claimable"]:
 		button.text = "Claim"
 		button.disabled = false
+		# Mint for rewards: a quest ready to claim stands out from the rest.
+		button.theme_type_variation = "GreenButton"
 	else:
 		button.text = "Claim"
 		button.disabled = true

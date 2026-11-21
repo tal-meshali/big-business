@@ -508,8 +508,8 @@ func _help_checks() -> int:
 	if shown != [0, 1, 2, 3, 4, 5]:
 		push_error("the Goal page should show one share of each company, got %s" % [shown])
 		failures += 1
-	if help._email_button.disabled != AppInfo.SUPPORT_EMAIL.is_empty() or help._privacy_button.disabled != AppInfo.PRIVACY_URL.is_empty():
-		push_error("contact buttons should be enabled exactly when AppInfo is filled in")
+	if help._email_button.visible == AppInfo.SUPPORT_EMAIL.is_empty() or help._privacy_button.visible == AppInfo.PRIVACY_URL.is_empty():
+		push_error("contact buttons should show exactly when AppInfo is filled in")
 		failures += 1
 	# Next walks forward; a sideways swipe on the page turns it either way.
 	help.select_tab(0, false)
@@ -1268,11 +1268,20 @@ func _quests_checks() -> int:
 	if panel.find_children("*", "ScrollContainer", true, false).any(func(sc: Node) -> bool: return sc.is_ancestor_of(panel._status)):
 		push_error("the quests status line should stay outside the scrolling pages")
 		failures += 1
+	if panel._status.text != panel.HINTS[1]:
+		push_error("the Looks tab shows its own hint, got %s" % panel._status.text)
+		failures += 1
+	panel._status.text = "Unlocked: Midnight"
+	panel._status_is_hint = false
+	panel.select_tab(0)
+	if panel._status.text != "Unlocked: Midnight":
+		push_error("a message on the status line should survive a tab switch")
+		failures += 1
 	panel.select_tab(1)
 	panel.visible = false
 	panel.visible = true
-	if not panel.quests_page.visible:
-		push_error("reopening Quests starts on the Quests tab")
+	if not panel.quests_page.visible or panel.tabs._pill_at != 0.0:
+		push_error("reopening Quests starts on the Quests tab, pill already there")
 		failures += 1
 	panel.select_tab(0)
 	var by_id := {}

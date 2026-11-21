@@ -941,12 +941,18 @@ func _draw_landing_checks() -> int:
 	if ghost == null or not ghost.face_up or ghost.company != 4:
 		push_error("your own draw should fly face up")
 		failures += 1
-	for i in 40:
-		await create_timer(0.05).timeout
+	var landed := Vector2.ZERO
+	for i in 200:
+		if ghost != null and is_instance_valid(ghost):
+			landed = table._center_of(ghost)
+		await process_frame
 		if not table._animating:
 			break
 	if table._hand_cards.size() != 4 or table._hand_cards[3].card_id != 9 or table._hand_cards[3].position != want["pos"]:
 		push_error("the new hand should show the drawn share in the slot it landed in")
+		failures += 1
+	elif landed.distance_to(table._center_of(table._hand_cards[3])) > 6.0:
+		push_error("the drawn share should land on its slot, off by %s" % [table._center_of(table._hand_cards[3]) - landed])
 		failures += 1
 	table.queue_free()
 	return failures
@@ -1039,6 +1045,10 @@ func _play_once(select_id: int, play_id: int, to: String) -> int:
 	ids = table._hand_cards.map(func(cv: CardView) -> int: return cv.card_id)
 	if ids != want:
 		push_error("the hand after the play should be %s, got %s" % [want, ids])
+		failures += 1
+	await process_frame
+	if absf(table._hand_layer.global_position.y - hand_y) > 0.5:
+		push_error("the hand should not shift after the card lands either")
 		failures += 1
 	for i in table._hand_cards.size():
 		var slot: Dictionary = table._hand_slot(i, ids.size())

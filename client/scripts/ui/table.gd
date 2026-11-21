@@ -16,6 +16,8 @@ extends Control
 
 const FLY_TIME := 0.35
 const COIN_TIME := 0.3
+## Height of the bottom bar's buttons (before _px).
+const BUTTON_H := 50
 ## How long your hand takes to close up after you play a card.
 const CLOSE_UP_TIME := 0.22
 ## Tilt of the hand cards per step from the middle, in degrees.
@@ -307,11 +309,15 @@ func _build_bottom_bar() -> void:
 	_prompt = UiTheme.label("", _px(14))
 	_prompt.add_theme_font_override("font", UiTheme.body_font())
 	_prompt.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_prompt.custom_minimum_size = Vector2(0, _px(38))
+	# WHY two lines and a full button height: the felt and hand sit on top
+	# of this bar, so a bar that grew and shrank with the prompt's lines or
+	# with the buttons shown would shift the table between turns and right
+	# after a card lands.
+	_prompt.custom_minimum_size = Vector2(0, maxf(_px(38), 2.0 * UiTheme.body_font().get_height(_px(14))))
 	column.add_child(_prompt)
 	var buttons := HBoxContainer.new()
 	buttons.add_theme_constant_override("separation", _px(8))
-	buttons.custom_minimum_size = Vector2(0, _px(44))
+	buttons.custom_minimum_size = Vector2(0, _px(BUTTON_H))
 	column.add_child(buttons)
 	_draw_button = _make_button(buttons, "Draw from supply", _on_draw_pressed, "primary")
 	_keep_button = _make_button(buttons, "Keep", _on_keep_pressed, "primary")
@@ -618,7 +624,7 @@ func _on_connection_failed(reason: String) -> void:
 
 ## A move or dialog button, hidden until a step shows it.
 func _make_button(parent: Control, text: String, handler: Callable, kind := "") -> Button:
-	var b := UiTheme.button(text, _px(15), _px(50), kind)
+	var b := UiTheme.button(text, _px(15), _px(BUTTON_H), kind)
 	b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	b.pressed.connect(handler)
 	b.visible = false
@@ -1580,12 +1586,14 @@ func _fly_to_hand(from: Vector2, from_k: float) -> void:
 	ghost.pivot_offset = Vector2(CardView.W / 2.0, CardView.H)
 	_fx_layer.add_child(ghost)
 	ghost.scale = Vector2(from_k, from_k)
-	var start := from - ghost.pivot_offset + Vector2(0, CardView.H / 2.0 * from_k)
-	var end: Vector2 = _hand_layer.global_position + slot["pos"]
-	ghost.global_position = start
+	# WHY position: see _fly_view. The pivot is the bottom centre, so the
+	# card's centre sits half a (scaled) card above position + pivot.
+	var start := _fx_point(from) - ghost.pivot_offset + Vector2(0, CardView.H / 2.0 * from_k)
+	var end: Vector2 = _fx_point(_hand_layer.global_position) + slot["pos"]
+	ghost.position = start
 	var tw := create_tween().set_parallel().set_ease(Tween.EASE_IN_OUT).set_trans(Tween.TRANS_CUBIC)
 	tw.tween_method(func(t: float) -> void:
-		ghost.global_position = start.lerp(end, t) + Vector2(0, -sin(t * PI) * 60.0 * _s), 0.0, 1.0, FLY_TIME)
+		ghost.position = start.lerp(end, t) + Vector2(0, -sin(t * PI) * 60.0 * _s), 0.0, 1.0, FLY_TIME)
 	tw.tween_property(ghost, "scale", Vector2(_hand_scale, _hand_scale), FLY_TIME)
 	tw.tween_property(ghost, "rotation", float(slot["rot"]), FLY_TIME)
 	await tw.finished

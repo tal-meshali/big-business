@@ -98,7 +98,7 @@ func _run() -> void:
 	}
 	table._on_view(fake_view)
 	await process_frame
-	if not table._result_backdrop.visible or not table._result_label.text.contains("collects 2"):
+	if not table._result_backdrop.visible or not table._result_label.text.contains("you collect 2"):
 		push_error("result panel should show the dividend breakdown")
 		failures += 1
 
@@ -966,12 +966,13 @@ func _friends_checks() -> int:
 		{"userId": "u-cal", "name": "Cal", "online": false, "state": 1},
 	])
 	await process_frame
+	# Each friend row sits in a well: the row itself is the well's child.
 	if panel._list.get_child_count() != 3:
 		push_error("expected 3 friend rows, got %d" % panel._list.get_child_count())
 		failures += 1
 		panel.queue_free()
 		return failures
-	var bo_row: HBoxContainer = panel._list.get_child(0)
+	var bo_row: HBoxContainer = panel._list.get_child(0).get_child(0)
 	if bo_row.get_child(0).get_theme_color("font_color") != panel.ONLINE:
 		push_error("online friend should have a green dot")
 		failures += 1
@@ -982,22 +983,22 @@ func _friends_checks() -> int:
 	if invite.text != "Invite" or invite.visible:
 		push_error("Invite must be hidden outside a private room")
 		failures += 1
-	if panel._list.get_child(1).get_child(2).text != "Accept":
+	if panel._list.get_child(1).get_child(0).get_child(2).text != "Accept":
 		push_error("a received request should offer Accept")
 		failures += 1
-	if panel._list.get_child(2).get_child(2).text != "Pending":
+	if panel._list.get_child(2).get_child(0).get_child(2).text != "Pending":
 		push_error("a sent request should read Pending")
 		failures += 1
-	if bo_row.get_child(bo_row.get_child_count() - 1).text != "Remove" or bo_row.get_child(3).text != "Gift":
-		push_error("a friend row has Gift, then Remove")
+	if bo_row.get_child(bo_row.get_child_count() - 1).text != "•••" or bo_row.get_child(3).text != "Gift" or panel._row_menu.get_item_text(0) != "Remove friend":
+		push_error("a friend row has Gift, then the menu with Remove friend")
 		failures += 1
-	if panel._list.get_child(1).get_child(3).text != "Remove":
+	if panel._list.get_child(1).get_child(0).get_child(3).text != "Remove":
 		push_error("a request row has no Gift")
 		failures += 1
 	var bo_id := String(panel._friends[0].get("userId", ""))
 	panel.set_extras({"waiting": 2, "names": ["Cara", "Dev"], "claimLeft": 5, "sentToday": [bo_id], "sendLeft": 9, "points": 5}, [bo_id])
 	await process_frame
-	bo_row = panel._list.get_child(0)
+	bo_row = panel._list.get_child(0).get_child(0)
 	if bo_row.get_child(3).text != "Watch" or bo_row.get_child(4).text != "Sent" or not bo_row.get_child(4).disabled:
 		push_error("a friend in a game offers Watch; a gift sent today reads Sent")
 		failures += 1
@@ -1008,14 +1009,14 @@ func _friends_checks() -> int:
 
 	panel.room_code = "ABC234"
 	await process_frame
-	invite = panel._list.get_child(0).get_child(2)
+	invite = panel._list.get_child(0).get_child(0).get_child(2)
 	if not invite.visible:
 		push_error("Invite should show once the lobby is in a private room")
 		failures += 1
-	if panel._list.get_child(0).get_child(0).get_theme_color("font_color") != panel.ONLINE or panel._list.get_child(1).get_child(0).get_theme_color("font_color") != panel.OFFLINE:
+	if panel._list.get_child(0).get_child(0).get_child(0).get_theme_color("font_color") != panel.ONLINE or panel._list.get_child(1).get_child(0).get_child(0).get_theme_color("font_color") != panel.OFFLINE:
 		push_error("online dots wrong after re-render")
 		failures += 1
-	for b in [invite, panel._list.get_child(0).get_child(3), panel._add_button, panel._name_edit]:
+	for b in [invite, panel._list.get_child(0).get_child(0).get_child(3), panel._add_button, panel._name_edit]:
 		if b.custom_minimum_size.y < 48:
 			push_error("%s is under the 48 px touch target" % b.get_class())
 			failures += 1
@@ -1614,7 +1615,7 @@ func _club_checks() -> int:
 		"league": [{"id": "c9", "name": "Grand Guild 3", "score": 60, "rank": 1}, {"id": "c1", "name": "Bold Ventures 7", "score": 40, "rank": 2}], "max": 30})
 	await process_frame
 	texts = _texts(panel)
-	if not texts.has("40 points this week, place 2 in the league. 2 of 30 members.") or not texts.has("Remove") or not texts.has("Bold Ventures 7") or not texts.has("40") or not texts.has("Your club") or not texts.has("Leave club"):
+	if not texts.has("40 points this week, place 2 in the league. 2 of 30 members.") or not texts.has("Remove") or not texts.has("Bold Ventures 7") or not texts.has("40") or not texts.has("Your club") or _ranks(panel) != [1, 2] or not texts.has("Leave club"):
 		push_error("in a club the panel shows members, points and the league, got %s" % [texts])
 		failures += 1
 	failures += _small_buttons(panel, "clubs (member)")
@@ -1623,6 +1624,15 @@ func _club_checks() -> int:
 		failures += 1
 	panel.queue_free()
 	return failures
+
+
+## The places shown by the standings rows under a node, top to bottom.
+func _ranks(node: Node) -> Array:
+	var out := []
+	for c in node.find_children("*", "PanelContainer", true, false):
+		if c.has_meta("rank"):
+			out.append(int(c.get_meta("rank")))
+	return out
 
 
 ## Every label and button text under a node.

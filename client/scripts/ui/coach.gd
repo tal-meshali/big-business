@@ -119,7 +119,6 @@ func _build() -> void:
 	_title = deed["title"]
 	_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
 	_title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_title.add_theme_font_size_override("font_size", int(UiTheme.TYPE_TITLE * _s))
 	var margins: MarginContainer = deed["body"]
 	var box := VBoxContainer.new()
 	box.add_theme_constant_override("separation", int(10 * _s))
@@ -157,7 +156,7 @@ func _build() -> void:
 
 ## Dims the table except the spotlit area, which gets an orange ring.
 func _draw() -> void:
-	var dim := Color(0.03, 0.07, 0.05, 0.64)
+	var dim := Color(UiTheme.NIGHT, 0.72)
 	var full := Rect2(Vector2.ZERO, size)
 	if _spot.size == Vector2.ZERO:
 		draw_rect(full, dim)

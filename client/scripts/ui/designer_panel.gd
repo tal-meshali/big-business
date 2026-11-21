@@ -57,11 +57,14 @@ func _init() -> void:
 	var deed := UiTheme.panel(UiTheme.VIOLET, "Designer")
 	deed["panel"].size_flags_vertical = Control.SIZE_EXPAND_FILL
 	add_child(deed["panel"])
-	var body: MarginContainer = deed["body"]
+	# Close stays under the scrolling page, in reach however long it grows.
+	var frame := VBoxContainer.new()
+	frame.add_theme_constant_override("separation", UiTheme.dp(8))
+	deed["body"].add_child(frame)
 	var scroll := ScrollContainer.new()
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	body.add_child(scroll)
+	frame.add_child(scroll)
 	var column := VBoxContainer.new()
 	column.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	column.add_theme_constant_override("separation", UiTheme.dp(8))
@@ -71,14 +74,14 @@ func _init() -> void:
 	column.add_child(intro)
 
 	_unlock_box = VBoxContainer.new()
-	_unlock_box.add_theme_constant_override("separation", 8)
+	_unlock_box.add_theme_constant_override("separation", UiTheme.dp(6))
 	column.add_child(_unlock_box)
 	_buy_button = _button("Unlock Designer", _on_buy, "primary")
 	_unlock_box.add_child(_buy_button)
 	_unlock_box.add_child(_button("Restore purchases", _on_restore))
 
 	_age_box = VBoxContainer.new()
-	_age_box.add_theme_constant_override("separation", 8)
+	_age_box.add_theme_constant_override("separation", UiTheme.dp(6))
 	column.add_child(_age_box)
 	_age_box.add_child(UiTheme.title("How old are you?", UiTheme.dp(UiTheme.TYPE_HEADING)))
 	for answer in [["Under 13", "under13"], ["13 to 15", "13to15"], ["16 or older", "16plus"]]:
@@ -89,7 +92,7 @@ func _init() -> void:
 	column.add_child(_blocked_label)
 
 	_deck_box = VBoxContainer.new()
-	_deck_box.add_theme_constant_override("separation", 8)
+	_deck_box.add_theme_constant_override("separation", UiTheme.dp(6))
 	column.add_child(_deck_box)
 	var slots_row := HFlowContainer.new()
 	slots_row.add_theme_constant_override("h_separation", UiTheme.dp(6))
@@ -109,12 +112,12 @@ func _init() -> void:
 	_public_toggle.toggled.connect(_on_public_toggled)
 	_deck_box.add_child(_public_toggle)
 	_parts_list = VBoxContainer.new()
-	_parts_list.add_theme_constant_override("separation", 6)
+	_parts_list.add_theme_constant_override("separation", UiTheme.dp(6))
 	_deck_box.add_child(_parts_list)
 	_deck_box.add_child(_label("Pictures are checked before other players see them. Only use pictures you made or have the right to use; pictures that break the rules are removed, and repeat breaks end uploads.", UiTheme.TEXT_SOFT))
 
 	_editor = VBoxContainer.new()
-	_editor.add_theme_constant_override("separation", 10)
+	_editor.add_theme_constant_override("separation", UiTheme.dp(8))
 	_editor.visible = false
 	column.add_child(_editor)
 	_editor.add_child(_label("Drag the card to move the picture; use the slider to zoom."))
@@ -137,7 +140,7 @@ func _init() -> void:
 	_zoom.value_changed.connect(func(_v: float) -> void: _render_preview())
 	_editor.add_child(_zoom)
 	var editor_buttons := HBoxContainer.new()
-	editor_buttons.add_theme_constant_override("separation", 8)
+	editor_buttons.add_theme_constant_override("separation", UiTheme.dp(8))
 	_editor.add_child(editor_buttons)
 	_upload_button = _button("Save", _on_upload, "primary")
 	_upload_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -161,7 +164,7 @@ func _init() -> void:
 
 	_status = _label("", UiTheme.TEXT_SOFT)
 	column.add_child(_status)
-	column.add_child(_button("Close", func() -> void:
+	frame.add_child(_button("Close", func() -> void:
 		close_editor()
 		visible = false
 		closed.emit(), "ghost"))
@@ -194,7 +197,7 @@ func open() -> void:
 
 
 func refresh() -> void:
-	_status.text = "Loading..."
+	_status.text = "Loading…"
 	var data: Dictionary = await DesignerApi.state()
 	if data.is_empty():
 		apply_state({})
@@ -227,7 +230,9 @@ func apply_state(data: Dictionary) -> void:
 
 func _refresh_deck() -> void:
 	for i in _slot_buttons.size():
-		_slot_buttons[i].button_pressed = i == slot
+		_slot_buttons[i].set_pressed_no_signal(i == slot)
+		# The deck being edited is gold, as the item in use is elsewhere.
+		_slot_buttons[i].theme_type_variation = "PrimaryButton" if i == slot else ""
 		_slot_buttons[i].visible = i < int(state.get("slots", 0))
 	_use_toggle.set_pressed_no_signal(int(state.get("active", -1)) == slot)
 	_public_toggle.visible = state.get("plus", false)
@@ -262,7 +267,7 @@ func _add_part_row(part: String, hash: String, status: String) -> void:
 	names.add_child(name_label)
 	var state_text: String = STATUS_TEXT.get(status, "Standard") if not hash.is_empty() else "Standard"
 	var state_label := _label(state_text, STATUS_COLOR.get(state_text, UiTheme.TEXT_SOFT))
-	state_label.add_theme_font_size_override("font_size", UiTheme.dp(UiTheme.TYPE_CAPTION + 1))
+	state_label.add_theme_font_size_override("font_size", UiTheme.dp(UiTheme.TYPE_LABEL))
 	state_label.autowrap_mode = TextServer.AUTOWRAP_OFF
 	names.add_child(state_label)
 	var pick := _button("Picture", func() -> void: _pick_picture(part))
@@ -327,14 +332,14 @@ func _on_age(bracket: String) -> void:
 
 func _on_buy() -> void:
 	var product := String(state.get("productId", "bb_designer"))
-	_status.text = "Opening the store..."
+	_status.text = "Opening the store…"
 	if await Purchases.purchase(product):
 		await Net.sync_purchases()
 	await refresh()
 
 
 func _on_restore() -> void:
-	_status.text = "Restoring purchases..."
+	_status.text = "Restoring purchases…"
 	if Purchases.available():
 		await Purchases.restore()
 	await Net.sync_purchases()
@@ -439,7 +444,7 @@ func _on_upload() -> void:
 		_status.text = "That picture is too detailed to save. Try zooming in."
 		return
 	_upload_button.disabled = true
-	_status.text = "Saving..."
+	_status.text = "Saving…"
 	var res: Dictionary = await DesignerApi.upload(slot, _part, bytes)
 	_upload_button.disabled = false
 	if res.is_empty():

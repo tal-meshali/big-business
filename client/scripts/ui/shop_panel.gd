@@ -149,7 +149,7 @@ func _on_plus() -> void:
 	if plus.is_empty():
 		return
 	_plus_button.disabled = true
-	_status.text = "Opening the store..."
+	_status.text = "Opening the store…"
 	if await Purchases.purchase(String(plus.get("productId", ""))):
 		await _sync("Welcome to Plus!")
 	else:
@@ -215,7 +215,7 @@ func _add_row(skin: Dictionary) -> void:
 	var label := UiTheme.label(Cosmetics.name_of(id), UiTheme.dp(UiTheme.TYPE_BODY), UiTheme.TEXT)
 	label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	names.add_child(label)
-	var kind := UiTheme.body("Card back" if slot == "cardBack" else "Table felt", UiTheme.dp(UiTheme.TYPE_CAPTION + 1), UiTheme.TEXT_SOFT)
+	var kind := UiTheme.body("Card back" if slot == "cardBack" else "Table felt", UiTheme.dp(UiTheme.TYPE_LABEL), UiTheme.TEXT_SOFT)
 	kind.autowrap_mode = TextServer.AUTOWRAP_OFF
 	names.add_child(kind)
 	var button := _button("")
@@ -288,7 +288,7 @@ func _buy(r: Dictionary) -> void:
 		return
 	var b: Button = r["button"]
 	b.disabled = true
-	_status.text = "Opening the store..."
+	_status.text = "Opening the store…"
 	if not await Purchases.purchase(r["product_id"]):
 		_status.text = "Purchase not completed."
 		_refresh_rows()
@@ -301,7 +301,7 @@ func _buy(r: Dictionary) -> void:
 ## purchase made on another device is already known to RevenueCat.
 func _on_restore() -> void:
 	_restore_button.disabled = true
-	_status.text = "Restoring purchases..."
+	_status.text = "Restoring purchases…"
 	if Purchases.available():
 		await Purchases.restore()
 	await _sync("")

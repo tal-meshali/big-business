@@ -37,6 +37,10 @@ func _init() -> void:
 	column.add_child(_track_label)
 	_track_bar = UiTheme.meter(UiTheme.GOLD, UiTheme.dp(10))
 	column.add_child(_track_bar)
+	# WHY above the list and not at its end: this line also answers a tap on
+	# Claim, and at the end of a long list nobody saw it.
+	_status = UiTheme.body("Quests reset at midnight UTC; weekly ones on Monday.", UiTheme.dp(UiTheme.TYPE_LABEL), UiTheme.TEXT_SOFT)
+	column.add_child(_status)
 
 	var scroll := ScrollContainer.new()
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
@@ -71,8 +75,6 @@ func _init() -> void:
 	for e in Cosmetics.TABLES:
 		_table_buttons[e["id"]] = _make_pick_button(felts, "table", e["id"])
 
-	_status = UiTheme.body("Quests reset at midnight UTC; weekly ones on Monday.", UiTheme.dp(UiTheme.TYPE_LABEL), UiTheme.TEXT_SOFT)
-	content.add_child(_status)
 
 	var close := UiTheme.button("Close", UiTheme.dp(14), UiTheme.dp(44), "ghost")
 	close.pressed.connect(func() -> void:
@@ -93,7 +95,7 @@ func _heading(text: String) -> Control:
 
 
 func _make_pick_button(parent: Control, slot: String, id: String) -> Button:
-	var b := UiTheme.button(Cosmetics.name_of(id), UiTheme.dp(UiTheme.TYPE_LABEL), UiTheme.dp(40))
+	var b := UiTheme.button(Cosmetics.name_of(id), UiTheme.dp(UiTheme.TYPE_LABEL), UiTheme.dp(44))
 	b.toggle_mode = true
 	b.pressed.connect(func() -> void: _on_pick(slot, id))
 	parent.add_child(b)
@@ -140,7 +142,7 @@ func _add_row(parent: Control, q: Dictionary) -> void:
 	bar.max_value = maxf(1.0, float(q.get("target", 1)))
 	bar.value = float(q.get("progress", 0))
 	col.add_child(bar)
-	var count := UiTheme.body("%d of %d  ·  +%d track points" % [int(q.get("progress", 0)), int(q.get("target", 1)), int(q.get("points", 0))], UiTheme.dp(UiTheme.TYPE_CAPTION + 1), UiTheme.TEXT_SOFT)
+	var count := UiTheme.body("%d of %d  ·  +%d track points" % [int(q.get("progress", 0)), int(q.get("target", 1)), int(q.get("points", 0))], UiTheme.dp(UiTheme.TYPE_LABEL), UiTheme.TEXT_SOFT)
 	col.add_child(count)
 	var button := UiTheme.button("Claim", UiTheme.dp(UiTheme.TYPE_LABEL), UiTheme.dp(44))
 	button.custom_minimum_size.x = UiTheme.dp(84)

@@ -52,7 +52,7 @@ func open() -> void:
 
 
 func refresh() -> void:
-	_say("Loading...")
+	_say("Loading…")
 	var data: Dictionary = await ClubsApi.state()
 	if data.is_empty():
 		_say("Connect to see clubs." if ClubsApi.last_error.is_empty() else ClubsApi.last_error)
@@ -76,6 +76,14 @@ func apply_state(data: Dictionary, listing: Dictionary = {}) -> void:
 		_build_start()
 		_build_join(listing.get("clubs", []))
 	_build_league(data.get("league", []), String(club.get("id", "")) if club is Dictionary else "")
+	if club is Dictionary:
+		# Last and quiet: the one button here that takes something away.
+		var leave := _button("Leave club", "ghost")
+		leave.pressed.connect(_on_leave)
+		var pad := MarginContainer.new()
+		pad.add_theme_constant_override("margin_top", UiTheme.dp(10))
+		pad.add_child(leave)
+		_content.add_child(pad)
 
 
 func _build_club(club: Dictionary, max_members: int) -> void:
@@ -104,7 +112,7 @@ func _build_club(club: Dictionary, max_members: int) -> void:
 		name_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 		names.add_child(name_label)
 		if String(m.get("role", "")) != "member":
-			var role_label := _label(String(m.get("role", "")).capitalize(), UiTheme.TYPE_CAPTION + 1, UiTheme.TEXT_SOFT)
+			var role_label := _label(String(m.get("role", "")).capitalize(), UiTheme.TYPE_LABEL, UiTheme.TEXT_SOFT)
 			role_label.autowrap_mode = TextServer.AUTOWRAP_OFF
 			names.add_child(role_label)
 		var week := UiTheme.title("%d pts" % int(m.get("week", 0)), UiTheme.dp(UiTheme.TYPE_HEADING), UiTheme.GOLD)
@@ -116,9 +124,6 @@ func _build_club(club: Dictionary, max_members: int) -> void:
 			remove.pressed.connect(_on_remove.bind(String(m.get("userId", ""))))
 			line.add_child(remove)
 		_content.add_child(row)
-	var leave := _button("Leave club")
-	leave.pressed.connect(_on_leave)
-	_content.add_child(leave)
 
 
 static func _may_remove(actor: String, target: String) -> bool:
@@ -144,6 +149,9 @@ func _build_start() -> void:
 	_crest_buttons.clear()
 	for c in 6:
 		var b := _button(Companies.short_name_of(c))
+		# The company's colour beside its name: a crest is a company.
+		b.icon = UiTheme.dot_icon(Companies.color_of(c), UiTheme.dp(14))
+		b.add_theme_constant_override("h_separation", UiTheme.dp(5))
 		b.toggle_mode = true
 		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		b.pressed.connect(_on_crest.bind(c))
@@ -173,7 +181,7 @@ func _build_join(clubs: Array) -> void:
 		var name_label := UiTheme.label(String(c.get("name", "")), UiTheme.dp(UiTheme.TYPE_BODY), UiTheme.TEXT)
 		name_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 		names.add_child(name_label)
-		var count := _label("%d of %d members" % [int(c.get("count", 0)), int(c.get("max", 30))], UiTheme.TYPE_CAPTION + 1, UiTheme.TEXT_SOFT)
+		var count := _label("%d of %d members" % [int(c.get("count", 0)), int(c.get("max", 30))], UiTheme.TYPE_LABEL, UiTheme.TEXT_SOFT)
 		count.autowrap_mode = TextServer.AUTOWRAP_OFF
 		names.add_child(count)
 		var join := _button("Join")
@@ -239,6 +247,7 @@ func _picker(words: Array[String]) -> OptionButton:
 	o.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	o.add_theme_font_size_override("font_size", UiTheme.dp(UiTheme.TYPE_BODY))
 	o.get_popup().add_theme_font_size_override("font_size", UiTheme.dp(UiTheme.TYPE_BODY))
+	o.get_popup().transparent_bg = true
 	return o
 
 

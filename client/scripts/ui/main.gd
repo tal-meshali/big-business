@@ -33,6 +33,8 @@ var _streak_label: Label
 var _quests_tab: IconTile
 var _board_label: Label
 var _board_rows: VBoxContainer
+var _board_scroll: ScrollContainer
+var _board_mine: VBoxContainer
 var _season_sheet: ColorRect
 var _friends_panel: FriendsPanel
 var _quests_button: Button
@@ -55,6 +57,7 @@ var _games_played := -1
 var _felt: StartFan
 var _room: LobbyBackdrop
 var _account_label: Label
+var _link_row: HBoxContainer
 var _link_apple_button: Button
 var _link_google_button: Button
 var _connected := false
@@ -319,19 +322,19 @@ func _hud() -> Control:
 	var xp_row := HBoxContainer.new()
 	xp_row.add_theme_constant_override("separation", _px(6))
 	col.add_child(xp_row)
-	_profile_label = UiTheme.label("Level 1", _px(10), UiTheme.GOLD, true)
+	_profile_label = UiTheme.label("Level 1", _px(UiTheme.TYPE_CAPTION), UiTheme.GOLD, true)
 	_profile_label.add_theme_color_override("font_outline_color", UiTheme.OUTLINE)
 	_profile_label.add_theme_constant_override("outline_size", _px(3))
 	_profile_label.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	_profile_label.draw.connect(func() -> void: diamond.queue_redraw())
 	xp_row.add_child(_profile_label)
 	_xp_bar = ProgressBar.new()
-	_xp_bar.custom_minimum_size = Vector2(0, _px(14))
+	_xp_bar.custom_minimum_size = Vector2(0, _px(16))
 	_xp_bar.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_xp_bar.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	_xp_bar.show_percentage = false
 	xp_row.add_child(_xp_bar)
-	_xp_label = UiTheme.label("0 / 50", _px(8.5), Color.WHITE, true)
+	_xp_label = UiTheme.label("0 / 50", _px(UiTheme.TYPE_CAPTION), Color.WHITE, true)
 	_xp_label.add_theme_color_override("font_outline_color", UiTheme.OUTLINE)
 	_xp_label.add_theme_constant_override("outline_size", _px(2.5))
 	_xp_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -658,14 +661,20 @@ func _build_more_sheet() -> void:
 	account.add_child(UiTheme.caption("Account", _px(UiTheme.TYPE_CAPTION)))
 	_account_label = UiTheme.body(Net.describe_account_links({}), _px(UiTheme.TYPE_BODY))
 	account.add_child(_account_label)
+	# WHY a row of their own: next to the account line two link buttons left
+	# it a few words per line and stretched to its height.
+	_link_row = _row(body)
+	_link_row.visible = false
 	_link_apple_button = UiTheme.button("Link Apple", _px(13), _px(44))
 	_link_apple_button.visible = false
+	_link_apple_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_link_apple_button.pressed.connect(_on_link_apple)
-	account_row.add_child(_link_apple_button)
+	_link_row.add_child(_link_apple_button)
 	_link_google_button = UiTheme.button("Link Google", _px(13), _px(44))
 	_link_google_button.visible = false
+	_link_google_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_link_google_button.pressed.connect(_on_link_google)
-	account_row.add_child(_link_google_button)
+	_link_row.add_child(_link_google_button)
 
 	var server := VBoxContainer.new()
 	server.add_theme_constant_override("separation", _px(4))
@@ -724,28 +733,25 @@ func _build_season_sheet() -> void:
 	var body := VBoxContainer.new()
 	body.add_theme_constant_override("separation", _px(12))
 	deed["body"].add_child(body)
-	# One line above the rows: "Loading...", the empty state, or the reset rule.
+	# One line above the rows: "Loading…", the empty state, or the reset rule.
 	_board_label = UiTheme.body("", _px(UiTheme.TYPE_LABEL), UiTheme.TEXT_SOFT)
 	body.add_child(_board_label)
+	# WHY a scroll: ten places plus your own are taller than a phone.
+	_board_scroll = ScrollContainer.new()
+	_board_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	body.add_child(_board_scroll)
 	_board_rows = VBoxContainer.new()
+	_board_rows.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_board_rows.add_theme_constant_override("separation", _px(6))
-	body.add_child(_board_rows)
+	_board_scroll.add_child(_board_rows)
+	# Your own place when it is past the top ten: under the list, always
+	# in view, never scrolled away.
+	_board_mine = VBoxContainer.new()
+	_board_mine.visible = false
+	body.add_child(_board_mine)
 	var close := UiTheme.button("Close", _px(14), _px(44), "ghost")
 	close.pressed.connect(func() -> void: _season_sheet.visible = false)
 	body.add_child(close)
-
-
-func _band(color: Color, height: int) -> PanelContainer:
-	var band := PanelContainer.new()
-	var style := StyleBoxFlat.new()
-	style.bg_color = color
-	style.border_color = Companies.INK
-	style.border_width_bottom = 2
-	style.corner_radius_top_left = int(10 * _s)
-	style.corner_radius_top_right = int(10 * _s)
-	band.add_theme_stylebox_override("panel", style)
-	band.custom_minimum_size = Vector2(0, height)
-	return band
 
 
 func _row(parent: Control) -> HBoxContainer:
@@ -784,7 +790,7 @@ func _on_ready_pressed() -> void:
 func _on_start_now_pressed() -> void:
 	Net.send_start_now()
 	_start_now_button.disabled = true
-	_status.text = "Starting with bots..."
+	_status.text = "Starting with bots…"
 
 
 func _on_connect_pressed() -> void:
@@ -792,7 +798,7 @@ func _on_connect_pressed() -> void:
 	_host_edit.text = Net.server_address()
 	Net.display_name = _name_edit.text.strip_edges()
 	Net.save_settings()
-	_status.text = "Connecting to %s..." % Net.server_address()
+	_status.text = "Connecting to %s…" % Net.server_address()
 	await Net.connect_preferred()
 
 
@@ -902,32 +908,51 @@ func _on_cosmetic_changed(_slot: String, _id: String) -> void:
 func _on_show_board() -> void:
 	_season_sheet.visible = true
 	_show_board_rows([], Net.user_id)
-	_board_label.text = "Loading..."
+	_board_label.text = "Loading…"
 	var rows: Array = await Net.season_leaderboard(10)
 	_show_board_rows(rows, Net.user_id)
 
 
-## Fills the season sheet: one row per place, yours lit up. A place past
-## the top ten (yours) comes after a gap.
+## Fills the season sheet: one row per place, yours lit up. The top ten
+## take the height they need up to what the screen has left, and scroll
+## beyond that; a place of yours past the top ten stays under the list.
 func _show_board_rows(rows: Array, my_id: String) -> void:
-	for child in _board_rows.get_children():
-		_board_rows.remove_child(child)
-		child.queue_free()
-	_board_rows.visible = not rows.is_empty()
+	for box in [_board_rows, _board_mine]:
+		for child in box.get_children():
+			box.remove_child(child)
+			child.queue_free()
+	_board_scroll.visible = not rows.is_empty()
+	_board_mine.visible = false
 	if rows.is_empty():
 		_board_label.text = "No season games yet. Points come from games with other people, and the board resets every month."
 		return
 	_board_label.text = "Points from games with other people. Resets every month."
+	# The server sends your own record again after the top ten; inside the
+	# top ten that would show you twice.
+	var seen := {}
 	for r in rows:
 		var rank := int(r.get("rank", 0))
-		if r.get("mine", false) and rank > 10:
-			var gap := UiTheme.label("…", _px(UiTheme.TYPE_BODY), UiTheme.TEXT_SOFT)
-			gap.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-			_board_rows.add_child(gap)
-		var mine: bool = r.get("userId", "") == my_id
+		var mine: bool = bool(r.get("mine", false)) or (not my_id.is_empty() and String(r.get("userId", "")) == my_id)
+		var key := String(r.get("userId", "")) if r.has("userId") else "rank %d %s" % [rank, r.get("name", "")]
+		if seen.has(key):
+			continue
+		seen[key] = true
 		var wins := int(r.get("wins", 0))
 		var detail := "%d %s%s" % [wins, "win" if wins == 1 else "wins", " · you" if mine else ""]
-		_board_rows.add_child(UiTheme.standing_row(rank, String(r.get("name", "?")), detail, str(int(r.get("score", 0))), mine))
+		var row := UiTheme.standing_row(rank, String(r.get("name", "?")), detail, str(int(r.get("score", 0))), mine)
+		if mine and rank > 10:
+			_board_mine.add_child(row)
+			_board_mine.visible = true
+		else:
+			_board_rows.add_child(row)
+	var gap := _px(6)
+	var tall := -float(gap)
+	for child in _board_rows.get_children():
+		tall += child.get_combined_minimum_size().y + gap
+	# Room for the band, the line above the list, your own row, Close and
+	# the margins.
+	var room := get_viewport_rect().size.y - _insets.x - _insets.y - _px(230 + (70 if _board_mine.visible else 0))
+	_board_scroll.custom_minimum_size.y = minf(maxf(tall, 0.0), room)
 
 
 ## Account row: the label follows the server's view of the account; a link
@@ -941,6 +966,7 @@ func _refresh_account_row() -> void:
 	var avail: Dictionary = SocialTokens.available()
 	_link_apple_button.visible = bool(avail.get("apple", false)) and not links.get("apple", false)
 	_link_google_button.visible = bool(avail.get("google", false)) and not links.get("google", false)
+	_link_row.visible = _link_apple_button.visible or _link_google_button.visible
 	_link_apple_button.disabled = not Net.is_connected_to_server()
 	_link_google_button.disabled = not Net.is_connected_to_server()
 
@@ -984,10 +1010,10 @@ func _on_failed(reason: String) -> void:
 func _on_quick_play() -> void:
 	# Remote Config can send a brand-new player to the tutorial first (TODO-local B2).
 	if RemoteConfig.tutorial_auto_route and _games_played == 0:
-		_status.text = "First game: let's start with the tutorial..."
+		_status.text = "First game: let's start with the tutorial…"
 		_in_lobby = await Net.start_tutorial()
 		return
-	_status.text = "Finding a game..."
+	_status.text = "Finding a game…"
 	_in_lobby = await Net.quick_play()
 
 
@@ -998,7 +1024,7 @@ func _on_play_bots() -> void:
 		_in_lobby = false
 		_room_code = ""
 		_friends_panel.room_code = ""
-	_status.text = "Starting a game against bots..."
+	_status.text = "Starting a game against bots…"
 	_in_lobby = await Net.play_bots()
 
 
@@ -1007,20 +1033,21 @@ func _on_help() -> void:
 
 
 func _on_tutorial() -> void:
-	_status.text = "Starting the tutorial..."
+	_status.text = "Starting the tutorial…"
 	_in_lobby = await Net.start_tutorial()
 
 
 func _on_create_room() -> void:
-	_status.text = "Creating room..."
+	_status.text = "Creating room…"
 	var code: String = await Net.create_room()
 	if code.is_empty():
 		return
 	_in_lobby = true
 	_room_code = code
 	_friends_panel.room_code = code
-	_status.text = "Room code: %s" % code
-	_room_label.text = "Your room  %s" % code
+	# The code shows once, in the well below; this line says what to do with it.
+	_status.text = "Share the code with a friend"
+	_room_label.text = "Room code  %s" % code
 	_copy_button.text = "Copy"
 	_room_row.visible = true
 	_ready_button.visible = true
@@ -1028,7 +1055,7 @@ func _on_create_room() -> void:
 
 
 func _on_join_room() -> void:
-	_status.text = "Joining..."
+	_status.text = "Joining…"
 	_in_lobby = await Net.join_room(_code_edit.text)
 	if _in_lobby:
 		_join_sheet.visible = false

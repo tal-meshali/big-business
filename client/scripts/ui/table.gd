@@ -26,11 +26,13 @@ const COIN_TIME := 0.3
 const HAND_TILT_DEG := 7.0
 ## Seconds left on your own step when the table starts to glow and tick.
 const URGENT_SECONDS := 5
+## How many of your turns show the hint under "YOUR TURN".
+const HINTED_TURNS := 3
 ## Size of a held card's close-up, relative to an unscaled card.
 const PEEK_SCALE := 2.2
 ## Card scales on the felt, as in the design (1 = a 100 dp wide card).
 const MARKET_CARD := 0.5
-const SUPPLY_CARD := 0.48
+const SUPPLY_CARD := TableBoard.SUPPLY_CARD
 const PORTFOLIO_CARD := 0.36
 const HAND_CARD := 0.9
 ## Opponent plates for 1..6 opponents, clockwise from your left:
@@ -44,6 +46,10 @@ const PLATE_SLOTS := [
 	[["L", 8, 252, 118], ["L", 8, 166, 118], ["C", -65, 92, 118], ["C", 65, 92, 118], ["R", 8, 166, 118], ["R", 8, 252, 118]],
 ]
 const PLATE_H := 66.0
+## Shares in one Market row before a second row starts.
+const MARKET_PER_ROW := 5
+## Highest place for the notice pill (dp from the top): the logo's foot.
+const NOTICE_TOP := 46.0
 
 var view: Dictionary = {}
 var _my_seat: int = -1
@@ -59,8 +65,11 @@ var _status: Label
 var _timer_label: Label
 var _timer_pill: PanelContainer
 var _timer_tween: Tween
+var _was_urgent := false
+var _turns_announced := 0
 ## One-off messages, shown under the top bar for a moment.
 var _notice: PanelContainer
+var _notice_holder: CenterContainer
 var _notice_label: Label
 var _notice_tween: Tween
 var _seats_layer: Control
@@ -254,7 +263,7 @@ func _build_top_bar() -> void:
 	brand.tilt = 0.0
 	brand.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	top.add_child(brand)
-	_status = UiTheme.title("Connecting...", _px(UiTheme.TYPE_HEADING))
+	_status = UiTheme.title("Connecting…", _px(UiTheme.TYPE_HEADING))
 	_status.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_status.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -373,7 +382,7 @@ func _build_result_panel() -> void:
 	_result_rows.add_theme_constant_override("separation", _px(6))
 	result_box.add_child(_result_rows)
 	# Who collected what, company by company, in the quieter second voice.
-	_result_label = UiTheme.body("", _px(UiTheme.TYPE_CAPTION + 1), UiTheme.TEXT_SOFT)
+	_result_label = UiTheme.body("", _px(UiTheme.TYPE_LABEL), UiTheme.TEXT_SOFT)
 	result_box.add_child(_result_label)
 	var result_buttons := HBoxContainer.new()
 	result_buttons.add_theme_constant_override("separation", _px(8))
@@ -407,6 +416,13 @@ func _layout() -> void:
 	_hand_layer.offset_bottom = bar_top - screen.y
 	_hand_layer.offset_top = _hand_layer.offset_bottom - hand_h
 	_emote_bar.offset_bottom = bar_top - screen.y - _px(6)
+	# The notice stands in the strip between the top bar and the highest
+	# seat plate, which grows with the screen's height: centred in it, and
+	# never higher than the logo's foot.
+	var strip_top := _px(NOTICE_TOP + 4) + _insets.x
+	var plate_top := _board.origin.y + (float(PLATE_SLOTS[0][0][2]) - 400.0) * _s
+	var one_line := _px(UiTheme.TYPE_LABEL * 1.35 + 7)
+	_notice_holder.offset_top = maxf(_px(NOTICE_TOP) + _insets.x, (strip_top + plate_top - one_line) / 2.0)
 	_place_supply()
 
 
@@ -479,11 +495,14 @@ func _build_forfeit_confirm() -> void:
 	_make_button(buttons, "Keep playing", func() -> void: _forfeit_overlay.visible = false, "primary").visible = true
 
 
-## The pill for one-off messages, centred under the top bar.
+## The pill for one-off messages, centred in the gap between the top bar
+## and the far plates. WHY small: any taller and it covers the names on
+## those plates, often the very player the message is about.
 func _build_notice() -> void:
 	var holder := CenterContainer.new()
+	_notice_holder = holder
 	holder.set_anchors_and_offsets_preset(Control.PRESET_TOP_WIDE)
-	holder.offset_top = _px(62) + _insets.x
+	holder.offset_top = _px(NOTICE_TOP) + _insets.x
 	holder.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(holder)
 	_notice = PanelContainer.new()
@@ -491,15 +510,16 @@ func _build_notice() -> void:
 	var toast := UiTheme.ink_box(Color(UiTheme.OUTLINE, 0.94), _px(14), maxi(2, _px(1.5)))
 	toast.content_margin_left = _px(14)
 	toast.content_margin_right = _px(14)
-	toast.content_margin_top = _px(8)
-	toast.content_margin_bottom = _px(9)
+	toast.content_margin_top = _px(3)
+	toast.content_margin_bottom = _px(4)
 	toast.shadow_color = Color(0, 0, 0, 0.35)
 	toast.shadow_size = _px(6)
 	toast.shadow_offset = Vector2(0, _px(3))
 	_notice.add_theme_stylebox_override("panel", toast)
 	_notice.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_notice.visible = false
-	_notice_label = UiTheme.body("", _px(UiTheme.TYPE_BODY))
+	_notice_label = UiTheme.body("", _px(UiTheme.TYPE_LABEL))
+	_notice_label.add_theme_constant_override("line_spacing", 0)
 	_notice_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_notice.add_child(_notice_label)
 	holder.add_child(_notice)
@@ -513,7 +533,7 @@ func _show_notice(text: String) -> void:
 	if text.is_empty():
 		return
 	_notice_label.text = text.substr(0, 1).to_upper() + text.substr(1)
-	var px := _px(UiTheme.TYPE_BODY)
+	var px := _px(UiTheme.TYPE_LABEL)
 	var room := get_viewport_rect().size.x - _px(32 + 28)
 	var wide := UiTheme.body_font().get_string_size(_notice_label.text, HORIZONTAL_ALIGNMENT_LEFT, -1, px).x
 	# WHY: a wrapping label in a centring container shrinks to one word
@@ -521,13 +541,16 @@ func _show_notice(text: String) -> void:
 	_notice_label.custom_minimum_size.x = minf(ceilf(wide) + 2.0, room)
 	if _notice_tween != null:
 		_notice_tween.kill()
-	if not _notice.visible:
+	var fresh := not _notice.visible
+	if fresh:
 		_notice.modulate.a = 0.0
-		_notice.scale = Vector2.ONE * 0.96
 	_notice.visible = true
 	_notice_tween = create_tween()
 	_notice_tween.tween_property(_notice, "modulate:a", 1.0, 0.16).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
-	_notice_tween.parallel().tween_property(_notice, "scale", Vector2.ONE, 0.16).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	if fresh:
+		# WHY from(): the centring container puts the scale back to 1 when
+		# it sorts, so a scale set before the tween would be lost.
+		_notice_tween.parallel().tween_property(_notice, "scale", Vector2.ONE, 0.16).from(Vector2.ONE * 0.96).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
 	_notice_tween.tween_interval(2.2 + 0.03 * text.length())
 	_notice_tween.tween_property(_notice, "modulate:a", 0.0, 0.12)
 	_notice_tween.tween_callback(func() -> void: _notice.visible = false)
@@ -566,9 +589,11 @@ func _build_social_layer() -> void:
 	for e in Protocol.EMOTES:
 		var picture := Protocol.is_emoji(e["id"])
 		# Emoji read at a glance only when larger than the phrase text.
-		var b := UiTheme.button(e["text"], _px(16) if picture else _px(UiTheme.TYPE_CAPTION + 1), _px(44), "ghost" if picture else "")
+		var b := UiTheme.button(e["text"], _px(16) if picture else _px(UiTheme.TYPE_LABEL), _px(44), "ghost" if picture else "")
+		# WHY no clip_text: with it the four columns were equal and "Good
+		# move" lost its last letter on tall screens. Unclipped, each column
+		# is as wide as its longest phrase.
 		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		b.clip_text = not picture
 		var id: String = e["id"]
 		b.pressed.connect(func() -> void:
 			Net.send_emote(id)
@@ -642,12 +667,14 @@ func _show_bubble(seat: int, text: String, font_size: int = 0) -> void:
 	at.x = clampf(at.x, _px(6), get_viewport_rect().size.x - sz.x - _px(6))
 	at.y = maxf(at.y, _px(6) + _insets.x)
 	bubble.global_position = at
-	bubble.pivot_offset = Vector2(0, sz.y)
+	# It grows out of the corner nearest the avatar it speaks for.
+	bubble.pivot_offset = Vector2(clampf(_seat_anchor(seat).x - at.x, 0.0, sz.x), sz.y)
 	bubble.modulate.a = 0.0
 	bubble.scale = Vector2.ONE * 0.9
 	_emote_bubbles[seat] = bubble
-	var tw := create_tween()
-	tw.tween_property(bubble, "modulate:a", 1.0, 0.14)
+	# WHY the bubble's own tween: it stops when a newer bubble frees this one.
+	var tw := bubble.create_tween()
+	tw.tween_property(bubble, "modulate:a", 1.0, 0.14).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
 	tw.parallel().tween_property(bubble, "scale", Vector2.ONE, 0.18).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 	tw.tween_interval(2.2)
 	tw.tween_property(bubble, "modulate:a", 0.0, 0.2)
@@ -667,7 +694,10 @@ func _on_seat_pressed(seat_idx: int, at: Vector2) -> void:
 	_seat_menu.set_item_disabled(0, blocked)
 	_seat_menu.set_item_text(2, "Blocked" if blocked else "Block")
 	_seat_menu.set_item_disabled(2, blocked)
-	_seat_menu.position = Vector2i(at)
+	_seat_menu.reset_size()
+	# Keep the whole menu on screen for the seats on the right edge.
+	var room := get_viewport_rect().size - Vector2(_seat_menu.size) - Vector2.ONE * _px(8)
+	_seat_menu.position = Vector2i(at.clamp(Vector2.ONE * _px(8), room.max(Vector2.ONE * _px(8))))
 	_seat_menu.popup()
 
 
@@ -683,15 +713,19 @@ func _on_seat_menu(id: int) -> void:
 			_show_notice("%s %s" % [who, "muted" if Net.muted.has(uid) else "unmuted"])
 		1:
 			var ok: bool = await Net.report_player(uid, "behaviour")
+			if not is_inside_tree():
+				return
 			_show_notice("Report sent. Thank you." if ok else "The report did not go through. Try again.")
 		2:
 			await Net.block_player(uid)
+			if not is_inside_tree():
+				return
 			_show_notice("%s blocked" % who)
 
 
 func _on_reconnecting(attempt: int) -> void:
 	_reconnect_overlay.visible = true
-	_reconnect_label.text = "Connection lost. Trying again (%d/5)..." % attempt
+	_reconnect_label.text = "Connection lost. Trying again (%d/5)…" % attempt
 
 
 func _on_reconnected() -> void:
@@ -702,7 +736,8 @@ func _on_reconnected() -> void:
 
 func _on_connection_failed(reason: String) -> void:
 	_reconnect_overlay.visible = false
-	_status.text = reason
+	_status.text = "Connection lost"
+	_prompt.text = reason.substr(0, 1).to_upper() + reason.substr(1)
 
 
 ## A move or dialog button, hidden until a step shows it.
@@ -835,7 +870,7 @@ func _on_play_again() -> void:
 		coach.queue_free()
 		coach = null
 		_restriction = {}
-	_status.text = "Finding a new game..."
+	_status.text = "Finding a new game…"
 	_result_backdrop.visible = false
 	var ok: bool = await Net.quick_play()
 	if not ok:
@@ -949,9 +984,13 @@ func _update_urgency(remaining: int) -> void:
 	var urgent := _is_my_turn() and remaining > 0 and remaining <= URGENT_SECONDS
 	_glow.visible = urgent
 	# The pill goes red with white digits for the last seconds.
-	var pill: StyleBoxFlat = _timer_pill.get_theme_stylebox("panel")
-	pill.bg_color = UiTheme.BADGE if urgent else Color(UiTheme.NIGHT, 0.6)
-	_timer_label.add_theme_color_override("font_color", Color.WHITE if urgent else UiTheme.GOLD)
+	# WHY only on a change: this runs every frame, and each set makes the
+	# pill and its label lay out and draw again.
+	if urgent != _was_urgent:
+		_was_urgent = urgent
+		var pill: StyleBoxFlat = _timer_pill.get_theme_stylebox("panel")
+		pill.bg_color = UiTheme.BADGE if urgent else Color(UiTheme.NIGHT, 0.6)
+		_timer_label.add_theme_color_override("font_color", Color.WHITE if urgent else UiTheme.GOLD)
 	if not urgent:
 		_last_tick = -1
 		return
@@ -1027,6 +1066,9 @@ func _render() -> void:
 	_restriction = coach.restriction(view) if coach != null else {}
 	_hide_peek()
 	_leave_button.text = "Forfeit" if _can_forfeit() else "Leave"
+	# Red only while the button costs you the game; a plain Leave is quiet.
+	_leave_button.theme_type_variation = "DangerButton" if _can_forfeit() else "GhostButton"
+	_leave_button.add_theme_constant_override("outline_size", maxi(4, int(round(_px(13) * 0.3))) if _can_forfeit() else 0)
 	if not _can_forfeit():
 		_forfeit_overlay.visible = false
 
@@ -1052,7 +1094,10 @@ func _announce_turn(phase: String) -> void:
 		_announced_turn = turn
 		sfx.play("turn")
 		Sfx.buzz(40)
-		_slam_banner("YOUR TURN", _turn_hint())
+		# WHY only the first turns: after that the hint repeats the prompt
+		# and only covers the Market for longer.
+		_turns_announced += 1
+		_slam_banner("YOUR TURN", _turn_hint() if _turns_announced <= HINTED_TURNS else "")
 
 
 ## The few words under "YOUR TURN": what the take step offers right now.
@@ -1122,7 +1167,7 @@ func _render_status(phase: String, seats: Array, active: int) -> void:
 		# WHY only the name: the bar has room for a few words; what they
 		# are doing is spelled out in the prompt below.
 		var who: Dictionary = seats[active] if active < seats.size() else {}
-		_status.text = "%s's turn" % SeatView.short_name(who)
+		_status.text = "%s's turn" % SeatView.short_name(who, 9)
 
 
 ## Opponents in turn order from your left, on plates around the far side of
@@ -1200,13 +1245,16 @@ static func _stacks_of(seat: Dictionary) -> Array:
 
 ## Market slot k of m on the felt: rows of at least five, two rows at most,
 ## squeezed together as the Market grows (dp from the felt's centre).
+## WHY two rows sit higher and closer: at the one-row pitch the second row
+## reached the Portfolio's line and covered its name.
 static func _market_pos(k: int, m: int) -> Vector2:
-	var per := maxi(5, ceili(m / 2.0))
+	var per := maxi(MARKET_PER_ROW, ceili(m / 2.0))
 	var row := k / per
 	var in_row := mini(per, m) if row == 0 else m - per
 	var col := k % per
 	var spacing := minf(54.0, 264.0 / per)
-	return Vector2((col - (in_row - 1) / 2.0) * spacing, -52.0 + row * 72.0)
+	var two_rows := m > per
+	return Vector2((col - (in_row - 1) / 2.0) * spacing, (-56.0 if two_rows else -52.0) + row * (64.0 if two_rows else 72.0))
 
 
 ## Lays a card on the felt at `p` (dp from the centre), `card` = its design
@@ -1231,6 +1279,7 @@ func _render_market(phase: String) -> void:
 		child.queue_free()
 	var market: Array = view.get("market", [])
 	var tokens: Array = view.get("tokens", [])
+	_board.market_wraps = market.size() > MARKET_PER_ROW
 	for k in market.size():
 		var slot: Dictionary = market[k]
 		var card: Dictionary = slot.get("card", {})
@@ -1461,7 +1510,7 @@ func _render_result(seats: Array) -> void:
 		var seat: Dictionary = seats[seat_idx] if seat_idx < seats.size() else {}
 		var who := "You" if seat_idx == _my_seat else String(seat.get("name", "?"))
 		var rank := int(sc.get("rank", 1))
-		_result_rows.add_child(UiTheme.standing_row(rank, who, "%d bronze + %d gold" % [int(sc.get("bronze", 0)), int(sc.get("gold", 0))], str(int(sc.get("score", 0))), rank == 1))
+		_result_rows.add_child(UiTheme.standing_row(rank, who, "%d bronze + %d gold" % [int(sc.get("bronze", 0)), int(sc.get("gold", 0))], str(int(sc.get("score", 0))), seat_idx == _my_seat))
 	var lines := PackedStringArray()
 	for div in result.get("companies", []):
 		var company := int(div.get("company", 0))
@@ -1472,7 +1521,8 @@ func _render_result(seats: Array) -> void:
 			var paid := 0
 			for p in div.get("payments", []):
 				paid += int(p.get("coins", 0))
-			lines.append("%s: %s collects %d" % [Companies.name_of(company), seats[int(majority)].get("name", "?"), paid])
+			var you := int(majority) == _my_seat
+			lines.append("%s: %s %d" % [Companies.name_of(company), "you collect" if you else "%s collects" % seats[int(majority)].get("name", "?"), paid])
 	_result_label.text = "\n".join(lines)
 
 

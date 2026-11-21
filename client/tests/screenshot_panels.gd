@@ -4,9 +4,13 @@ extends SceneTree
 ## Needs a display (use xvfb-run on Linux):
 ##   xvfb-run -a godot --rendering-driver opengl3 --path client --script res://tests/screenshot_panels.gd -- out_dir
 ## Output: quests.png, shop.png, clubs_start.png, clubs_member.png,
-## friends.png, designer.png, stats.png, season.png, join.png, more.png,
-## room.png, reconnect.png, seat_menu.png, waiting.png, long_names.png.
-## Add "he" after the folder to run under a Hebrew (right-to-left) locale.
+## friends.png, friend_menu.png, designer.png, designer_editor.png,
+## stats.png, season.png, season_full.png, join.png, more.png, room.png,
+## waiting.png, notice.png, emotes.png, reconnect.png, seat_menu.png,
+## long_names.png.
+## After the folder: a locale ("he" runs right to left, "en" is the
+## default), then the screen's height in px (1560 by default; 1280 is the
+## shortest phone the layout serves).
 
 
 func _init() -> void:
@@ -21,8 +25,9 @@ func _run() -> void:
 	if args.size() > 1:
 		TranslationServer.set_locale(args[1])
 	DirAccess.make_dir_recursive_absolute(out_dir)
-	root.get_window().size = Vector2i(720, 1560)
-	root.size = Vector2i(720, 1560)
+	var tall := int(args[2]) if args.size() > 2 else 1560
+	root.get_window().size = Vector2i(720, tall)
+	root.size = Vector2i(720, tall)
 	await process_frame
 
 	var main = load("res://scenes/main.tscn").instantiate()
@@ -56,7 +61,7 @@ func _run() -> void:
 
 	shop._deed_panel.visible = false
 	shop.stats_panel.visible = true
-	shop.stats_panel._body.text = shop.stats_panel.describe({"plus": true, "games": 42, "wins": 11, "winRate": 26.2, "averageScore": 14.3, "bestScore": 27,
+	shop.stats_panel.apply({"plus": true, "games": 42, "wins": 11, "winRate": 26.2, "averageScore": 14.3, "bestScore": 27,
 		"podiums": 30, "peopleGames": 18, "majorities": [4, 9, 2, 7, 1, 12], "recent": [{"rank": 1}, {"rank": 3}, {"rank": 2}, {"rank": 5}, {"rank": 1}]})
 	await _shot(out_dir, "stats")
 	shop.stats_panel.visible = false
@@ -66,6 +71,11 @@ func _run() -> void:
 	var deck0 := {"back": "abc", "backStatus": "pending", "art": [null, "def", null, null, null, null], "artStatus": [null, "approved", null, null, null, null]}
 	shop.designer_panel.apply_state({"enabled": true, "owned": true, "slots": 3, "blocker": "", "decks": [deck0, empty_deck, empty_deck], "active": 0})
 	await _shot(out_dir, "designer")
+	var picture := Image.create(64, 64, false, Image.FORMAT_RGBA8)
+	picture.fill(Color("#5B8DEF"))
+	shop.designer_panel.open_editor(picture, "back")
+	await _shot(out_dir, "designer_editor")
+	shop.designer_panel.close_editor()
 	shop.designer_panel.visible = false
 	shop._deed_panel.visible = true
 	shop.visible = false
@@ -92,6 +102,10 @@ func _run() -> void:
 	main._friends_panel.show_invite("Cara", "XYZ789")
 	main._friends_panel._status.text = "Request sent to Dev. You're friends once they add you back."
 	await _shot(out_dir, "friends")
+	var bo_row: Control = main._friends_panel._list.get_child(0).get_child(0)
+	bo_row.get_child(bo_row.get_child_count() - 1).pressed.emit()
+	await _shot(out_dir, "friend_menu")
+	main._friends_panel._row_menu.hide()
 	main._friends_sheet.visible = false
 
 	main._season_sheet.visible = true
@@ -101,11 +115,15 @@ func _run() -> void:
 		{"rank": 3, "name": "Noa", "score": 190, "wins": 5, "userId": "c"},
 		{"rank": 4, "name": "Maximilian the Third", "score": 120, "wins": 2, "userId": "d"},
 	]
-	if main.has_method("_show_board_rows"):
-		main._show_board_rows(board, "me")
-	else:
-		main._board_label.text = "Resets every month.\n#1  Maya  310 pts, 9 wins\n#2  Tal  245 pts, 7 wins  (you)\n#3  Noa  190 pts, 5 wins\n#4  Maximilian the Third  120 pts, 2 wins"
+	main._show_board_rows(board, "me")
 	await _shot(out_dir, "season")
+	# The longest board the server sends: ten places and your own after a gap.
+	var full := []
+	for i in 10:
+		full.append({"rank": i + 1, "name": "Player %d" % (i + 1), "score": 400 - i * 30, "wins": 12 - i, "userId": "u%d" % i})
+	full.append({"rank": 57, "name": "Tal", "score": 12, "wins": 1, "userId": "me", "mine": true})
+	main._show_board_rows(full, "me")
+	await _shot(out_dir, "season_full")
 	main._season_sheet.visible = false
 
 	main._join_sheet.visible = true
@@ -114,16 +132,19 @@ func _run() -> void:
 	main._join_sheet.visible = false
 
 	main._more_sheet.visible = true
+	main._link_row.visible = true
+	main._link_apple_button.visible = true
+	main._link_google_button.visible = true
 	await _shot(out_dir, "more")
 	main._more_sheet.visible = false
 
 	# Waiting in a private room.
 	main._room_code = "ABC123"
-	main._room_label.text = "Your room  ABC123"
+	main._room_label.text = "Room code  ABC123"
 	main._room_row.visible = true
 	main._ready_button.visible = true
 	main._on_lobby({"isPrivate": true, "maxSeats": 5, "seats": [{"name": "Tal", "ready": true}, {"name": "Maya", "ready": false}], "startsAt": 0})
-	main._status.text = "Room code: ABC123"
+	main._status.text = "Share the code with a friend"
 	await _shot(out_dir, "room")
 	main.queue_free()
 
@@ -140,10 +161,17 @@ func _run() -> void:
 	table._action_note = "Broker Bo draws from the supply and pays 2 capital onto the Market."
 	table._update_prompt()
 	await _shot(out_dir, "waiting")
+	table._show_notice("Bo forfeited. A bot plays their seat.")
+	await _settle()
+	await _shot(out_dir, "notice")
+	table._notice.visible = false
+	table._toggle_emote_bar()
+	await _shot(out_dir, "emotes")
+	table._toggle_emote_bar()
 	table._on_reconnecting(2)
 	await _shot(out_dir, "reconnect")
 	table._reconnect_overlay.visible = false
-	table._on_seat_pressed(2, Vector2(300, 260))
+	table._on_seat_pressed(2, Vector2(700, 260))
 	await _shot(out_dir, "seat_menu")
 	table._seat_menu.hide()
 	table.queue_free()

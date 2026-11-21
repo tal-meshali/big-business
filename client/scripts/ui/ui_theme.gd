@@ -1,7 +1,7 @@
 class_name UiTheme
-## Builds the shared Godot Theme in code, after the "3D table" design:
-## cream and white faces with ink borders, a hard ink drop under every
-## button and panel, Archivo Black for headings and Nunito Sans for text.
+## Builds the shared Godot Theme in code, after the "After-hours trading
+## floor" direction: glossy buttons with ink outlines, royal night panels
+## with cream text, Archivo Black for headings and Nunito Sans for text.
 ##
 ## Screens laid out from the design (lobby, table, coach) size everything in
 ## design points (dp) of the 390 x 844 phone artboard, times `layout_scale`.
@@ -17,16 +17,9 @@ const EMOJI_STRIKE_PX := 109
 const DESIGN_W := 390.0
 const DESIGN_H := 844.0
 
-## Button faces.
-const PRIMARY := Color("#F2C230")
-const PRIMARY_HOVER := Color("#F6CF52")
-const HOVER := Color("#FFF8E6")
 ## Orange ring on whatever you can tap right now.
 const RING := Color("#F7941D")
 const CREAM := Color("#FFFDF6")
-const MUTED := Color("#4A4A4A")
-const XP_GREEN := Color("#3F9E4F")
-const PLATE_ON := Color("#FFF1C9")
 
 ## "After-hours trading floor" (2026-11): royal purple rooms, gold for the
 ## one main action, violet for the rest, mint for rewards, red for badges.
@@ -56,7 +49,7 @@ const WELL := Color("#170F3D")
 ##   TITLE    panel titles (Archivo Black, white, ink outline, hard drop)
 ##   HEADING  names, scores, the line that leads a row
 ##   BODY     sentences: prompts, coach text, sheet text (Nunito Sans Bold)
-##   LABEL    second lines, plate names, list details
+##   LABEL    second lines of a row, list details, small buttons
 ##   CAPTION  spaced capitals and tags; nothing on a phone goes under it
 const TYPE_TITLE := 20.0
 const TYPE_HEADING := 16.0
@@ -67,6 +60,7 @@ const TYPE_CAPTION := 11.0
 static var _cached: Theme = null
 static var _night: Theme = null
 static var _fonts: Dictionary = {}
+static var _icons: Dictionary = {}
 ## Design points to px, as last worked out by `layout_scale`.
 static var _scale := 1.85
 
@@ -152,7 +146,8 @@ static func _menu_styles(t: Theme) -> void:
 	t.set_color("font_color", "PopupMenu", TEXT)
 	t.set_color("font_hover_color", "PopupMenu", Color.WHITE)
 	t.set_color("font_disabled_color", "PopupMenu", Color(TEXT_SOFT, 0.6))
-	t.set_constant("v_separation", "PopupMenu", 24)
+	# Rows about 44 dp tall: Mute, Report and Block sit next to each other.
+	t.set_constant("v_separation", "PopupMenu", 48)
 	t.set_constant("item_start_padding", "PopupMenu", 24)
 	t.set_constant("item_end_padding", "PopupMenu", 32)
 
@@ -181,8 +176,39 @@ static func _menu_styles(t: Theme) -> void:
 	for on in [true, false]:
 		for enabled in [true, false]:
 			var icon_name := ("checked" if on else "unchecked") + ("" if enabled else "_disabled")
-			t.set_icon(icon_name, "CheckButton", _switch_icon(on, enabled, false))
-			t.set_icon(icon_name + "_mirrored", "CheckButton", _switch_icon(on, enabled, true))
+			var picture := _switch_image(on, enabled)
+			t.set_icon(icon_name, "CheckButton", ImageTexture.create_from_image(picture))
+			picture.flip_x()
+			t.set_icon(icon_name + "_mirrored", "CheckButton", ImageTexture.create_from_image(picture))
+
+	# Sliders (the Designer's zoom): a well for the track, violet up to a
+	# cream knob.
+	var groove := StyleBoxFlat.new()
+	groove.bg_color = WELL
+	groove.set_corner_radius_all(6)
+	groove.content_margin_top = 6
+	groove.content_margin_bottom = 6
+	var filled: StyleBoxFlat = groove.duplicate()
+	filled.bg_color = VIOLET
+	t.set_stylebox("slider", "HSlider", groove)
+	t.set_stylebox("grabber_area", "HSlider", filled)
+	t.set_stylebox("grabber_area_highlight", "HSlider", filled)
+	for knob in ["grabber", "grabber_highlight", "grabber_disabled"]:
+		t.set_icon(knob, "HSlider", dot_icon(TEXT, 40))
+
+	# Scroll bars: a thin lilac grabber, no track, clear of the rows.
+	for bar in ["VScrollBar", "HScrollBar"]:
+		t.set_stylebox("scroll", bar, StyleBoxEmpty.new())
+		t.set_stylebox("scroll_focus", bar, StyleBoxEmpty.new())
+		for state in ["grabber", "grabber_highlight", "grabber_pressed"]:
+			var grabber := StyleBoxFlat.new()
+			grabber.bg_color = Color(LILAC, 0.45 if state == "grabber" else 0.7)
+			grabber.set_corner_radius_all(4)
+			grabber.content_margin_left = 4
+			grabber.content_margin_right = 4
+			grabber.content_margin_top = 4
+			grabber.content_margin_bottom = 4
+			t.set_stylebox(state, bar, grabber)
 
 	var tip := _box(OUTLINE, OUTLINE, 0)
 	tip.set_corner_radius_all(10)
@@ -193,16 +219,16 @@ static func _menu_styles(t: Theme) -> void:
 
 
 ## A switch drawn to an image: a mint track with the knob at the far end
-## when `on`, a dim track with the knob at the near end when off.
-## `mirrored` is the right-to-left layout.
-static func _switch_icon(on: bool, enabled: bool, mirrored: bool) -> ImageTexture:
+## when `on`, a dim track with the knob at the near end when off. The
+## right-to-left picture is this one flipped.
+static func _switch_image(on: bool, enabled: bool) -> Image:
 	var w := 84
 	var h := 48
 	var img := Image.create(w, h, false, Image.FORMAT_RGBA8)
 	var track := MINT if on else ROYAL.lightened(0.14)
 	var knob := Color.WHITE if on else LILAC
 	var r := h / 2.0
-	var knob_at := Vector2(w - r if on != mirrored else r, r)
+	var knob_at := Vector2(w - r if on else r, r)
 	for y in h:
 		for x in w:
 			var at := Vector2(x + 0.5, y + 0.5)
@@ -214,7 +240,27 @@ static func _switch_icon(on: bool, enabled: bool, mirrored: bool) -> ImageTextur
 			c = c.lerp(knob, clampf(-k - 2.5, 0.0, 1.0))
 			c.a = clampf(0.5 - d, 0.0, 1.0) * (1.0 if enabled else 0.45)
 			img.set_pixel(x, y, c)
-	return ImageTexture.create_from_image(img)
+	return img
+
+
+## A round swatch of `color` with the ink ring, `px` across, as a button
+## icon (a company's colour next to its name).
+static func dot_icon(color: Color, px: int) -> ImageTexture:
+	var key := "dot%s%d" % [color.to_html(), px]
+	if _icons.has(key):
+		return _icons[key]
+	var n := maxi(8, px)
+	var img := Image.create(n, n, false, Image.FORMAT_RGBA8)
+	var r := n / 2.0
+	var ring := maxf(2.0, n * 0.12)
+	for y in n:
+		for x in n:
+			var d := Vector2(x + 0.5 - r, y + 0.5 - r).length() - r
+			var c := OUTLINE.lerp(color, clampf(-d - ring + 0.5, 0.0, 1.0))
+			c.a = clampf(0.5 - d, 0.0, 1.0)
+			img.set_pixel(x, y, c)
+	_icons[key] = ImageTexture.create_from_image(img)
+	return _icons[key]
 
 
 ## What a dark surface hands down to the labels inside it: cream text.
@@ -306,7 +352,9 @@ static func _gloss_styles(t: Theme, type: String, face: Color, radius := 14, lip
 	t.set_stylebox("pressed", type, _gloss(face.lightened(0.06), radius, lip, true))
 	t.set_stylebox("hover_pressed", type, _gloss(face.lightened(0.06), radius, lip, true))
 	t.set_stylebox("focus", type, StyleBoxEmpty.new())
-	t.set_stylebox("disabled", type, _gloss(face.lerp(DISABLED, 0.75), radius, lip, false))
+	# WHY one face for every kind: a greyed gold came out a muddy tan that
+	# is in no palette; off is off, whatever the button was.
+	t.set_stylebox("disabled", type, _gloss(DISABLED, radius, lip, false))
 
 
 static func _gloss(face: Color, radius: int, lip: int, pressed: bool) -> GlossBox:
@@ -490,6 +538,12 @@ static func panel(band_color: Color, title_text: String) -> Dictionary:
 	root.theme = night_theme()
 	var shell := ink_box(ROYAL, radius, edge)
 	shell.border_width_bottom = edge + dp(3)
+	# WHY margins: without them the band paints over the ink edge and the
+	# panel has an outline everywhere but round its title.
+	shell.content_margin_left = edge
+	shell.content_margin_right = edge
+	shell.content_margin_top = edge
+	shell.content_margin_bottom = edge + dp(3)
 	shell.shadow_color = Color(0, 0, 0, 0.4)
 	shell.shadow_size = dp(8)
 	shell.shadow_offset = Vector2(0, dp(4))
@@ -575,6 +629,8 @@ static func meter(color: Color, height: int) -> ProgressBar:
 ## `lead` marks the row to notice (the winner, or you).
 static func standing_row(rank: int, who: String, detail: String, score: String, lead := false) -> Control:
 	var row := well(lead)
+	# The place is drawn, not a Label: tests read it from here.
+	row.set_meta("rank", rank)
 	var line := HBoxContainer.new()
 	line.add_theme_constant_override("separation", dp(10))
 	row.add_child(line)
@@ -594,7 +650,7 @@ static func standing_row(rank: int, who: String, detail: String, score: String, 
 		var px := int(r * (1.05 if rank < 10 else 0.8))
 		var txt := str(rank)
 		var w := f.get_string_size(txt, HORIZONTAL_ALIGNMENT_LEFT, -1, px).x
-		medal.draw_string(f, c + Vector2(-w / 2.0, px * 0.36), txt, HORIZONTAL_ALIGNMENT_LEFT, -1, px, OUTLINE if rank <= 3 else TEXT_SOFT))
+		medal.draw_string(f, c + Vector2(-w / 2.0, px * 0.36), txt, HORIZONTAL_ALIGNMENT_LEFT, -1, px, OUTLINE if rank >= 1 and rank <= 3 else TEXT_SOFT))
 	line.add_child(medal)
 
 	var names := VBoxContainer.new()
@@ -607,7 +663,8 @@ static func standing_row(rank: int, who: String, detail: String, score: String, 
 	name_label.add_theme_constant_override("line_spacing", 0)
 	names.add_child(name_label)
 	if not detail.is_empty():
-		var detail_label := label(detail, dp(TYPE_CAPTION + 1), TEXT_SOFT)
+		# WHY not lilac on the lit row: on violet it falls under 4.5:1.
+		var detail_label := label(detail, dp(TYPE_LABEL), Color(TEXT, 0.85) if lead else TEXT_SOFT)
 		detail_label.add_theme_font_override("font", body_font())
 		detail_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 		detail_label.add_theme_constant_override("line_spacing", 0)
@@ -657,8 +714,8 @@ static func button(text: String, px: int, height: float, kind := "") -> Button:
 	return b
 
 
-## A white panel with an ink border and a coloured title band, used by the
-## coach and the dividend panel. Returns the PanelContainer; `band` receives
+## The older white panel with an ink border and a coloured title band,
+## still used by the rules screen and the get-ready card. Returns the PanelContainer; `band` receives
 ## the header row so callers can add the title label into it.
 static func deed_panel(band_color: Color, title: String, band_text: Color = Color.WHITE) -> Dictionary:
 	var panel := PanelContainer.new()

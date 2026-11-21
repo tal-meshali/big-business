@@ -23,6 +23,10 @@ const ZONE_MARKET := Rect2(45, 218, 290, 150)
 const ZONE_PORTFOLIO := Rect2(45, 372, 290, 82)
 ## Where the supply pile sits, from the centre.
 const SUPPLY_AT := Vector2(0, -140)
+## The pile's card on the felt: its scale before perspective, and a card's
+## size in design points at scale 1.
+const SUPPLY_CARD := 0.48
+const CARD_DP := Vector2(100, 140)
 
 ## Design points to px.
 var s := 1.85
@@ -39,6 +43,11 @@ var edge_color := Companies.TABLE_EDGE:
 var supply_count := 0:
 	set(value):
 		supply_count = value
+		queue_redraw()
+## True while the Market shows two rows of shares.
+var market_wraps := false:
+	set(value):
+		market_wraps = value
 		queue_redraw()
 ## Zones pulsing because you can use them now: "supply", "market", "portfolio".
 var glow := {}:
@@ -59,6 +68,9 @@ var portfolios: Array = []:
 		queue_redraw()
 
 var _label_font: FontVariation
+## The ink tab behind a lit legend and the supply count. One box for all:
+## a radius larger than any tab is cut down to a pill by the engine.
+var _tab := UiTheme.ink_box(UiTheme.OUTLINE, 64, 0)
 
 
 func _init() -> void:
@@ -155,10 +167,13 @@ func _draw() -> void:
 	# right under that line.
 	# WHY not under the Portfolio as before: the hand stands there and
 	# covered the words whenever a card was picked.
+	# A second Market row reaches down over the Portfolio's top line, so
+	# while the Market wraps the Portfolio's name stands inside its zone,
+	# on the bottom line under your shares.
 	var market := _legend_rect("THE MARKET", ZONE_MARKET)
-	var portfolio := _legend_rect("YOUR PORTFOLIO", ZONE_PORTFOLIO)
+	var portfolio := _legend_rect("YOUR PORTFOLIO", ZONE_PORTFOLIO, market_wraps)
 	# The Market's bottom line runs behind the Portfolio's name: it skips it.
-	_draw_zone(ZONE_MARKET, glow.has("market"), portfolio)
+	_draw_zone(ZONE_MARKET, glow.has("market"), Rect2() if market_wraps else portfolio)
 	_draw_zone(ZONE_SUPPLY, glow.has("supply"))
 	_draw_zone(ZONE_PORTFOLIO, glow.has("portfolio"))
 	_draw_legend("THE MARKET", market, glow.has("market"))
@@ -219,14 +234,15 @@ func _print_color() -> Color:
 	return Color.from_hsv(felt_color.h, clampf(felt_color.s * 2.2 + 0.12, 0.2, 0.7), 0.27)
 
 
+## Legends shrink a little with distance, but never under the caption size.
 func _legend_px(p: Vector2) -> int:
-	return int(UiTheme.TYPE_CAPTION * s * depth(p))
+	return int(maxf(UiTheme.TYPE_CAPTION, 12.0 * depth(p)) * s)
 
 
-## Screen rect of a zone's legend: standing on the zone's top line, a
-## little in from its left corner.
-func _legend_rect(text: String, zone: Rect2) -> Rect2:
-	var p := zone.position + Vector2(10, 0) - PLANE / 2.0
+## Screen rect of a zone's legend: standing on the zone's top line (or,
+## with `foot`, on its bottom line), a little in from its left corner.
+func _legend_rect(text: String, zone: Rect2, foot := false) -> Rect2:
+	var p := zone.position + Vector2(10, zone.size.y if foot else 0.0) - PLANE / 2.0
 	var px := _legend_px(p)
 	var at := project(p)
 	var w := _label_font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, px).x
@@ -240,31 +256,27 @@ func _draw_legend(text: String, rect: Rect2, on: bool) -> void:
 	var px := int(rect.size.y / 1.5)
 	var base := Vector2(rect.position.x + px * 0.55, rect.get_center().y + px * 0.36)
 	if on:
-		draw_style_box(UiTheme.ink_box(UiTheme.OUTLINE, rect.size.y / 2.0, 0), rect)
+		draw_style_box(_tab, rect)
 	draw_string(_label_font, base, text, HORIZONTAL_ALIGNMENT_LEFT, -1, px, UiTheme.GOLD if on else _print_color())
 
 
-## How many shares are left to draw, on an ink tab across the foot of the
-## pile it counts. `canvas` is a node above the pile, at the board's origin.
-## WHY not on the Market's line as before: there it read as a second name
-## for the Market.
+## How many shares are left to draw: a gold number on an ink tab at the
+## foot of the pile it counts. `canvas` is a node above the pile, at the
+## board's origin.
+## WHY a bare number on the pile: as "SUPPLY 14" on the Market's line it
+## read as a second name for the Market, and next to "THE MARKET" it still
+## ran into one phrase. The prompt and the Draw button name the supply.
 func draw_supply_count(canvas: CanvasItem) -> void:
-	var half := 0.48 * 140.0 / 2.0
-	var p := SUPPLY_AT + Vector2(0, half - 2.0)
-	var px := _legend_px(p)
-	var word := "SUPPLY"
+	var p := SUPPLY_AT + Vector2(0, SUPPLY_CARD * CARD_DP.y / 2.0 - 2.0)
+	var px := int(_legend_px(p) * 1.2)
 	var count := str(supply_count)
-	var count_font := UiTheme.display_font()
-	var word_w := _label_font.get_string_size(word, HORIZONTAL_ALIGNMENT_LEFT, -1, px).x
-	var count_w := count_font.get_string_size(count, HORIZONTAL_ALIGNMENT_LEFT, -1, px).x
-	var gap := px * 0.45
-	var pad := px * 0.7
+	var font := UiTheme.display_font()
+	var w := font.get_string_size(count, HORIZONTAL_ALIGNMENT_LEFT, -1, px).x
+	var pad := px * 0.6
 	var c := project(p)
-	var rect := Rect2(c.x - (word_w + gap + count_w) / 2.0 - pad, c.y - px * 0.75, word_w + gap + count_w + pad * 2.0, px * 1.5)
-	canvas.draw_style_box(UiTheme.ink_box(UiTheme.OUTLINE, rect.size.y / 2.0, 0), rect)
-	var base := Vector2(rect.position.x + pad, rect.get_center().y + px * 0.36)
-	canvas.draw_string(_label_font, base, word, HORIZONTAL_ALIGNMENT_LEFT, -1, px, UiTheme.TEXT)
-	canvas.draw_string(count_font, base + Vector2(word_w + gap, 0), count, HORIZONTAL_ALIGNMENT_LEFT, -1, px, UiTheme.GOLD)
+	var rect := Rect2(c.x - w / 2.0 - pad, c.y - px * 0.7, w + pad * 2.0, px * 1.4)
+	canvas.draw_style_box(_tab, rect)
+	canvas.draw_string(font, Vector2(rect.position.x + pad, rect.get_center().y + px * 0.36), count, HORIZONTAL_ALIGNMENT_LEFT, -1, px, UiTheme.GOLD)
 
 
 ## Edges of the face-down supply under its top card.
@@ -272,8 +284,8 @@ func _draw_supply_stack() -> void:
 	if supply_count <= 1:
 		return
 	var c := project(SUPPLY_AT)
-	var k := 0.48 * depth(SUPPLY_AT) * s
-	var size_px := Vector2(100, 140) * k
+	var k := SUPPLY_CARD * depth(SUPPLY_AT) * s
+	var size_px := CARD_DP * k
 	var layers := mini(8, supply_count / 3 + 1)
 	for i in layers:
 		var r := Rect2(c - size_px / 2.0 + Vector2(0, (layers - i) * 1.6 * s), size_px)

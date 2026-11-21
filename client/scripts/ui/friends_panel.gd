@@ -13,7 +13,7 @@ signal gifts_collected
 signal watch_started
 
 const ONLINE := UiTheme.MINT
-const OFFLINE := Color("#6F68A3")
+const OFFLINE := Color("#8F88C0")
 ## Minimum touch target on a phone.
 const TOUCH := 48
 ## Nakama friend states.
@@ -40,6 +40,10 @@ var _invites: VBoxContainer
 var _name_edit: LineEdit
 var _add_button: Button
 var _status: Label
+## The menu behind a friend row's "•••", and the row it was opened from.
+var _row_menu: PopupMenu
+var _menu_user := ""
+var _menu_button: Button
 
 
 func _ready() -> void:
@@ -70,7 +74,7 @@ func _build() -> void:
 	_name_edit.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_name_edit.text_submitted.connect(func(_text: String) -> void: _on_add_pressed())
 	add_row.add_child(_name_edit)
-	_add_button = _button("Add", "primary")
+	_add_button = _button("Add")
 	_add_button.custom_minimum_size.x = UiTheme.dp(72)
 	_add_button.pressed.connect(_on_add_pressed)
 	add_row.add_child(_add_button)
@@ -88,6 +92,7 @@ func _build() -> void:
 	_gift_row.add_child(_gift_label)
 	# Mint is the reward colour: collecting gifts pays track points.
 	_collect_button = _button("Collect", "green")
+	_collect_button.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	_collect_button.pressed.connect(_on_collect_pressed)
 	_gift_row.add_child(_collect_button)
 
@@ -98,6 +103,14 @@ func _build() -> void:
 	_list = VBoxContainer.new()
 	_list.add_theme_constant_override("separation", UiTheme.dp(6))
 	box.add_child(_list)
+
+	_row_menu = PopupMenu.new()
+	_row_menu.transparent_bg = true
+	_row_menu.add_item("Remove friend", 0)
+	_row_menu.id_pressed.connect(func(_id: int) -> void:
+		if is_instance_valid(_menu_button):
+			_on_remove_pressed(_menu_user, _menu_button))
+	add_child(_row_menu)
 	_render_friends()
 
 
@@ -155,10 +168,16 @@ func _render_friends() -> void:
 		_list.add_child(UiTheme.body("No friends yet. Add one by their player name.", UiTheme.dp(UiTheme.TYPE_BODY), UiTheme.TEXT_SOFT))
 		return
 	for f in _friends:
-		_list.add_child(_friend_row(f))
+		var well := UiTheme.well()
+		well.add_child(_friend_row(f))
+		_list.add_child(well)
 
 
-## Row layout: dot, name, state button (Invite / Accept / Pending), Remove.
+## Row layout: dot, name, state button (Invite / Accept / Pending), then
+## for a friend Watch, Gift and "•••" (a menu with Remove friend), and for
+## a request Remove.
+## Each row sits in a well. Gold is kept for what waits on you: Accept
+## here, Join on an invite.
 func _friend_row(f: Dictionary) -> HBoxContainer:
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", UiTheme.dp(6))
@@ -189,7 +208,7 @@ func _friend_row(f: Dictionary) -> HBoxContainer:
 			action = _button("Accept", "primary")
 			action.pressed.connect(_on_accept_pressed.bind(user_id, action))
 		_:
-			action = _button("Invite", "primary")
+			action = _button("Invite")
 			# WHY: an invite needs a room to point at; public lobbies have no code.
 			action.visible = not room_code.is_empty()
 			action.pressed.connect(_on_invite_pressed.bind(user_id, action))
@@ -206,10 +225,30 @@ func _friend_row(f: Dictionary) -> HBoxContainer:
 		gift.pressed.connect(_on_gift_pressed.bind(user_id, gift))
 		row.add_child(gift)
 
-	var remove := _button("Remove")
-	remove.pressed.connect(_on_remove_pressed.bind(user_id, remove))
-	row.add_child(remove)
+	if state == STATE_FRIENDS:
+		# WHY a menu: removing a friend is rare and cannot be undone, and as
+		# a fourth button it left a long name room for four letters.
+		var more := _button("•••", "ghost")
+		more.pressed.connect(_on_more_pressed.bind(user_id, more))
+		row.add_child(more)
+	else:
+		var remove := _button("Remove")
+		remove.pressed.connect(_on_remove_pressed.bind(user_id, remove))
+		row.add_child(remove)
 	return row
+
+
+## Opens the row menu under its "•••", or above it near the screen's foot.
+func _on_more_pressed(user_id: String, button: Button) -> void:
+	_menu_user = user_id
+	_menu_button = button
+	_row_menu.reset_size()
+	var menu := Vector2(_row_menu.size)
+	var at := button.global_position + Vector2(button.size.x - menu.x, button.size.y)
+	if at.y + menu.y > get_viewport_rect().size.y:
+		at.y = button.global_position.y - menu.y
+	_row_menu.position = Vector2i(at)
+	_row_menu.popup()
 
 
 ## Shows "X invited you to room CODE" with Join and dismiss buttons.
@@ -245,7 +284,7 @@ func _on_add_pressed() -> void:
 	if username.is_empty():
 		return
 	_add_button.disabled = true
-	_status.text = "Adding %s..." % username
+	_status.text = "Adding %s…" % username
 	var ok: bool = await Net.add_friend_by_name(username)
 	_add_button.disabled = false
 	if ok:

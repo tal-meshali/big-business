@@ -219,13 +219,16 @@ func _draw_pips(text: Font, at: Vector2, right: float) -> void:
 
 
 ## The name to use where room is short: a bot's given name ("Analyst Avi"
-## -> "Avi"), a player's first word.
-static func short_name(seat: Dictionary) -> String:
+## -> "Avi"), a player's first word, cut to `max_chars` when that is set.
+static func short_name(seat: Dictionary, max_chars := 0) -> String:
 	var full := String(seat.get("name", "?"))
 	var words := full.split(" ", false)
-	if words.is_empty():
-		return full
-	return words[words.size() - 1] if seat.get("isBot", false) and words.size() > 1 else words[0]
+	var short := full
+	if not words.is_empty():
+		short = words[words.size() - 1] if seat.get("isBot", false) and words.size() > 1 else words[0]
+	if max_chars > 0 and short.length() > max_chars:
+		short = short.substr(0, max_chars - 1) + "…"
+	return short
 
 
 ## `text` cut with an ellipsis to fit `width` px.

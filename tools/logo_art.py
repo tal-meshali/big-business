@@ -54,9 +54,12 @@ COIN_DARK = "#C77A00"
 COIN_EDGE = "#6B3A00"
 COIN_MARK = "#6B2A00"  # struck into the coin, mockup's logo brown
 
-# Archivo Black metrics, in em.
+# Archivo Black's cap height, in em.
 CAP = 0.686
-ASCENT = 0.878
+# WHY not the TTF's 0.878: LogoTitle lays its lines out with
+# UiTheme.display_font().get_ascent(), and that font's fallbacks (emoji,
+# Nunito) raise the reported ascent to 1.07 em. Measured in Godot 4.6.
+LOGO_ASCENT = 1.07
 
 _font = TTFont(FONT_PATH)
 _glyphs = _font.getGlyphSet()
@@ -111,10 +114,14 @@ def outlined_text(text, x, baseline, size, stroke_w, anchor="start"):
 # ---------------------------------------------------------------- background
 
 
-def room(w, h, cx, cy, rx, ry, ray_len):
+def room(w, h, cx, cy, rx, ry, ray_len, phase, ray_stops):
     """The lobby's room (LobbyBackdrop): a glow from ROYAL_GLOW through ROYAL
     to NIGHT around (cx, cy), radii rx by ry, and sixteen gold rays, each
-    32% of its slice wide, fading out along their length."""
+    64% of its slice wide (LobbyBackdrop's half-angle is 0.32 of a slice),
+    the first at `phase` radians, fading out over `ray_len` through
+    `ray_stops`, a list of (offset, opacity)."""
+    cx, cy = round(cx, 1), round(cy, 1)
+    stops = "\n".join(f'      <stop offset="{o}" stop-color="{RAY}" stop-opacity="{a}"/>' for o, a in ray_stops)
     out = [f"""
   <defs>
     <radialGradient id="room" gradientUnits="userSpaceOnUse" cx="{cx}" cy="{cy}" r="{rx}"
@@ -123,10 +130,8 @@ def room(w, h, cx, cy, rx, ry, ray_len):
       <stop offset="0.45" stop-color="{ROYAL}"/>
       <stop offset="1" stop-color="{NIGHT}"/>
     </radialGradient>
-    <radialGradient id="rayfade" gradientUnits="userSpaceOnUse" cx="{cx}" cy="{cy}" r="{ray_len}">
-      <stop offset="0" stop-color="{RAY}" stop-opacity="0.3"/>
-      <stop offset="0.45" stop-color="{RAY}" stop-opacity="0.1"/>
-      <stop offset="1" stop-color="{RAY}" stop-opacity="0"/>
+    <radialGradient id="rayfade" gradientUnits="userSpaceOnUse" cx="{cx}" cy="{cy}" r="{ray_len:.0f}">
+{stops}
     </radialGradient>
   </defs>
   <rect width="{w}" height="{h}" fill="url(#room)"/>"""]
@@ -134,7 +139,7 @@ def room(w, h, cx, cy, rx, ry, ray_len):
     half = math.pi * 2.0 / count * 0.32
     wedges = []
     for i in range(count):
-        a = -math.pi / 2.0 + math.pi / count + i * 2.0 * math.pi / count
+        a = phase + i * 2.0 * math.pi / count
         p1 = (cx + math.cos(a - half) * ray_len, cy + math.sin(a - half) * ray_len)
         p2 = (cx + math.cos(a + half) * ray_len, cy + math.sin(a + half) * ray_len)
         wedges.append(f"M{cx} {cy} L{p1[0]:.1f} {p1[1]:.1f} L{p2[0]:.1f} {p2[1]:.1f}Z")
@@ -206,7 +211,7 @@ def card(uid, x, y, angle, pivot, color, number, icon, number_side="start", art_
     w, h, r = CARD_W, CARD_H, CARD_R
     band = (f"M{x} {y + r} A{r} {r} 0 0 1 {x + r} {y} H{x + w - r} "
             f"A{r} {r} 0 0 1 {x + w} {y + r} V{y + BAND_H} H{x}Z")
-    win_x, win_y, win_w, win_h = x + 30, y + BAND_H + 30, w - 60, h - BAND_H - 62
+    win_x, win_y, win_w, win_h = x + 30, y + BAND_H + 30, w - 60, h - BAND_H - 80
     tint = _mix(FACE, color, 0.2)
     num_x = x + 30 if number_side == "start" else x + w - 30
     gloss = ""
@@ -284,7 +289,7 @@ def hero(cx, cy, scale):
         card("L", 362, 190, -26, pivot, PINE, 6, "pine", art_shift=-34)
         + card("R", 362, 190, 26, pivot, FREIGHT, 7, "anchor", number_side="end", art_shift=34)
         + card("C", 362, 160, 0, pivot, MOTORS, 10, "wheel", sheen=True)
-        + coin(512, 722, 150)
+        + coin(512, 700, 150)
     )
     return f'<g transform="translate({cx} {cy}) scale({scale}) translate(-512 -512)">{body}\n</g>'
 
@@ -297,6 +302,7 @@ def wordmark(cx, top, px):
     splash hands over to the lobby without a jump: a soft shadow, a brown
     extrusion, the ink outline, and a toon-shaded gold face (pale top band,
     gold middle, deep gold bottom), tilted -3 degrees. `px` is LogoTitle.px.
+    `top` is the top of LogoTitle's box, as in its _line_rect.
     WHY the ink stroke is a third of LogoTitle's outline size: measured
     against the lobby, Godot's font outline shows about a sixth of its size
     outside the glyph."""
@@ -305,13 +311,13 @@ def wordmark(cx, top, px):
     y = top + px * 0.02
     lines = []
     for text, sz in (("BIG", px * 0.7), ("BUSINESS", px)):
-        baseline = y + sz * ASCENT
+        baseline = y + sz * LOGO_ASCENT
         lines.append(Line(text_path(text, cx, baseline, sz), text_path(text, cx, baseline, sz, solid=True), sz, baseline))
         y = baseline + px * 0.06
     # LogoTitle's bands, from the top of the ascent: pale down to 40%, gold
     # down to 74%, deep gold below. Here as offsets over the cap height.
-    pale_end = (ASCENT * 0.4 - (ASCENT - CAP)) / CAP
-    gold_end = (ASCENT * 0.74 - (ASCENT - CAP)) / CAP
+    pale_end = (LOGO_ASCENT * 0.4 - (LOGO_ASCENT - CAP)) / CAP
+    gold_end = (LOGO_ASCENT * 0.74 - (LOGO_ASCENT - CAP)) / CAP
     out = ["<defs>"]
     for i, ln in enumerate(lines):
         out.append(
@@ -326,8 +332,8 @@ def wordmark(cx, top, px):
     for ln in lines:
         out.append(f'<path d="{ln.solid}" transform="translate(0 {depth + px * 0.06:.1f})" fill="#000000" '
                    f'stroke="#000000" opacity="0.3" {stroke}/>')
+    steps = max(1, int(depth))  # LogoTitle: one copy per pixel of depth
     for ln in lines:
-        steps = 12
         for k in range(steps, 0, -1):
             out.append(f'<path d="{ln.solid}" transform="translate(0 {depth * k / steps:.1f})" fill="{EXTRUDE}" '
                        f'stroke="{EXTRUDE}" {stroke}/>')
@@ -344,7 +350,11 @@ def _svg(w, h, body):
             f"  <!-- Generated by tools/logo_art.py; edit that, not this file. -->{body}\n</svg>\n")
 
 
-ICON_ROOM = dict(w=1024, h=1024, cx=512, cy=430, rx=760, ry=760, ray_len=900)
+# The icon's rays are a touch brighter near the centre than the lobby's and
+# leave a gap pointing straight up, so the centre card stands in shadow-free
+# light.
+ICON_ROOM = dict(w=1024, h=1024, cx=512, cy=430, rx=760, ry=760, ray_len=900,
+                 phase=-math.pi / 2.0 + math.pi / 16.0, ray_stops=[(0, 0.3), (0.45, 0.1), (1, 0)])
 
 
 def icon_svg():
@@ -366,17 +376,22 @@ SPLASH_W, SPLASH_H = 1080, 1920
 
 
 def splash_svg():
-    """Portrait splash, shown with stretch mode Cover, laid out like the
-    lobby (rays centred at 26% of the height, the hand above the wordmark),
-    so the cut to the lobby keeps the room in place. Content stays inside
-    x 120..960 and y 260..1660, which survives Cover's crop from tall 19.5:9
-    phones to 3:4 tablets."""
+    """Portrait splash, shown with stretch mode Cover. The room is the
+    lobby's exactly as its first frame draws it (rays centred at 26% of the
+    height, a ray pointing right, the same fade) and the wordmark has
+    LogoTitle's size and place in the lobby (BIG's top at 53.7% of the
+    height, measured at 720x1560), so at the cut the room and the wordmark
+    stay put and only the hand changes. Content stays inside x 120..960 and
+    y 260..1660, which survives Cover's crop from tall 19.5:9 phones to 3:4
+    tablets; on a tablet the crop moves everything up about 8% of the
+    height, which is fine for a splash."""
     w, h = SPLASH_W, SPLASH_H
-    cy = h * 0.26
-    body = (room(w, h, w / 2, cy, w * 0.8, h * 0.8, h)
+    px = 92
+    top = h * 0.537 - px * (0.02 + (LOGO_ASCENT - CAP) * 0.7)
+    body = (room(w, h, w / 2, h * 0.26, w * 0.8, h * 0.8, math.hypot(w, h), 0.0, [(0, 0.22), (1, 0)])
             + sparkle(220, 330, 30) + sparkle(880, 300, 22)
             + hero(w / 2, h * 0.33, 0.72)
-            + wordmark(w / 2, h * 0.5, 120))
+            + wordmark(w / 2, top, px))
     return _svg(w, h, body)
 
 

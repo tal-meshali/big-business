@@ -2,9 +2,11 @@ extends SceneTree
 ## Rasterises the brand artwork from tools/logo_art.py into the store icons
 ## and the boot splash: a 1024 opaque square (iOS), a 192 legacy launcher
 ## icon, Android's adaptive pair (room background, cards-and-coin foreground)
-## and the 1080x1920 boot splash. Exits with 1 if any file fails.
+## and the boot splash, drawn at 1.5x (1620x2880) so Cover doesn't blur it
+## on 1440 px wide phones. Exits with 1 if any file fails.
 ## Run: godot --headless --path client -s ../tools/make_icons.gd
 
+## WHY outside client/: Godot would otherwise import the source SVGs.
 const ART := "res://../tools/art/"
 
 
@@ -15,7 +17,7 @@ func _init() -> void:
 	ok = _save(icon, 192.0 / 1024.0, "res://icons/android_192.png", true) and ok
 	ok = _save(_read(ART + "android_background.svg"), 432.0 / 1024.0, "res://icons/android_background_432.png", true) and ok
 	ok = _save(_read(ART + "android_foreground.svg"), 432.0 / 1024.0, "res://icons/android_foreground_432.png", false) and ok
-	ok = _save(_read(ART + "splash.svg"), 1.0, "res://icons/splash.png", true) and ok
+	ok = _save(_read(ART + "splash.svg"), 1.5, "res://icons/splash.png", true) and ok
 	quit(0 if ok else 1)
 
 

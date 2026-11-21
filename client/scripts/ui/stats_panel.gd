@@ -7,28 +7,22 @@ extends PanelContainer
 
 signal closed
 
-const ROW_HEIGHT := 48.0
-
 var _body: Label
 
 
 func _init() -> void:
 	add_theme_stylebox_override("panel", StyleBoxEmpty.new())
-	var deed := UiTheme.deed_panel(Companies.CHEST, "Your stats", Color.WHITE)
-	deed["title"].add_theme_font_size_override("font_size", 28)
+	var deed := UiTheme.panel(UiTheme.VIOLET, "Your stats")
 	deed["panel"].size_flags_vertical = Control.SIZE_EXPAND_FILL
 	add_child(deed["panel"])
 	var column := VBoxContainer.new()
-	column.add_theme_constant_override("separation", 12)
+	column.add_theme_constant_override("separation", UiTheme.dp(12))
 	deed["body"].add_child(column)
-	_body = Label.new()
-	_body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_body.add_theme_font_size_override("font_size", 18)
+	_body = UiTheme.body("", UiTheme.dp(UiTheme.TYPE_BODY))
+	_body.add_theme_constant_override("line_spacing", UiTheme.dp(6))
 	_body.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	column.add_child(_body)
-	var close := Button.new()
-	close.text = "Close"
-	close.custom_minimum_size = Vector2(0, ROW_HEIGHT)
+	var close := UiTheme.button("Close", UiTheme.dp(UiTheme.TYPE_LABEL), UiTheme.dp(44), "ghost")
 	close.pressed.connect(func() -> void:
 		visible = false
 		closed.emit())

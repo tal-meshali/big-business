@@ -72,11 +72,22 @@ The "3D table" design (2026-10, canvas "Big Business — 3D Table": start page, 
 - Felt: a 380 x 620 rounded table tilted 32 degrees away from you and seen in perspective (`TableBoard`), with a 14 dp rim in the edge colour and two darker layers under it for thickness. Printed on it in spaced capitals: Supply with its count at the far end, the Market in the middle, your Portfolio near you. Zones are dashed outlines that fill and pulse when you can use them.
 - Cards on the felt shrink with distance: Market shares at half size in up to two rows, the supply pile face down with its stacked edges, your kept shares in one small stack per company.
 - Your hand stands at the near edge of the felt, fanned 7 degrees per card. Anything you can tap now (the supply, Market shares, hand cards) has an orange ring; a Market share your own token blocks is hatched.
-- Opponents sit on white plates around the far side (left, top, right, clockwise from your left), with their face-down hands fanned on the felt in front of them. A plate shows avatar, name with a "bot" or "away" tag, capital, and a pip per company held with a gold "R" seal for each token. The seat whose turn it is lifts and glows yellow, with the timer arc around its avatar.
-- Top bar: red BIG BUSINESS chip, whose turn it is, the timer, Leave or Forfeit. Bottom bar (cream, rounded top): you (capital and pips), emotes, rules, the prompt (what to do, or what the others just did), and the move buttons.
-- Panels that interrupt play (tutorial coach, dividend day, season standings) are white cards with a hard ink drop and a coloured title band: orange for the coach, gold for dividend day, purple for the season. The coach dims the table except the area its step is about.
-- Type: Archivo Black for titles, counts and scores; Nunito Sans (ExtraBold for labels and buttons, Bold for paragraphs). Buttons are white, yellow (`#F2C230`) for the main action or cream, with an ink border and a thicker bottom edge as a drop shadow.
+- Opponents sit on royal-blue plates with an ink edge around the far side (left, top, right, clockwise from your left), with their face-down hands fanned on the felt in front of them. A plate shows avatar, name with a "bot" or "away" tag, capital, and a pip per company held with a gold "R" seal for each token. Names are cream; the "bot" or "away" tag is lilac on an ink pill. The seat whose turn it is turns violet with a gold rim, with the timer arc around its avatar.
+- Top bar: the logo, whose turn it is in a few words ("Bo's turn"), the timer in a dark pill (red in the last seconds), Leave or Forfeit. Bottom bar (royal blue, rounded top, cream text): you (capital and pips), emotes, rules, the prompt (what to do, or what the others just did), and the move buttons.
+- Panels (tutorial coach, dividend day, forfeit, reconnecting, and every lobby sheet: quests, shop, friends, clubs, Designer, stats, season, join, more) are night panels: royal body, ink edge with a thicker bottom lip, a glossy title band and cream text. The band is violet, except orange for the coach, gold for dividend day and red for forfeit. The coach dims the table except the area its step is about.
+- Type: Archivo Black for titles, counts and scores; Nunito Sans (ExtraBold for labels and buttons, Bold for paragraphs). Buttons are glossy: violet by default, gold for the main action, mint for rewards, red for danger, cream for quiet ones (Close, Leave).
 - Start page: a little felt with the six shares fanned above it (they sway, and flip when tapped), the title card on a red band, your portfolio (name, level, XP, streak, daily bonus, season standings), Play now, How to play, private rooms; friends, quests, the shop, rules, account and server below the fold.
+
+## Text on screen
+
+One rule decides where words go: a name touches the thing it names, a sentence goes where there is room for it, and a message that passes goes in a place that passes.
+
+- Roles (sizes in design points, see `UiTheme.TYPE_*`): title 20 (panel bands, big scores), heading 16 (names, the line that leads a row), body 14 (sentences), label 13 (secondary lines, small buttons), caption 11 (section names in spaced capitals). Nothing is smaller than 11.
+- Colours on dark surfaces: cream `#FFF6DE` for text, lilac `#B7AEE6` for quieter text, gold for scores and the thing in use, mint for rewards and "live". Labels on colourful or glossy surfaces (buttons, bands, the rays) get an ink outline.
+- On the felt: "THE MARKET" and "YOUR PORTFOLIO" are printed in the felt's own dark tone, standing on the top-left of each zone's outline; while a zone can be used its name turns into gold letters on an ink tab. "SUPPLY n" is an ink tab on the foot of the pile it counts.
+- Top bar status is a few words only. Sentences about the game go to the prompt in the bottom bar. One-off messages (muted, report sent, a forfeit, errors) show in a notice pill under the top bar and fade.
+- Lists are rows in dark wells: a name over a quieter detail line, the figure in gold on the right. Standings rows carry a medal with the place; your own row is lit violet.
+- Helpers in `client/scripts/ui/ui_theme.gd`: `panel`, `well`, `standing_row`, `title`, `body`, `caption`, `meter`, `ink_box`. `client/tests/screenshot_panels.gd` renders every panel for a look.
 
 ## Regulator token
 

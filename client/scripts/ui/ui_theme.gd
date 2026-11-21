@@ -43,9 +43,32 @@ const BADGE := Color("#FF3B55")
 const LILAC := Color("#B7AEE6")
 const OUTLINE := Color("#1A1238")
 const DISABLED := Color("#8E8AA8")
+## Text on the dark rooms, bars and panels: warm cream to read, lilac for
+## the quieter line under it. WHY: grey text on purple looks washed out;
+## both tints come from the palette instead.
+const TEXT := Color("#FFF6DE")
+const TEXT_SOFT := LILAC
+## Sunk areas on a royal panel: text fields, list rows, empty tracks.
+const WELL := Color("#170F3D")
+
+## Type scale, in design points (see `dp`). One role per job, so the same
+## kind of text is the same size on every screen:
+##   TITLE    panel titles (Archivo Black, white, ink outline, hard drop)
+##   HEADING  names, scores, the line that leads a row
+##   BODY     sentences: prompts, coach text, sheet text (Nunito Sans Bold)
+##   LABEL    second lines, plate names, list details
+##   CAPTION  spaced capitals and tags; nothing on a phone goes under it
+const TYPE_TITLE := 20.0
+const TYPE_HEADING := 16.0
+const TYPE_BODY := 14.0
+const TYPE_LABEL := 13.0
+const TYPE_CAPTION := 11.0
 
 static var _cached: Theme = null
+static var _night: Theme = null
 static var _fonts: Dictionary = {}
+## Design points to px, as last worked out by `layout_scale`.
+static var _scale := 1.85
 
 
 static func get_theme() -> Theme:
@@ -73,16 +96,24 @@ static func get_theme() -> Theme:
 	t.set_type_variation("DangerButton", "Button")
 	_gloss_styles(t, "DangerButton", BADGE)
 
-	var edit := _box(CREAM, Companies.INK, 2)
-	edit.set_corner_radius_all(10)
+	# Text fields are wells sunk into the panel: night fill, cream text, a
+	# gold rim and caret while typing.
+	var edit := _box(WELL, OUTLINE, 3)
+	edit.set_corner_radius_all(12)
+	edit.content_margin_left = 16
+	edit.content_margin_right = 16
 	t.set_stylebox("normal", "LineEdit", edit)
-	var edit_focus := _box(CREAM, RING, 3)
-	edit_focus.set_corner_radius_all(10)
+	var edit_focus := _box(WELL, GOLD, 3)
+	edit_focus.set_corner_radius_all(12)
+	edit_focus.content_margin_left = 16
+	edit_focus.content_margin_right = 16
 	t.set_stylebox("focus", "LineEdit", edit_focus)
-	t.set_color("font_color", "LineEdit", Companies.INK)
-	t.set_color("font_placeholder_color", "LineEdit", Color("#6A6A6A"))
-	t.set_color("caret_color", "LineEdit", Companies.INK)
-	t.set_font_size("font_size", "LineEdit", 22)
+	t.set_stylebox("read_only", "LineEdit", edit)
+	t.set_color("font_color", "LineEdit", TEXT)
+	t.set_color("font_placeholder_color", "LineEdit", Color(TEXT_SOFT, 0.8))
+	t.set_color("caret_color", "LineEdit", GOLD)
+	t.set_color("selection_color", "LineEdit", Color(VIOLET, 0.7))
+	t.set_font_size("font_size", "LineEdit", 24)
 
 	t.set_color("font_color", "Label", Companies.INK)
 	t.set_font_size("font_size", "Label", 19)
@@ -96,8 +127,112 @@ static func get_theme() -> Theme:
 
 	var scroll_bg := StyleBoxEmpty.new()
 	t.set_stylebox("panel", "ScrollContainer", scroll_bg)
+	_menu_styles(t)
 	_cached = t
 	return t
+
+
+## Pop-up menus, pickers, switches and tooltips in the night palette, so
+## the engine's grey defaults never show.
+static func _menu_styles(t: Theme) -> void:
+	var menu := _box(ROYAL, OUTLINE, 3)
+	menu.set_corner_radius_all(14)
+	menu.border_width_bottom = 7
+	menu.set_content_margin_all(8)
+	menu.shadow_color = Color(0, 0, 0, 0.35)
+	menu.shadow_size = 12
+	menu.shadow_offset = Vector2(0, 6)
+	t.set_stylebox("panel", "PopupMenu", menu)
+	var row := StyleBoxFlat.new()
+	row.bg_color = VIOLET
+	row.set_corner_radius_all(8)
+	t.set_stylebox("hover", "PopupMenu", row)
+	t.set_font("font", "PopupMenu", ui_font())
+	t.set_font_size("font_size", "PopupMenu", 24)
+	t.set_color("font_color", "PopupMenu", TEXT)
+	t.set_color("font_hover_color", "PopupMenu", Color.WHITE)
+	t.set_color("font_disabled_color", "PopupMenu", Color(TEXT_SOFT, 0.6))
+	t.set_constant("v_separation", "PopupMenu", 24)
+	t.set_constant("item_start_padding", "PopupMenu", 24)
+	t.set_constant("item_end_padding", "PopupMenu", 32)
+
+	var pick := _box(WELL, OUTLINE, 3)
+	pick.set_corner_radius_all(12)
+	pick.content_margin_left = 16
+	var pick_on := _box(WELL, GOLD, 3)
+	pick_on.set_corner_radius_all(12)
+	pick_on.content_margin_left = 16
+	for state in ["normal", "hover", "disabled"]:
+		t.set_stylebox(state, "OptionButton", pick)
+	for state in ["pressed", "hover_pressed"]:
+		t.set_stylebox(state, "OptionButton", pick_on)
+	t.set_stylebox("focus", "OptionButton", StyleBoxEmpty.new())
+	t.set_font("font", "OptionButton", ui_font())
+	for key in ["font_color", "font_hover_color", "font_pressed_color", "font_focus_color", "font_hover_pressed_color"]:
+		t.set_color(key, "OptionButton", TEXT)
+		t.set_color(key, "CheckButton", TEXT)
+	t.set_color("font_disabled_color", "CheckButton", Color(TEXT_SOFT, 0.6))
+	t.set_constant("outline_size", "OptionButton", 0)
+	t.set_constant("outline_size", "CheckButton", 0)
+	t.set_font("font", "CheckButton", ui_font())
+	for state in ["normal", "hover", "pressed", "hover_pressed", "disabled", "focus"]:
+		t.set_stylebox(state, "CheckButton", StyleBoxEmpty.new())
+	# WHY own switch pictures: the engine's are a few pixels wide on a phone.
+	for on in [true, false]:
+		for enabled in [true, false]:
+			var icon_name := ("checked" if on else "unchecked") + ("" if enabled else "_disabled")
+			t.set_icon(icon_name, "CheckButton", _switch_icon(on, enabled, false))
+			t.set_icon(icon_name + "_mirrored", "CheckButton", _switch_icon(on, enabled, true))
+
+	var tip := _box(OUTLINE, OUTLINE, 0)
+	tip.set_corner_radius_all(10)
+	tip.set_content_margin_all(10)
+	t.set_stylebox("panel", "TooltipPanel", tip)
+	t.set_color("font_color", "TooltipLabel", TEXT)
+	t.set_font_size("font_size", "TooltipLabel", 20)
+
+
+## A switch drawn to an image: a mint track with the knob at the far end
+## when `on`, a dim track with the knob at the near end when off.
+## `mirrored` is the right-to-left layout.
+static func _switch_icon(on: bool, enabled: bool, mirrored: bool) -> ImageTexture:
+	var w := 84
+	var h := 48
+	var img := Image.create(w, h, false, Image.FORMAT_RGBA8)
+	var track := MINT if on else ROYAL.lightened(0.14)
+	var knob := Color.WHITE if on else LILAC
+	var r := h / 2.0
+	var knob_at := Vector2(w - r if on != mirrored else r, r)
+	for y in h:
+		for x in w:
+			var at := Vector2(x + 0.5, y + 0.5)
+			# Distance to the edge of the pill, negative inside.
+			var d := Vector2(maxf(absf(at.x - w / 2.0) - (w / 2.0 - r), 0.0), at.y - r).length() - r
+			var c := OUTLINE.lerp(track, clampf(-d - 3.5, 0.0, 1.0))
+			var k := at.distance_to(knob_at) - (r - 7.0)
+			c = c.lerp(OUTLINE, clampf(0.5 - k, 0.0, 1.0))
+			c = c.lerp(knob, clampf(-k - 2.5, 0.0, 1.0))
+			c.a = clampf(0.5 - d, 0.0, 1.0) * (1.0 if enabled else 0.45)
+			img.set_pixel(x, y, c)
+	return ImageTexture.create_from_image(img)
+
+
+## What a dark surface hands down to the labels inside it: cream text.
+## WHY a second theme: the old white deed panels (help, get-ready) still
+## rely on the default ink label colour.
+static func night_theme() -> Theme:
+	if _night != null:
+		return _night
+	var t := Theme.new()
+	t.set_color("font_color", "Label", TEXT)
+	t.set_constant("line_spacing", "Label", 4)
+	_night = t
+	return t
+
+
+## Design points to px with the scale of the screen laid out last.
+static func dp(v: float) -> int:
+	return int(round(v * _scale))
 
 
 ## Design points to pixels for a viewport: the 390 dp artboard fills the
@@ -121,7 +256,8 @@ static func safe_insets(ci: CanvasItem) -> Vector2:
 static func layout_scale(viewport: Vector2) -> float:
 	if viewport.x < 200 or viewport.y < 200:
 		viewport = Vector2(720, 1280)
-	return clampf(minf(viewport.x / DESIGN_W, viewport.y / DESIGN_H), 1.2, 2.6)
+	_scale = clampf(minf(viewport.x / DESIGN_W, viewport.y / DESIGN_H), 1.2, 2.6)
+	return _scale
 
 
 ## The text font (Nunito Sans ExtraBold) with the bundled emoji subset and
@@ -273,6 +409,214 @@ static func label(text: String, px: int, color: Color = Companies.INK, display :
 	if display:
 		l.add_theme_font_override("font", display_font())
 	return l
+
+
+## Chunky display text for anything on colour or over the room: Archivo
+## Black with the ink outline and, with `drop`, a hard ink drop under it
+## (titles and big numbers; small labels read cleaner without).
+static func outlined(l: Label, px: int, drop := false) -> Label:
+	var edge := maxi(3, int(round(px * 0.2)))
+	l.add_theme_font_override("font", display_font())
+	l.add_theme_font_size_override("font_size", px)
+	l.add_theme_color_override("font_outline_color", OUTLINE)
+	l.add_theme_constant_override("outline_size", edge)
+	if drop:
+		l.add_theme_color_override("font_shadow_color", OUTLINE)
+		l.add_theme_constant_override("shadow_offset_x", 0)
+		l.add_theme_constant_override("shadow_offset_y", maxi(2, int(round(px * 0.1))))
+		l.add_theme_constant_override("shadow_outline_size", edge)
+	return l
+
+
+## A title or number in the display face: white (or `color`), outlined.
+static func title(text: String, px: int, color: Color = Color.WHITE, drop := false) -> Label:
+	var l := Label.new()
+	l.text = text
+	l.add_theme_color_override("font_color", color)
+	return outlined(l, px, drop)
+
+
+## Sentences on a dark surface: Nunito Sans Bold in cream, wrapping, with
+## a little extra leading (light text on dark needs the air).
+static func body(text: String, px: int, color: Color = TEXT) -> Label:
+	var l := label(text, px, color)
+	l.add_theme_font_override("font", body_font())
+	l.add_theme_constant_override("line_spacing", maxi(2, int(round(px * 0.14))))
+	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	return l
+
+
+## Spaced capitals in the display face, for section names and tags.
+static func caption(text: String, px: int, color: Color = TEXT_SOFT) -> Label:
+	var l := label(text, px, color)
+	# WHY `uppercase` and not to_upper(): text set later stays in capitals.
+	l.uppercase = true
+	l.add_theme_font_override("font", spaced_font(maxi(1, int(round(px * 0.09)))))
+	return l
+
+
+## The display face with `spacing` px between letters.
+static func spaced_font(spacing: int) -> Font:
+	var key := "spaced%d" % spacing
+	if not _fonts.has(key):
+		var f := FontVariation.new()
+		f.base_font = display_font()
+		f.spacing_glyph = spacing
+		_fonts[key] = f
+	return _fonts[key]
+
+
+## A flat face with the game's ink outline: wells, pills, bars.
+static func ink_box(bg: Color, radius: float, border: float = 2.0) -> StyleBoxFlat:
+	var s := StyleBoxFlat.new()
+	s.bg_color = bg
+	s.border_color = OUTLINE
+	s.set_border_width_all(int(round(border)))
+	s.set_corner_radius_all(int(round(radius)))
+	s.set_content_margin_all(0)
+	s.anti_aliasing = true
+	return s
+
+
+## A panel in the night palette, used by every sheet, dialog and overlay:
+## a royal body with the ink outline and a dark lip, under a glossy band in
+## `band_color` carrying the title (white, outlined, with a hard drop).
+## Labels inside are cream by default. Returns the same parts as
+## `deed_panel`: {"panel", "title", "body", "band"}.
+static func panel(band_color: Color, title_text: String) -> Dictionary:
+	var edge := maxi(2, dp(1.5))
+	var radius := dp(14)
+	var root := PanelContainer.new()
+	root.theme = night_theme()
+	var shell := ink_box(ROYAL, radius, edge)
+	shell.border_width_bottom = edge + dp(3)
+	shell.shadow_color = Color(0, 0, 0, 0.4)
+	shell.shadow_size = dp(8)
+	shell.shadow_offset = Vector2(0, dp(4))
+	root.add_theme_stylebox_override("panel", shell)
+
+	var column := VBoxContainer.new()
+	column.add_theme_constant_override("separation", 0)
+	root.add_child(column)
+
+	var band := PanelContainer.new()
+	var band_style := StyleBoxFlat.new()
+	band_style.bg_color = band_color
+	band_style.corner_radius_top_left = radius - edge
+	band_style.corner_radius_top_right = radius - edge
+	band_style.border_color = OUTLINE
+	band_style.border_width_bottom = edge
+	band_style.content_margin_left = dp(14)
+	band_style.content_margin_right = dp(14)
+	band_style.content_margin_top = dp(9)
+	band_style.content_margin_bottom = dp(10)
+	band_style.anti_aliasing = true
+	band.add_theme_stylebox_override("panel", band_style)
+	# The band's gloss: a lighter upper half, as on the buttons.
+	var gloss := StyleBoxFlat.new()
+	gloss.bg_color = band_color.lightened(0.22)
+	gloss.corner_radius_top_left = radius - edge
+	gloss.corner_radius_top_right = radius - edge
+	gloss.anti_aliasing = true
+	band.draw.connect(func() -> void:
+		band.draw_style_box(gloss, Rect2(Vector2.ZERO, Vector2(band.size.x, (band.size.y - edge) * 0.5))))
+	column.add_child(band)
+	var title_label := title(title_text, dp(TYPE_TITLE), Color.WHITE, true)
+	title_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	band.add_child(title_label)
+
+	var content := MarginContainer.new()
+	content.add_theme_constant_override("margin_left", dp(14))
+	content.add_theme_constant_override("margin_right", dp(14))
+	content.add_theme_constant_override("margin_top", dp(12))
+	content.add_theme_constant_override("margin_bottom", dp(14))
+	# WHY: a panel stretched to the screen hands the extra height to its
+	# content; without this a scrolling list inside collapsed to nothing.
+	content.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	column.add_child(content)
+	return {"panel": root, "title": title_label, "body": content, "band": band}
+
+
+## A boxed row on a night panel: a sunken well with an ink edge, lit violet
+## when `lead` (the row to notice).
+static func well(lead := false) -> PanelContainer:
+	var row := PanelContainer.new()
+	row.add_theme_stylebox_override("panel", well_box(lead))
+	return row
+
+
+## The well's box on its own, for a Label that carries its own surface.
+static func well_box(lead := false) -> StyleBoxFlat:
+	var face := ink_box(Color(VIOLET, 0.55) if lead else WELL, dp(10), maxi(2, dp(1.2)))
+	face.content_margin_left = dp(10)
+	face.content_margin_right = dp(10)
+	face.content_margin_top = dp(8)
+	face.content_margin_bottom = dp(8)
+	return face
+
+
+## A progress bar `height` px tall: a glossy fill of `color` in the ink track.
+static func meter(color: Color, height: int) -> ProgressBar:
+	var bar := ProgressBar.new()
+	bar.custom_minimum_size = Vector2(0, height)
+	bar.show_percentage = false
+	bar.add_theme_stylebox_override("fill", GlossBox.make(color, height / 2.0, 0, 0))
+	# WHY not the theme's ink track: on a well it vanished, and an empty bar
+	# looked like no bar at all.
+	var track := _box(ROYAL.lightened(0.14), OUTLINE, 2)
+	track.set_corner_radius_all(int(height / 2.0) + 2)
+	track.set_content_margin_all(0)
+	bar.add_theme_stylebox_override("background", track)
+	return bar
+
+
+## One line of a standings list on a night panel: a medal with the place,
+## the name over a quieter detail line, and the score in gold on the right.
+## `lead` marks the row to notice (the winner, or you).
+static func standing_row(rank: int, who: String, detail: String, score: String, lead := false) -> Control:
+	var row := well(lead)
+	var line := HBoxContainer.new()
+	line.add_theme_constant_override("separation", dp(10))
+	row.add_child(line)
+
+	var medal := Control.new()
+	medal.custom_minimum_size = Vector2(dp(28), dp(28))
+	medal.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	medal.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var metal: Color = [GOLD, Color("#D5DBEA"), Color("#E0965A")][rank - 1] if rank >= 1 and rank <= 3 else ROYAL
+	medal.draw.connect(func() -> void:
+		var c := medal.size / 2.0
+		var r := medal.size.x / 2.0
+		medal.draw_circle(c + Vector2(0, r * 0.14), r, OUTLINE)
+		medal.draw_circle(c, r, OUTLINE)
+		medal.draw_circle(c, r - maxf(2.0, r * 0.16), metal)
+		var f := display_font()
+		var px := int(r * (1.05 if rank < 10 else 0.8))
+		var txt := str(rank)
+		var w := f.get_string_size(txt, HORIZONTAL_ALIGNMENT_LEFT, -1, px).x
+		medal.draw_string(f, c + Vector2(-w / 2.0, px * 0.36), txt, HORIZONTAL_ALIGNMENT_LEFT, -1, px, OUTLINE if rank <= 3 else TEXT_SOFT))
+	line.add_child(medal)
+
+	var names := VBoxContainer.new()
+	names.add_theme_constant_override("separation", 0)
+	names.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	names.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	line.add_child(names)
+	var name_label := label(who, dp(TYPE_HEADING), Color.WHITE if lead else TEXT, lead)
+	name_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	name_label.add_theme_constant_override("line_spacing", 0)
+	names.add_child(name_label)
+	if not detail.is_empty():
+		var detail_label := label(detail, dp(TYPE_CAPTION + 1), TEXT_SOFT)
+		detail_label.add_theme_font_override("font", body_font())
+		detail_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+		detail_label.add_theme_constant_override("line_spacing", 0)
+		names.add_child(detail_label)
+
+	var total := title(score, dp(TYPE_TITLE), GOLD)
+	total.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	line.add_child(total)
+	return row
 
 
 ## A solid ink "play" triangle, `px` tall, for the Play now button.

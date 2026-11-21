@@ -2,14 +2,12 @@ class_name QuestsPanel
 extends PanelContainer
 ## Quests overlay for the lobby: today's and this week's quests with progress
 ## bars and Claim buttons, the free cosmetic track, and a picker for the card
-## back and table felt (only unlocked ones enabled). Built in code on a deed
+## back and table felt (only unlocked ones enabled). Built in code on a night
 ## panel; fed by the `get_profile` dictionary through `apply_profile`.
 
 signal closed
 ## Emitted after a cosmetic is picked, once `Cosmetics` already reflects it.
 signal cosmetic_changed(slot: String, id: String)
-
-const ROW_HEIGHT := 48.0
 
 ## One entry per quest row: {id, claimable, claimed, label, bar, count, button}.
 var rows: Array[Dictionary] = []
@@ -27,23 +25,17 @@ var _status: Label
 
 func _init() -> void:
 	add_theme_stylebox_override("panel", StyleBoxEmpty.new())
-	var deed := UiTheme.deed_panel(Companies.CHANCE, "Quests", Color.WHITE)
-	deed["title"].add_theme_font_size_override("font_size", 28)
+	var deed := UiTheme.panel(UiTheme.VIOLET, "Quests")
 	deed["panel"].size_flags_vertical = Control.SIZE_EXPAND_FILL
 	add_child(deed["panel"])
-	var body: MarginContainer = deed["body"]
-	body.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	var column := VBoxContainer.new()
-	column.add_theme_constant_override("separation", 10)
-	column.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	body.add_child(column)
+	column.add_theme_constant_override("separation", UiTheme.dp(8))
+	deed["body"].add_child(column)
 
 	# Track summary stays visible above the scrolling list.
-	_track_label = Label.new()
-	_track_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_track_label.add_theme_font_size_override("font_size", 19)
+	_track_label = UiTheme.body("", UiTheme.dp(UiTheme.TYPE_BODY))
 	column.add_child(_track_label)
-	_track_bar = _make_bar(Companies.CHANCE)
+	_track_bar = UiTheme.meter(UiTheme.GOLD, UiTheme.dp(10))
 	column.add_child(_track_bar)
 
 	var scroll := ScrollContainer.new()
@@ -52,42 +44,37 @@ func _init() -> void:
 	column.add_child(scroll)
 	var content := VBoxContainer.new()
 	content.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	content.add_theme_constant_override("separation", 8)
+	content.add_theme_constant_override("separation", UiTheme.dp(6))
 	scroll.add_child(content)
 
 	content.add_child(_heading("Today"))
 	_daily_box = VBoxContainer.new()
-	_daily_box.add_theme_constant_override("separation", 6)
+	_daily_box.add_theme_constant_override("separation", UiTheme.dp(6))
 	content.add_child(_daily_box)
 	content.add_child(_heading("This week"))
 	_weekly_box = VBoxContainer.new()
-	_weekly_box.add_theme_constant_override("separation", 6)
+	_weekly_box.add_theme_constant_override("separation", UiTheme.dp(6))
 	content.add_child(_weekly_box)
 
 	content.add_child(_heading("Card back"))
 	var backs := HFlowContainer.new()
-	backs.add_theme_constant_override("h_separation", 8)
-	backs.add_theme_constant_override("v_separation", 8)
+	backs.add_theme_constant_override("h_separation", UiTheme.dp(6))
+	backs.add_theme_constant_override("v_separation", UiTheme.dp(6))
 	content.add_child(backs)
 	for e in Cosmetics.CARD_BACKS:
 		_back_buttons[e["id"]] = _make_pick_button(backs, "cardBack", e["id"])
 	content.add_child(_heading("Table felt"))
 	var felts := HFlowContainer.new()
-	felts.add_theme_constant_override("h_separation", 8)
-	felts.add_theme_constant_override("v_separation", 8)
+	felts.add_theme_constant_override("h_separation", UiTheme.dp(6))
+	felts.add_theme_constant_override("v_separation", UiTheme.dp(6))
 	content.add_child(felts)
 	for e in Cosmetics.TABLES:
 		_table_buttons[e["id"]] = _make_pick_button(felts, "table", e["id"])
 
-	_status = Label.new()
-	_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_status.add_theme_font_size_override("font_size", 17)
-	_status.text = "Quests reset at midnight UTC; weekly ones on Monday."
+	_status = UiTheme.body("Quests reset at midnight UTC; weekly ones on Monday.", UiTheme.dp(UiTheme.TYPE_LABEL), UiTheme.TEXT_SOFT)
 	content.add_child(_status)
 
-	var close := Button.new()
-	close.text = "Close"
-	close.custom_minimum_size = Vector2(0, ROW_HEIGHT)
+	var close := UiTheme.button("Close", UiTheme.dp(14), UiTheme.dp(44), "ghost")
 	close.pressed.connect(func() -> void:
 		visible = false
 		closed.emit())
@@ -96,36 +83,18 @@ func _init() -> void:
 	_refresh_picker()
 
 
-func _heading(text: String) -> Label:
-	var l := Label.new()
-	l.text = text.to_upper()
-	l.add_theme_font_size_override("font_size", 15)
-	l.add_theme_color_override("font_color", Companies.INK_SOFT)
-	return l
-
-
-func _make_bar(fill_color: Color) -> ProgressBar:
-	var bar := ProgressBar.new()
-	bar.custom_minimum_size = Vector2(0, 12)
-	bar.show_percentage = false
-	var fill := StyleBoxFlat.new()
-	fill.bg_color = fill_color
-	fill.set_corner_radius_all(6)
-	var back := StyleBoxFlat.new()
-	back.bg_color = Color("#E8E8E8")
-	back.border_color = Companies.INK
-	back.set_border_width_all(1)
-	back.set_corner_radius_all(6)
-	bar.add_theme_stylebox_override("fill", fill)
-	bar.add_theme_stylebox_override("background", back)
-	return bar
+## A section name, with air above it to part it from the section before.
+func _heading(text: String) -> Control:
+	var l := UiTheme.caption(text, UiTheme.dp(UiTheme.TYPE_CAPTION))
+	var pad := MarginContainer.new()
+	pad.add_theme_constant_override("margin_top", UiTheme.dp(6))
+	pad.add_child(l)
+	return pad
 
 
 func _make_pick_button(parent: Control, slot: String, id: String) -> Button:
-	var b := Button.new()
-	b.text = Cosmetics.name_of(id)
+	var b := UiTheme.button(Cosmetics.name_of(id), UiTheme.dp(UiTheme.TYPE_LABEL), UiTheme.dp(40))
 	b.toggle_mode = true
-	b.custom_minimum_size = Vector2(150, ROW_HEIGHT)
 	b.pressed.connect(func() -> void: _on_pick(slot, id))
 	parent.add_child(b)
 	return b
@@ -151,34 +120,34 @@ func apply_profile(data: Dictionary) -> void:
 	_refresh_picker()
 
 
+## One quest in a well: what to do, how far along, and what it pays, with
+## Claim on the right (mint once the quest is done).
 func _add_row(parent: Control, q: Dictionary) -> void:
-	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 10)
+	var row := UiTheme.well()
 	parent.add_child(row)
+	var line := HBoxContainer.new()
+	line.add_theme_constant_override("separation", UiTheme.dp(10))
+	row.add_child(line)
 	var col := VBoxContainer.new()
 	col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	col.add_theme_constant_override("separation", 4)
-	row.add_child(col)
-	var label := Label.new()
-	label.text = "%s  (+%d pts)" % [String(q.get("text", "")), int(q.get("points", 0))]
+	col.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	col.add_theme_constant_override("separation", UiTheme.dp(4))
+	line.add_child(col)
+	var label := UiTheme.label(String(q.get("text", "")), UiTheme.dp(UiTheme.TYPE_BODY), UiTheme.TEXT)
 	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	label.add_theme_font_size_override("font_size", 18)
 	col.add_child(label)
-	var bar := _make_bar(Companies.GOLD)
+	var bar := UiTheme.meter(UiTheme.MINT, UiTheme.dp(8))
 	bar.max_value = maxf(1.0, float(q.get("target", 1)))
 	bar.value = float(q.get("progress", 0))
 	col.add_child(bar)
-	var count := Label.new()
-	count.text = "%d / %d" % [int(q.get("progress", 0)), int(q.get("target", 1))]
-	count.add_theme_font_size_override("font_size", 14)
-	count.add_theme_color_override("font_color", Companies.INK_SOFT)
+	var count := UiTheme.body("%d of %d  ·  +%d track points" % [int(q.get("progress", 0)), int(q.get("target", 1)), int(q.get("points", 0))], UiTheme.dp(UiTheme.TYPE_CAPTION + 1), UiTheme.TEXT_SOFT)
 	col.add_child(count)
-	var button := Button.new()
-	button.custom_minimum_size = Vector2(104, ROW_HEIGHT)
+	var button := UiTheme.button("Claim", UiTheme.dp(UiTheme.TYPE_LABEL), UiTheme.dp(44))
+	button.custom_minimum_size.x = UiTheme.dp(84)
 	button.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	var id := String(q.get("id", ""))
 	button.pressed.connect(func() -> void: _on_claim(id))
-	row.add_child(button)
+	line.add_child(button)
 	var entry := {"id": id, "claimable": bool(q.get("claimable", false)), "claimed": bool(q.get("claimed", false)),
 		"label": label, "bar": bar, "count": count, "button": button, "row": row}
 	rows.append(entry)
@@ -187,6 +156,8 @@ func _add_row(parent: Control, q: Dictionary) -> void:
 
 func _refresh_row(entry: Dictionary) -> void:
 	var button: Button = entry["button"]
+	# Mint, the reward colour, only while there is something to collect.
+	button.theme_type_variation = "GreenButton" if entry["claimable"] and not entry["claimed"] else ""
 	if entry["claimed"]:
 		button.text = "Claimed"
 		button.disabled = true
@@ -244,12 +215,12 @@ func _refresh_track() -> void:
 			break
 		prev = int(step.get("points", 0))
 	if next.is_empty():
-		_track_label.text = "Track: %d points. Every cosmetic unlocked!" % track_points if not track.is_empty() else "Track: %d points" % track_points
+		_track_label.text = "%d track points. Every cosmetic unlocked!" % track_points if not track.is_empty() else "%d track points" % track_points
 		_track_bar.min_value = 0
 		_track_bar.max_value = maxf(1.0, float(track_points))
 		_track_bar.value = track_points
 		return
-	_track_label.text = "Track: %d points  •  next: %s at %d" % [track_points, Cosmetics.name_of(String(next.get("cosmeticId", ""))), int(next.get("points", 0))]
+	_track_label.text = "%d track points. Next unlock: %s at %d." % [track_points, Cosmetics.name_of(String(next.get("cosmeticId", ""))), int(next.get("points", 0))]
 	_track_bar.min_value = prev
 	_track_bar.max_value = int(next.get("points", 0))
 	_track_bar.value = track_points
@@ -275,15 +246,17 @@ func _refresh_pick_button(b: Button, id: String, current: String) -> void:
 	var is_unlocked := unlocked.has(id)
 	b.disabled = not is_unlocked
 	b.set_pressed_no_signal(id == current)
+	# The one in use is gold; a pressed violet button alone was hard to spot.
+	b.theme_type_variation = "PrimaryButton" if id == current else ""
 	var pts := _unlock_points(id)
 	if is_unlocked or (pts == 0 and not Cosmetics.is_paid(id) and not Cosmetics.is_plus(id)):
 		b.text = Cosmetics.name_of(id)
 	elif Cosmetics.is_paid(id):
-		b.text = "%s  (shop)" % Cosmetics.name_of(id)
+		b.text = "%s · shop" % Cosmetics.name_of(id)
 	elif Cosmetics.is_plus(id):
-		b.text = "%s  (Plus)" % Cosmetics.name_of(id)
+		b.text = "%s · Plus" % Cosmetics.name_of(id)
 	else:
-		b.text = "%s  (%d pts)" % [Cosmetics.name_of(id), pts]
+		b.text = "%s · %d pts" % [Cosmetics.name_of(id), pts]
 
 
 ## Applies the pick locally first so the lobby and cards change at once,

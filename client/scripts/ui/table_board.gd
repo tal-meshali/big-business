@@ -150,14 +150,19 @@ func _draw() -> void:
 	draw_polyline(_closed(inner), Color(Companies.INK, 0.35), 1.5 * s, true)
 	draw_polyline(_closed(projected), Companies.INK, 2.0 * s, true)
 
-	_draw_zone(ZONE_MARKET, glow.has("market"))
+	# Each zone's name stands on the top-left of its own outline, so a name
+	# always touches the thing it names and clears the shares, which start
+	# right under that line.
+	# WHY not under the Portfolio as before: the hand stands there and
+	# covered the words whenever a card was picked.
+	var market := _legend_rect("THE MARKET", ZONE_MARKET)
+	var portfolio := _legend_rect("YOUR PORTFOLIO", ZONE_PORTFOLIO)
+	# The Market's bottom line runs behind the Portfolio's name: it skips it.
+	_draw_zone(ZONE_MARKET, glow.has("market"), portfolio)
 	_draw_zone(ZONE_SUPPLY, glow.has("supply"))
 	_draw_zone(ZONE_PORTFOLIO, glow.has("portfolio"))
-	_print_label("THE MARKET", Vector2(45, 200))
-	# WHY: on the Market's line, not beside the Supply, where the right-hand
-	# opponent's shares lie.
-	_print_label("SUPPLY · %d" % supply_count, Vector2(ZONE_MARKET.end.x - 30, 200), true)
-	_print_label("YOUR PORTFOLIO", Vector2(45, 460))
+	_draw_legend("THE MARKET", market, glow.has("market"))
+	_draw_legend("YOUR PORTFOLIO", portfolio, glow.has("portfolio"))
 	_draw_supply_stack()
 	for h in hands:
 		_draw_hand_backs(h["at"], float(h["angle"]), int(h["count"]))
@@ -176,17 +181,18 @@ func _draw_felt(ring: PackedVector2Array) -> void:
 		draw_polygon(PackedVector2Array([middle, a, b]), PackedColorArray([light, dark, dark]))
 
 
-func _draw_zone(zone: Rect2, on: bool) -> void:
+## `gap` is a screen rect the dashed line leaves free (the zone's legend).
+func _draw_zone(zone: Rect2, on: bool, gap := Rect2()) -> void:
 	var pts := PackedVector2Array()
 	for p in _stadium(zone, 14):
 		pts.append(project(p - PLANE / 2.0))
 	if on:
 		var pulse := 0.3 + 0.25 * (0.5 + 0.5 * sin(Time.get_ticks_msec() / 1000.0 * PI * 2.0))
 		draw_colored_polygon(pts, Color(Companies.CARD_FACE, pulse))
-		draw_polyline(_closed(pts), Companies.INK, 2.0 * s, true)
+		draw_polyline(_closed(pts), UiTheme.OUTLINE, 2.0 * s, true)
 		return
 	# Dashed print line.
-	var ink := Color(Companies.INK, 0.3)
+	var ink := Color(_print_color(), 0.45)
 	var dash := 6.0 * s
 	var carry := 0.0
 	var drawing := true
@@ -198,7 +204,7 @@ func _draw_zone(zone: Rect2, on: bool) -> void:
 		var t := 0.0
 		while t < seg:
 			var step := minf(dash - carry, seg - t)
-			if drawing:
+			if drawing and not gap.has_point(a.lerp(b, (t + step / 2.0) / seg)):
 				draw_line(a.lerp(b, t / seg), a.lerp(b, (t + step) / seg), ink, 2.0 * s)
 			t += step
 			carry += step
@@ -207,14 +213,58 @@ func _draw_zone(zone: Rect2, on: bool) -> void:
 				drawing = not drawing
 
 
-## `plane_at` is the label's top-left, or its top-right when `right`.
-func _print_label(text: String, plane_at: Vector2, right := false) -> void:
-	var p := plane_at - PLANE / 2.0
-	var px := int(11 * s * depth(p))
-	var at := project(p) + Vector2(0, px * 0.8)
-	if right:
-		at.x -= _label_font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, px).x
-	draw_string(_label_font, at, text, HORIZONTAL_ALIGNMENT_LEFT, -1, px, Color(Companies.INK, 0.72))
+## Ink for words printed on the felt: the felt's own hue, darkened, so
+## every felt skin gets a matching print instead of plain black.
+func _print_color() -> Color:
+	return Color.from_hsv(felt_color.h, clampf(felt_color.s * 2.2 + 0.12, 0.2, 0.7), 0.27)
+
+
+func _legend_px(p: Vector2) -> int:
+	return int(UiTheme.TYPE_CAPTION * s * depth(p))
+
+
+## Screen rect of a zone's legend: standing on the zone's top line, a
+## little in from its left corner.
+func _legend_rect(text: String, zone: Rect2) -> Rect2:
+	var p := zone.position + Vector2(10, 0) - PLANE / 2.0
+	var px := _legend_px(p)
+	var at := project(p)
+	var w := _label_font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, px).x
+	var pad := px * 0.55
+	return Rect2(at.x - pad, at.y - px * 1.5 - 2.0 * s, w + pad * 2.0, px * 1.5)
+
+
+## A zone's name: printed in the felt's dark tone, or, while the zone can be
+## used (`on`), gold letters on an ink tab.
+func _draw_legend(text: String, rect: Rect2, on: bool) -> void:
+	var px := int(rect.size.y / 1.5)
+	var base := Vector2(rect.position.x + px * 0.55, rect.get_center().y + px * 0.36)
+	if on:
+		draw_style_box(UiTheme.ink_box(UiTheme.OUTLINE, rect.size.y / 2.0, 0), rect)
+	draw_string(_label_font, base, text, HORIZONTAL_ALIGNMENT_LEFT, -1, px, UiTheme.GOLD if on else _print_color())
+
+
+## How many shares are left to draw, on an ink tab across the foot of the
+## pile it counts. `canvas` is a node above the pile, at the board's origin.
+## WHY not on the Market's line as before: there it read as a second name
+## for the Market.
+func draw_supply_count(canvas: CanvasItem) -> void:
+	var half := 0.48 * 140.0 / 2.0
+	var p := SUPPLY_AT + Vector2(0, half - 2.0)
+	var px := _legend_px(p)
+	var word := "SUPPLY"
+	var count := str(supply_count)
+	var count_font := UiTheme.display_font()
+	var word_w := _label_font.get_string_size(word, HORIZONTAL_ALIGNMENT_LEFT, -1, px).x
+	var count_w := count_font.get_string_size(count, HORIZONTAL_ALIGNMENT_LEFT, -1, px).x
+	var gap := px * 0.45
+	var pad := px * 0.7
+	var c := project(p)
+	var rect := Rect2(c.x - (word_w + gap + count_w) / 2.0 - pad, c.y - px * 0.75, word_w + gap + count_w + pad * 2.0, px * 1.5)
+	canvas.draw_style_box(UiTheme.ink_box(UiTheme.OUTLINE, rect.size.y / 2.0, 0), rect)
+	var base := Vector2(rect.position.x + pad, rect.get_center().y + px * 0.36)
+	canvas.draw_string(_label_font, base, word, HORIZONTAL_ALIGNMENT_LEFT, -1, px, UiTheme.TEXT)
+	canvas.draw_string(count_font, base + Vector2(word_w + gap, 0), count, HORIZONTAL_ALIGNMENT_LEFT, -1, px, UiTheme.GOLD)
 
 
 ## Edges of the face-down supply under its top card.

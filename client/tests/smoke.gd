@@ -275,7 +275,7 @@ func _social_checks() -> int:
 		push_error("emote bar starts hidden")
 		failures += 1
 	table._toggle_emote_bar()
-	if not table._emote_bar.visible or table._emote_bar.get_child(0).get_child_count() != Protocol.EMOTES.size():
+	if not table._emote_bar.visible or table._emote_bar.find_children("*", "Button", true, false).size() != Protocol.EMOTES.size():
 		push_error("emote bar should list every preset")
 		failures += 1
 	table._toggle_emote_bar()
@@ -807,8 +807,8 @@ func _forfeit_checks() -> int:
 	var bubbles: int = table._fx_layer.get_child_count()
 	table._on_player_forfeited(2)
 	await process_frame
-	if table._fx_layer.get_child_count() != bubbles + 1 or not table._status.text.begins_with("Bo forfeited"):
-		push_error("another player's forfeit should show over their seat, status %s" % table._status.text)
+	if table._fx_layer.get_child_count() != bubbles + 1 or not table._notice.visible or not table._notice_label.text.begins_with("Bo forfeited"):
+		push_error("another player's forfeit should show over their seat and in the notice, notice %s" % table._notice_label.text)
 		failures += 1
 	net.tutorial_mode = true
 	table._on_view(v.duplicate(true))
@@ -1359,7 +1359,7 @@ func _shop_checks() -> int:
 			if not b.disabled:
 				push_error("an unowned paid skin must be disabled in the picker")
 				failures += 1
-	if picker_text != "Gilded  (shop)":
+	if picker_text != "Gilded · shop":
 		push_error("paid skin picker label should say shop, got '%s'" % picker_text)
 		failures += 1
 	# Remote Config hides the shop; tutorial auto-routing is read from it too.
@@ -1466,9 +1466,9 @@ func _designer_checks() -> int:
 	if not panel._deck_box.visible or panel._parts_list.get_child_count() != 7 or not panel._use_toggle.button_pressed:
 		push_error("an unlocked adult sees 7 part rows for the active deck")
 		failures += 1
-	var first_row: Label = panel._parts_list.get_child(0).get_child(0)
-	if not first_row.text.contains("Card back") or not first_row.text.contains("Waiting for review"):
-		push_error("the back row should show its review status, got '%s'" % first_row.text)
+	var first_row := _texts(panel._parts_list.get_child(0))
+	if not first_row.has("Card back") or not first_row.has("Waiting for review"):
+		push_error("the back row should show its review status, got '%s'" % [first_row])
 		failures += 1
 	failures += _check_button_sizes(panel, "designer")
 	panel.open_editor(picture, "c1")
@@ -1605,7 +1605,7 @@ func _club_checks() -> int:
 	panel.apply_state({"club": null, "league": [], "max": 30}, {"clubs": [{"id": "c1", "name": "Bold Ventures 7", "count": 3, "max": 30}]})
 	await process_frame
 	var texts := _texts(panel)
-	if not texts.has("Start club") or not texts.has("Join") or not texts.has("Bold Ventures 7  3/30"):
+	if not texts.has("Start club") or not texts.has("Join") or not texts.has("Bold Ventures 7") or not texts.has("3 of 30 members"):
 		push_error("without a club the panel offers start and join, got %s" % [texts])
 		failures += 1
 	failures += _small_buttons(panel, "clubs (no club)")
@@ -1614,7 +1614,7 @@ func _club_checks() -> int:
 		"league": [{"id": "c9", "name": "Grand Guild 3", "score": 60, "rank": 1}, {"id": "c1", "name": "Bold Ventures 7", "score": 40, "rank": 2}], "max": 30})
 	await process_frame
 	texts = _texts(panel)
-	if not texts.has("40 points this week, place 2 in the league. 2 of 30 members.") or not texts.has("Remove") or not texts.has("2. Bold Ventures 7  40") or not texts.has("Leave club"):
+	if not texts.has("40 points this week, place 2 in the league. 2 of 30 members.") or not texts.has("Remove") or not texts.has("Bold Ventures 7") or not texts.has("40") or not texts.has("Your club") or not texts.has("Leave club"):
 		push_error("in a club the panel shows members, points and the league, got %s" % [texts])
 		failures += 1
 	failures += _small_buttons(panel, "clubs (member)")

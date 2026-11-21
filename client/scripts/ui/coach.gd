@@ -109,33 +109,25 @@ func _ready() -> void:
 
 
 func _build() -> void:
-	var deed := UiTheme.deed_panel(UiTheme.RING, "", Companies.INK)
+	var deed := UiTheme.panel(UiTheme.RING, "")
 	_panel = deed["panel"]
 	_panel.set_anchors_and_offsets_preset(Control.PRESET_TOP_WIDE)
 	_panel.offset_left = 14 * _s
 	_panel.offset_right = -14 * _s
 	add_child(_panel)
+	# A step's title can be a full sentence: left-aligned and free to wrap.
 	_title = deed["title"]
 	_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
 	_title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_title.add_theme_font_size_override("font_size", int(18 * _s))
-	var band_box: StyleBoxFlat = deed["band"].get_theme_stylebox("panel").duplicate()
-	band_box.content_margin_top = 11 * _s
-	band_box.content_margin_bottom = 11 * _s
-	band_box.content_margin_left = 14 * _s
-	deed["band"].add_theme_stylebox_override("panel", band_box)
+	_title.add_theme_font_size_override("font_size", int(UiTheme.TYPE_TITLE * _s))
 	var margins: MarginContainer = deed["body"]
-	margins.add_theme_constant_override("margin_left", int(14 * _s))
-	margins.add_theme_constant_override("margin_right", int(14 * _s))
-	margins.add_theme_constant_override("margin_top", int(10 * _s))
-	margins.add_theme_constant_override("margin_bottom", int(14 * _s))
 	var box := VBoxContainer.new()
 	box.add_theme_constant_override("separation", int(10 * _s))
 	margins.add_child(box)
-	# "TUTORIAL · 3 OF 10" and one dot per step.
+	# "Step 3 of 10" and one dot per step.
 	var meta := HBoxContainer.new()
 	box.add_child(meta)
-	_meta = UiTheme.label("TUTORIAL", int(11 * _s), UiTheme.MUTED)
+	_meta = UiTheme.caption("Tutorial", int(UiTheme.TYPE_CAPTION * _s))
 	_meta.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	meta.add_child(_meta)
 	_dots = HBoxContainer.new()
@@ -147,9 +139,7 @@ func _build() -> void:
 		var dot := Panel.new()
 		dot.custom_minimum_size = Vector2(14, 6) * _s
 		_dots.add_child(dot)
-	_body = UiTheme.label("", int(15 * _s))
-	_body.add_theme_font_override("font", UiTheme.body_font())
-	_body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_body = UiTheme.body("", int(UiTheme.TYPE_BODY * _s))
 	box.add_child(_body)
 	var buttons := HBoxContainer.new()
 	buttons.add_theme_constant_override("separation", int(8 * _s))
@@ -218,11 +208,11 @@ func _show_next() -> void:
 	_title.text = item["title"]
 	_body.text = item["body"]
 	var n: int = item.get("n", 1)
-	_meta.text = "TUTORIAL · %d OF %d" % [n, STEPS.size()]
+	_meta.text = "Tutorial · %d of %d" % [n, STEPS.size()]
 	for i in _dots.get_child_count():
 		var dot := StyleBoxFlat.new()
-		dot.bg_color = UiTheme.RING if i < n else Companies.PANEL
-		dot.border_color = Companies.INK
+		dot.bg_color = UiTheme.GOLD if i < n else UiTheme.WELL
+		dot.border_color = UiTheme.OUTLINE
 		dot.set_border_width_all(2)
 		dot.set_corner_radius_all(int(3 * _s))
 		_dots.get_child(i).add_theme_stylebox_override("panel", dot)

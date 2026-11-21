@@ -12,8 +12,8 @@ signal gifts_collected
 ## Joined a friend's game as a watcher; the table opens with the first view.
 signal watch_started
 
-const ONLINE := Color("#3F9E4F")
-const OFFLINE := Color("#BDBDBD")
+const ONLINE := UiTheme.MINT
+const OFFLINE := Color("#6F68A3")
 ## Minimum touch target on a phone.
 const TOUCH := 48
 ## Nakama friend states.
@@ -51,61 +51,61 @@ func _ready() -> void:
 
 
 func _build() -> void:
-	# The deed panel supplies the look; this container only positions it.
+	# The night panel supplies the look; this container only positions it.
 	add_theme_stylebox_override("panel", StyleBoxEmpty.new())
-	var deed := UiTheme.deed_panel(Companies.CHANCE, "Friends", Companies.INK)
-	deed["title"].add_theme_font_size_override("font_size", 24)
+	var deed := UiTheme.panel(UiTheme.VIOLET, "Friends")
 	add_child(deed["panel"])
 	var box := VBoxContainer.new()
-	box.add_theme_constant_override("separation", 10)
+	box.add_theme_constant_override("separation", UiTheme.dp(8))
 	deed["body"].add_child(box)
 
 	var add_row := HBoxContainer.new()
-	add_row.add_theme_constant_override("separation", 10)
+	add_row.add_theme_constant_override("separation", UiTheme.dp(8))
 	box.add_child(add_row)
 	_name_edit = LineEdit.new()
-	_name_edit.placeholder_text = "friend's player name"
+	_name_edit.placeholder_text = "Friend's player name"
 	_name_edit.max_length = 16
-	_name_edit.custom_minimum_size = Vector2(0, TOUCH)
+	_name_edit.custom_minimum_size = Vector2(0, maxi(TOUCH, UiTheme.dp(44)))
+	_name_edit.add_theme_font_size_override("font_size", UiTheme.dp(UiTheme.TYPE_BODY))
 	_name_edit.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_name_edit.text_submitted.connect(func(_text: String) -> void: _on_add_pressed())
 	add_row.add_child(_name_edit)
-	_add_button = Button.new()
-	_add_button.text = "Add"
-	_add_button.custom_minimum_size = Vector2(96, TOUCH)
+	_add_button = _button("Add", "primary")
+	_add_button.custom_minimum_size.x = UiTheme.dp(72)
 	_add_button.pressed.connect(_on_add_pressed)
 	add_row.add_child(_add_button)
 
-	_status = Label.new()
-	_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_status.add_theme_font_size_override("font_size", 18)
-	_status.add_theme_color_override("font_color", Companies.INK_SOFT)
+	_status = UiTheme.body("", UiTheme.dp(UiTheme.TYPE_LABEL), UiTheme.TEXT_SOFT)
 	box.add_child(_status)
 
 	_gift_row = HBoxContainer.new()
-	_gift_row.add_theme_constant_override("separation", 8)
+	_gift_row.add_theme_constant_override("separation", UiTheme.dp(8))
 	_gift_row.visible = false
 	box.add_child(_gift_row)
-	_gift_label = Label.new()
-	_gift_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_gift_label = UiTheme.body("", UiTheme.dp(UiTheme.TYPE_LABEL))
 	_gift_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_gift_label.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	_gift_label.add_theme_font_size_override("font_size", 18)
 	_gift_row.add_child(_gift_label)
-	_collect_button = Button.new()
-	_collect_button.text = "Collect"
-	_collect_button.custom_minimum_size = Vector2(110, TOUCH)
+	# Mint is the reward colour: collecting gifts pays track points.
+	_collect_button = _button("Collect", "green")
 	_collect_button.pressed.connect(_on_collect_pressed)
 	_gift_row.add_child(_collect_button)
 
 	_invites = VBoxContainer.new()
-	_invites.add_theme_constant_override("separation", 8)
+	_invites.add_theme_constant_override("separation", UiTheme.dp(6))
 	box.add_child(_invites)
 
 	_list = VBoxContainer.new()
-	_list.add_theme_constant_override("separation", 8)
+	_list.add_theme_constant_override("separation", UiTheme.dp(6))
 	box.add_child(_list)
 	_render_friends()
+
+
+## A row button: touch-sized, in the display face at the row's text size.
+func _button(text: String, kind := "") -> Button:
+	var b := UiTheme.button(text, UiTheme.dp(12), maxi(TOUCH, UiTheme.dp(44)), kind)
+	b.custom_minimum_size.x = UiTheme.dp(52)
+	return b
 
 
 func _on_visibility_changed() -> void:
@@ -152,10 +152,7 @@ func _render_friends() -> void:
 		_list.remove_child(child)
 		child.free()
 	if _friends.is_empty():
-		var empty := Label.new()
-		empty.text = "No friends yet. Add one by their player name."
-		empty.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		_list.add_child(empty)
+		_list.add_child(UiTheme.body("No friends yet. Add one by their player name.", UiTheme.dp(UiTheme.TYPE_BODY), UiTheme.TEXT_SOFT))
 		return
 	for f in _friends:
 		_list.add_child(_friend_row(f))
@@ -164,36 +161,35 @@ func _render_friends() -> void:
 ## Row layout: dot, name, state button (Invite / Accept / Pending), Remove.
 func _friend_row(f: Dictionary) -> HBoxContainer:
 	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 8)
+	row.add_theme_constant_override("separation", UiTheme.dp(6))
 	row.custom_minimum_size = Vector2(0, TOUCH)
 	var user_id := String(f.get("userId", ""))
 	var state := int(f.get("state", STATE_FRIENDS))
 
 	var dot := Label.new()
 	dot.text = "●"
-	dot.add_theme_font_size_override("font_size", 20)
+	dot.add_theme_font_size_override("font_size", UiTheme.dp(11))
 	dot.add_theme_color_override("font_color", ONLINE if bool(f.get("online", false)) else OFFLINE)
 	dot.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	row.add_child(dot)
 
-	var name_label := Label.new()
-	name_label.text = String(f.get("name", "?"))
+	var name_label := UiTheme.label(String(f.get("name", "?")), UiTheme.dp(UiTheme.TYPE_BODY), UiTheme.TEXT)
 	name_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	name_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	name_label.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	row.add_child(name_label)
 
-	var action := Button.new()
-	action.custom_minimum_size = Vector2(96, TOUCH)
+	var action: Button
 	match state:
 		STATE_REQUEST_SENT:
-			action.text = "Pending"
+			action = _button("Pending")
 			action.disabled = true
 		STATE_REQUEST_RECEIVED:
-			action.text = "Accept"
+			# Gold: the one thing this row is waiting on you for.
+			action = _button("Accept", "primary")
 			action.pressed.connect(_on_accept_pressed.bind(user_id, action))
 		_:
-			action.text = "Invite"
+			action = _button("Invite", "primary")
 			# WHY: an invite needs a room to point at; public lobbies have no code.
 			action.visible = not room_code.is_empty()
 			action.pressed.connect(_on_invite_pressed.bind(user_id, action))
@@ -201,22 +197,16 @@ func _friend_row(f: Dictionary) -> HBoxContainer:
 
 	if state == STATE_FRIENDS:
 		if _playing.has(user_id):
-			var watch := Button.new()
-			watch.text = "Watch"
-			watch.custom_minimum_size = Vector2(96, TOUCH)
+			var watch := _button("Watch")
 			watch.pressed.connect(_on_watch_pressed.bind(user_id, watch))
 			row.add_child(watch)
-		var gift := Button.new()
 		var sent: bool = Array(_gifts.get("sentToday", [])).has(user_id)
-		gift.text = "Sent" if sent else "Gift"
+		var gift := _button("Sent" if sent else "Gift")
 		gift.disabled = sent or int(_gifts.get("sendLeft", 1)) <= 0
-		gift.custom_minimum_size = Vector2(96, TOUCH)
 		gift.pressed.connect(_on_gift_pressed.bind(user_id, gift))
 		row.add_child(gift)
 
-	var remove := Button.new()
-	remove.text = "Remove"
-	remove.custom_minimum_size = Vector2(96, TOUCH)
+	var remove := _button("Remove")
 	remove.pressed.connect(_on_remove_pressed.bind(user_id, remove))
 	row.add_child(remove)
 	return row
@@ -227,23 +217,17 @@ func show_invite(from_name: String, code: String) -> void:
 	if code.is_empty() or _invites == null:
 		return
 	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 8)
-	var text := Label.new()
-	text.text = "%s invited you to room %s" % [from_name, code]
-	text.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	row.add_theme_constant_override("separation", UiTheme.dp(6))
+	var text := UiTheme.body("%s invited you to room %s" % [from_name, code], UiTheme.dp(UiTheme.TYPE_BODY))
 	text.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	text.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	row.add_child(text)
-	var join := Button.new()
-	join.text = "Join"
-	join.custom_minimum_size = Vector2(96, TOUCH)
+	var join := _button("Join", "primary")
 	join.pressed.connect(func() -> void:
 		_drop_invite(row)
 		join_requested.emit(code))
 	row.add_child(join)
-	var dismiss := Button.new()
-	dismiss.text = "✕"
-	dismiss.custom_minimum_size = Vector2(TOUCH, TOUCH)
+	var dismiss := _button("✕", "ghost")
 	dismiss.pressed.connect(func() -> void: _drop_invite(row))
 	row.add_child(dismiss)
 	_invites.add_child(row)

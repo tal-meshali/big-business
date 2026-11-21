@@ -54,6 +54,8 @@ const COIN_GOLD_RIM := Color("#6B3A00")
 
 static var _cached: Theme = null
 static var _fonts: Dictionary = {}
+static var _reduce := false
+static var _reduce_checked_ms := -1
 
 
 static func get_theme() -> Theme:
@@ -199,14 +201,20 @@ static func _button_text(t: Theme, type: String, color: Color, outline_color: Co
 	t.set_constant("outline_size", type, 6)
 
 
-## A squash on press and a springy release, so every tap feels physical.
 ## True when the player asked the system for less motion. Animations then
 ## drop movement and scale but keep fades and colour changes.
+## WHY cached for a couple of seconds: seats redraw every frame, and on a
+## phone the query goes through the platform each time.
 static func reduce_motion() -> bool:
-	# WHY == 1: it returns -1 when the platform cannot tell.
-	return DisplayServer.accessibility_should_reduce_animation() == 1
+	var now := Time.get_ticks_msec()
+	if _reduce_checked_ms < 0 or now - _reduce_checked_ms > 2000:
+		# WHY == 1: it returns -1 when the platform cannot tell.
+		_reduce = DisplayServer.accessibility_should_reduce_animation() == 1
+		_reduce_checked_ms = now
+	return _reduce
 
 
+## A squash on press and a springy release, so every tap feels physical.
 static func juice(b: BaseButton) -> void:
 	var recenter := func() -> void: b.pivot_offset = b.size / 2.0
 	b.resized.connect(recenter)

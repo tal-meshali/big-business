@@ -41,6 +41,8 @@ const PLATE_H := 66.0
 
 var view: Dictionary = {}
 var _my_seat: int = -1
+## Set by Play again: the next view starts a game, not a capital change.
+var _reset_capital_on_view := false
 var _step_seconds: float = 30.0
 ## Design points to px for this screen.
 var _s: float = 1.85
@@ -746,7 +748,10 @@ func _on_play_again() -> void:
 		_restriction = {}
 	_status.text = "Finding a new game..."
 	_result_backdrop.visible = false
-	# The new game's capital is not a change to pop.
+	# The new game's capital is not a change to pop. WHY on the next view
+	# too: a re-render of the old view meanwhile (a resize) would remember
+	# the old counts again.
+	_reset_capital_on_view = true
 	for sv in _seat_views:
 		sv.reset_capital()
 	var ok: bool = await Net.quick_play()
@@ -775,6 +780,10 @@ func _on_events(_seq: int, events: Array) -> void:
 
 
 func _on_view(v: Dictionary) -> void:
+	if _reset_capital_on_view:
+		_reset_capital_on_view = false
+		for sv in _seat_views:
+			sv.reset_capital()
 	_last_view = view
 	view = v
 	_my_seat = int(v.get("you", -1)) if v.get("you") != null else -1

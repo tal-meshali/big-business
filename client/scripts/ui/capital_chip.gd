@@ -12,8 +12,10 @@ class_name CapitalChip
 const NUMBER_POP := 0.35
 const COIN_POP := 0.12
 ## Coin radius and gap before the count, as parts of the pill's height.
-const COIN_R := 0.58
+const COIN_R := 0.56
 const PAD := 0.2
+## Gap between the count and its word; room for the count's swell.
+const WORD_GAP := 0.3
 ## Side of the baked face texture in px.
 const FACE_PX := 96
 
@@ -65,7 +67,7 @@ static func _face(gold: bool) -> ImageTexture:
 static func pill_width(count: int, word: String, h: float) -> float:
 	var w := h * COIN_R * 2.0 + h * PAD + _text_width(str(count), int(h * 0.8))
 	if word != "":
-		w += h * 0.22 + _text_width(word, int(h * 0.5))
+		w += WORD_GAP * h + _text_width(word, int(h * 0.5))
 	return w + h * 0.42
 
 
@@ -97,7 +99,7 @@ static func pill(ci: CanvasItem, at: Vector2, count: int, word: String, h: float
 	var nw := _text_width(num, npx)
 	if word != "":
 		var wpx := int(h * 0.5)
-		ci.draw_string(font, Vector2(x + nw + h * 0.22, base), word, HORIZONTAL_ALIGNMENT_LEFT, -1, wpx, Color(UiTheme.CREAM, 0.72))
+		ci.draw_string(font, Vector2(x + nw + WORD_GAP * h, base), word, HORIZONTAL_ALIGNMENT_LEFT, -1, wpx, Color(UiTheme.CREAM, 0.72))
 	# The count swells around its own centre and turns gold at the peak.
 	var k := 1.0 + NUMBER_POP * swell
 	var mid := Vector2(x + nw / 2.0, at.y)

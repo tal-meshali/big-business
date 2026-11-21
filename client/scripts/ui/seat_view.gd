@@ -30,8 +30,8 @@ var strip := false
 var wide := false
 var avatar_color := AVATARS[1]
 ## Capital pop: 0 to 1 per coin kind while a count that just changed
-## ticks (swells and flashes gold). One "+3"/"-2" per kind drifts beside
-## the pills and fades.
+## ticks (swells and flashes gold). One "+3"/"-2" per kind shows right
+## after its pill where there is room, holds, then fades.
 var _pop := {"bronze": 0.0, "gold": 0.0}
 var _pop_tweens := {}
 ## kind -> {"delta": int, "t": 0 to 1 (linear), "tween": Tween}
@@ -48,6 +48,8 @@ const POP_DOWN := 0.22
 ## WHY longer than UI motion: the delta is information to read, not a
 ## transition; it holds for about half of this, then fades.
 const DELTA_TIME := 0.9
+## Part of DELTA_TIME the delta holds before it fades.
+const DELTA_HOLD := 0.55
 
 
 func _init() -> void:
@@ -113,9 +115,11 @@ func _start_pop(kind: String, delta: int) -> void:
 	tw.tween_method(setter, float(_pop[kind]), 1.0, POP_UP).set_ease(Tween.EASE_OUT).set_trans(Tween.TRANS_CUBIC)
 	tw.tween_method(setter, 1.0, 0.0, POP_DOWN).set_ease(Tween.EASE_OUT).set_trans(Tween.TRANS_CUBIC)
 	_pop_tweens[kind] = tw
-	# A second change while a delta still shows folds into it.
+	# A second change while a delta still holds folds into it; one already
+	# fading is replaced.
 	if _deltas.has(kind):
-		delta += int(_deltas[kind]["delta"])
+		if float(_deltas[kind]["t"]) < DELTA_HOLD:
+			delta += int(_deltas[kind]["delta"])
 		if _deltas[kind]["tween"].is_valid():
 			_deltas[kind]["tween"].kill()
 		_deltas.erase(kind)
@@ -127,7 +131,7 @@ func _start_pop(kind: String, delta: int) -> void:
 		d["t"] = v
 		queue_redraw(), 0.0, 1.0, DELTA_TIME)
 	dt.tween_callback(func() -> void:
-		if _deltas.get(kind) == d:
+		if is_same(_deltas.get(kind), d):
 			_deltas.erase(kind)
 		queue_redraw())
 	d["tween"] = dt
@@ -233,10 +237,11 @@ func _draw() -> void:
 		tb.set_corner_radius_all(int(4 * s))
 		draw_style_box(tb, tag_box)
 		draw_string(text, Vector2(tx + 2 * s, top + 13 * s), tag, HORIZONTAL_ALIGNMENT_LEFT, -1, int(9 * s), Companies.INK)
-	# WHY 40 and pips first: a regulator seal sticks up from its pip; it
-	# clears the pill and, where it meets the coin's lip, goes under it.
-	_draw_pips(text, Vector2(8 * s, top + 40 * s), size.x - 12 * s)
-	_draw_coins(Vector2(nx, top + 24.5 * s), bronze, gold, wide, size.x - 6 * s)
+	# WHY 38 and pips first: a regulator seal sticks up from its pip; it
+	# goes under the coin's lip with its "R" clear, and the pips keep off
+	# the plate's bottom edge.
+	_draw_pips(text, Vector2(8 * s, top + 38 * s), size.x - 12 * s)
+	_draw_coins(Vector2(nx, top + 24 * s), bronze, gold, wide, size.x - 6 * s)
 
 
 func _draw_strip(text: Font, c: Vector2, r: float, name_text: String, bronze: int, gold: int) -> void:
@@ -246,15 +251,18 @@ func _draw_strip(text: Font, c: Vector2, r: float, name_text: String, bronze: in
 	draw_string(text, Vector2(x, base), name_text, HORIZONTAL_ALIGNMENT_LEFT, -1, px, Companies.INK)
 	x += text.get_string_size(name_text, HORIZONTAL_ALIGNMENT_LEFT, -1, px).x + 10 * s
 	# Pips flush right; capital gets what is left.
-	var pw := _pip_list().size() * 23.0 * s
+	var pw := 0.0
+	for p in _pip_list():
+		pw += (28.0 if p[2] else 23.0) * s
 	var pips_x := size.x - pw - 4 * s
-	x = _draw_coins(Vector2(x, size.y / 2.0), bronze, gold, true, pips_x - 8 * s)
+	x = _draw_coins(Vector2(x, size.y / 2.0), bronze, gold, true, pips_x - 8 * s, pips_x - 2 * s)
 	_draw_pips(text, Vector2(maxf(x, pips_x), size.y / 2.0 - 9 * s), size.x)
 
 
 ## Capital pills (bronze, then gold once there is any); returns the x
-## after them. To fit `right` it drops the words, then shrinks.
-func _draw_coins(at: Vector2, bronze: int, gold: int, spell: bool, right: float = INF) -> float:
+## after them. To fit `right` it drops the words, then shrinks. Deltas
+## may use the room up to `delta_right` (default: `right`).
+func _draw_coins(at: Vector2, bronze: int, gold: int, spell: bool, right: float = INF, delta_right: float = NAN) -> float:
 	var h := (15.0 if strip else 14.0) * s
 	var pills := [["bronze", bronze, "capital" if spell else ""]]
 	if gold > 0:
@@ -266,7 +274,8 @@ func _draw_coins(at: Vector2, bronze: int, gold: int, spell: bool, right: float 
 			p[2] = ""
 		total = _pills_width(pills, h, gap)
 	if at.x + total > right:
-		var k := maxf(0.5, (right - at.x) / total)
+		# WHY a 0.6 floor: smaller counts stop being readable on a phone.
+		var k := maxf(0.6, (right - at.x) / total)
 		h *= k
 		gap *= k
 	var x := at.x
@@ -276,7 +285,7 @@ func _draw_coins(at: Vector2, bronze: int, gold: int, spell: bool, right: float 
 		var rect := CapitalChip.pill(self, Vector2(x, at.y), int(p[1]), p[2], h, kind == "gold", float(_pop[kind]))
 		_pill_rects[kind] = rect
 		x = rect.end.x + gap
-	_draw_deltas(h, x - gap, right)
+	_draw_deltas(h, delta_right if not is_nan(delta_right) else right)
 	return x - gap + 8.0 * s
 
 
@@ -287,14 +296,14 @@ func _pills_width(pills: Array, h: float, gap: float) -> float:
 	return total
 
 
-## "+3" or "-2" for each count that just changed, in a row after the last
-## pill; where the plate has no room for that, just above its own pill.
-## WHY not above by default: above, it lands on the name.
-func _draw_deltas(h: float, row_end: float, right: float) -> void:
+## "+3" or "-2" right after the pill whose count just changed, drifting up
+## a little. Where there is no room before the next pill or the edge, it is
+## left out: the gold flash and the flying coins already say it.
+## WHY not above the pill: that is the name row.
+func _draw_deltas(h: float, right: float) -> void:
 	var font := UiTheme.display_font()
 	var px := int(h * 0.9)
 	var limit := minf(right, size.x - 4.0 * s)
-	var x := row_end + 4.0 * s
 	var reduce := UiTheme.reduce_motion()
 	for kind in ["bronze", "gold"]:
 		if not _deltas.has(kind) or not _pill_rects.has(kind):
@@ -305,14 +314,15 @@ func _draw_deltas(h: float, row_end: float, right: float) -> void:
 		var txt := ("+%d" if delta > 0 else "%d") % delta
 		var w := font.get_string_size(txt, HORIZONTAL_ALIGNMENT_LEFT, -1, px).x
 		var rect: Rect2 = _pill_rects[kind]
-		var rise := 0.0 if reduce else ease(t, 0.3) * 8.0 * s
+		var x := rect.end.x + 3.0 * s
+		var stop := limit
+		if kind == "bronze" and _pill_rects.has("gold"):
+			stop = minf(stop, _pill_rects["gold"].position.x - 2.0 * s)
+		if x + w > stop:
+			continue
+		var rise := 0.0 if reduce else ease(t, 0.3) * 3.0 * s
 		var at := Vector2(x, rect.get_center().y + px * 0.36 - rise)
-		if x + w > limit:
-			at = Vector2(minf(rect.end.x - w * 0.7, limit - w), rect.position.y - 2.0 * s - rise)
-		else:
-			x += w + 4.0 * s
-		# Hold, then fade over the last 45%.
-		var a := clampf((1.0 - t) / 0.45, 0.0, 1.0)
+		var a := clampf((1.0 - t) / (1.0 - DELTA_HOLD), 0.0, 1.0)
 		var fill := UiTheme.MINT if delta > 0 else UiTheme.BADGE
 		draw_string_outline(font, at, txt, HORIZONTAL_ALIGNMENT_LEFT, -1, px, maxi(4, int(px * 0.3)), Color(UiTheme.OUTLINE, a))
 		draw_string(font, at, txt, HORIZONTAL_ALIGNMENT_LEFT, -1, px, Color(fill, a))

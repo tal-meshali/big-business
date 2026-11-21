@@ -841,7 +841,9 @@ async function testNames() {
   // an emoji, a Hangul filler, a listed word in full-width letters, a Cyrillic letter in a Latin name.
   for (const [bad, why] of [['a', 'Too short.'], ['x'.repeat(17), 'Too long.'], ['nina@home', 'Use letters, numbers and spaces only.'], ['Adm1n', 'Pick a different name.'],
     ['Nina\u200b', 'Use letters'], ['Nina\ufe0f', 'Use letters'], ['\ud83d\ude42\ud83d\ude42', 'Use letters'], ['\u3164\u3164\u3164', 'Use letters'],
-    ['\uff46\uff55\uff43\uff4b', 'Pick a different name.'], ['Nin\u0430', 'one alphabet']]) {
+    ['\uff46\uff55\uff43\uff4b', 'Pick a different name.'], ['Nin\u0430', 'one alphabet'],
+    // An accent on a listed word, a dotless i in a staff name, a phone number, fifteen marks on one Thai letter.
+    ['f\u00fcck', 'Pick a different name.'], ['Adm\u0131n', 'Pick a different name.'], ['0544123456', 'no more than 6 numbers'], ['\u0e01' + '\u0e47'.repeat(15), 'Use letters']]) {
     const said = await rpcRejected(a, 'set_name', { name: bad }, `the name ${JSON.stringify(bad)}`);
     if (!said.includes(why)) fail(`set_name ${JSON.stringify(bad)} should say "${why}", said "${said}"`);
   }

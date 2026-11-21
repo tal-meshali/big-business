@@ -62,6 +62,8 @@ var _tween: Tween
 var _fit_tween: Tween
 ## True while the card flies in from the avatar; a new size waits for it.
 var _flying := false
+## An operator set the name after a report; it cannot be changed here.
+var _name_locked := false
 var _fit_waiting := false
 var _xp_tween: Tween
 var _xp := 0
@@ -306,14 +308,15 @@ func _fit(eased := false) -> void:
 	var hero_h := clampf(room, _px(HERO_MIN_DP), _px(HERO_MAX_DP))
 	if _fit_tween != null:
 		_fit_tween.kill()
-	if absf(_hero.custom_minimum_size.y - hero_h) <= 0.5:
-		return
-	if eased and visible:
+	var changed := absf(_hero.custom_minimum_size.y - hero_h) > 0.5
+	if changed and eased and visible:
 		_fit_tween = create_tween()
 		_fit_tween.tween_property(_hero, "custom_minimum_size:y", hero_h, 0.2).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
-	else:
+		return
+	if changed:
 		_hero.custom_minimum_size.y = hero_h
-		_place_card()
+	# WHY always: a flight cut short by Close leaves the card where it was.
+	_place_card()
 
 
 func _place_card() -> void:
@@ -346,6 +349,7 @@ func close() -> void:
 		return
 	_serial += 1
 	_flying = false
+	card.mouse_filter = Control.MOUSE_FILTER_STOP
 	if _tween != null:
 		_tween.kill()
 	# Out faster than in: the player is already looking at the lobby.
@@ -362,6 +366,9 @@ func _play_open(origin: Rect2) -> void:
 	modulate.a = 0.0
 	_flying = true
 	_fit_waiting = false
+	# A tap during the flight would flip the card against the flight's own
+	# scale.
+	card.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var rest := card.position
 	var tilt := deg_to_rad(LogoTitle.TILT_DEG)
 	card.pivot_offset = card.size / 2.0
@@ -393,6 +400,7 @@ func _play_open(origin: Rect2) -> void:
 	# the spot it was heading for.
 	_tween.chain().tween_callback(func() -> void:
 		_flying = false
+		card.mouse_filter = Control.MOUSE_FILTER_STOP
 		_place_card()
 		if _fit_waiting:
 			_fit(true)
@@ -449,7 +457,7 @@ func apply_progress(p: Dictionary) -> void:
 	var span := Leveling.span(level)
 	_xp_bar.min_value = span.x
 	_xp_bar.max_value = span.y
-	_xp_label.text = "%s / %s XP" % [thousands(_xp), thousands(span.y)]
+	_xp_label.text = "%s / %s XP" % [thousands(_xp), thousands(span.y)] if known else UNKNOWN
 	_xp_bar.tooltip_text = "%s XP to level %d" % [thousands(maxi(0, span.y - _xp)), level + 1]
 	_fill_xp(false)
 	var games := int(p.get("gamesPlayed", 0))
@@ -533,12 +541,16 @@ func apply_account(links: Dictionary) -> void:
 	_link_google_button.visible = bool(avail.get("google", false)) and not links.get("google", false)
 	_link_apple_button.disabled = not online
 	_link_google_button.disabled = not online
+	if not links.is_empty():
+		_name_locked = links.get("nameLocked") == true
 	_refresh_rename()
 	var kept := Net.describe_account_links(links)
 	if _link_apple_button.visible or _link_google_button.visible:
 		kept += ". Link it so your progress survives a reinstall."
 	if not online:
 		kept = "Not connected. Your record shows when you are back online."
+	elif _name_locked:
+		kept = "A moderator set your name, so it cannot be changed. " + kept
 	elif not Net.match_id.is_empty():
 		kept = "You can change your name between games. " + kept
 	_account_label.text = kept
@@ -548,7 +560,7 @@ func apply_account(links: Dictionary) -> void:
 ## WHY not in a room: the seat was taken under the old name, and the
 ## session can only take the new one between rooms.
 func _refresh_rename() -> void:
-	_rename_button.disabled = not Net.is_connected_to_server() or not Net.match_id.is_empty()
+	_rename_button.disabled = not Net.is_connected_to_server() or not Net.match_id.is_empty() or _name_locked
 	_copy_button.disabled = _shown_name().is_empty()
 
 

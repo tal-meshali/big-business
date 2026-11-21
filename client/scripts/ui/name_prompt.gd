@@ -5,12 +5,15 @@ extends ColorRect
 ## still has the random name the server made (`required`: no way out but a
 ## name), and from the profile's "Change name" (with Cancel, and a tap
 ## outside the sheet cancels too).
-## The lobby lifts it above the on-screen keyboard like its other sheets.
+## The lobby lifts it above the on-screen keyboard like its other sheets,
+## and tells it the keyboard's height so the card stays on screen.
 
 signal saved(player_name: String)
 signal cancelled
 
 const CARD_MIN_DP := 110.0
+## With the keyboard up the card may get this small before it is cut off.
+const CARD_TIGHT_DP := 64.0
 const CARD_MAX_DP := 230.0
 ## Metadata on a text field: the control under it that the lobby keeps
 ## above the on-screen keyboard together with the field.
@@ -20,6 +23,12 @@ const KEEP_IN_VIEW := &"keep_in_view"
 var s := 1.85
 var bottom_inset := 0.0
 var required := true
+## Height of the on-screen keyboard in px of this screen; the lobby sets it.
+var keyboard_height := 0.0:
+	set(v):
+		if absf(keyboard_height - v) > 0.5:
+			keyboard_height = v
+			_fit()
 var _card: InvestorCard
 var _stage: Control
 var _sheet: PanelContainer
@@ -29,6 +38,11 @@ var _edit: LineEdit
 var _note: Label
 var _save: Button
 var _cancel: Button
+var _actions: HBoxContainer
+## What the field held when the step opened.
+var _opened_with := ""
+var _shake: Tween
+var _shake_x := 0.0
 var _rise: Control
 var _column: VBoxContainer
 var _busy := false
@@ -37,13 +51,17 @@ var _tween: Tween
 
 
 func _ready() -> void:
-	# WHY this dark: the lobby's logo and dock must not read through as
-	# stray letters round the card.
-	color = Color(UiTheme.NIGHT, 0.93)
+	# WHY opaque, with the room drawn again: the lobby's logo, status line
+	# and dock must not read through as stray letters round the card.
+	color = UiTheme.NIGHT
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	mouse_filter = Control.MOUSE_FILTER_STOP
 	visible = false
 	gui_input.connect(_on_backdrop_input)
+
+	var room := LobbyBackdrop.new()
+	room.center = Vector2(0.5, 0.3)
+	add_child(room)
 
 	_rise = Control.new()
 	_rise.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -101,7 +119,8 @@ func _ready() -> void:
 	body.add_child(_note)
 
 	# Cancel and Save share a row, so both stay above the keyboard.
-	var actions := HBoxContainer.new()
+	_actions = HBoxContainer.new()
+	var actions := _actions
 	actions.add_theme_constant_override("separation", _px(8))
 	body.add_child(actions)
 	_cancel = UiTheme.button("Cancel", _px(14), _px(52), "ghost")
@@ -130,13 +149,15 @@ func is_open() -> bool:
 	return _open
 
 
-## Shows the step with `current` in the field. `must_name` hides Cancel:
-## the player has no name yet and cannot play without one.
+## Shows the step with `current` in the field ("" when the player has no
+## name of their own yet). `must_name` hides Cancel: a new player cannot
+## play without a name.
 func open(current: String, must_name: bool, level := 1) -> void:
 	required = must_name
 	_busy = false
 	_open = true
-	_title.text = "Pick a name" if required else "Change your name"
+	_opened_with = NamesApi.clean(current)
+	_title.text = "Pick a name" if required or _opened_with.is_empty() else "Change your name"
 	_hint.text = "Other players see it at the table, so use a nickname, not your real name. You can change it later in your profile." if required \
 			else "Other players see it at the table, and friends add you by it. Use a nickname, not your real name."
 	_save.text = _save_text()
@@ -144,6 +165,7 @@ func open(current: String, must_name: bool, level := 1) -> void:
 	_cancel.visible = not required
 	_edit.text = current
 	_edit.editable = true
+	_link_focus()
 	_card.level = level
 	_card.show_face()
 	_on_typed(current)
@@ -152,6 +174,26 @@ func open(current: String, must_name: bool, level := 1) -> void:
 	_edit.grab_focus()
 	_edit.select_all()
 	_play_open()
+
+
+## Tab and the arrow keys go round the sheet's own controls.
+## WHY: with a keyboard or a d-pad, focus would otherwise walk on to the
+## lobby's buttons behind a step that must not be skipped.
+func _link_focus() -> void:
+	var ring: Array[Control] = [_edit]
+	if _cancel.visible:
+		ring.append(_cancel)
+	ring.append(_save)
+	for i in ring.size():
+		var c := ring[i]
+		var next := c.get_path_to(ring[(i + 1) % ring.size()])
+		var previous := c.get_path_to(ring[(i - 1 + ring.size()) % ring.size()])
+		c.focus_next = next
+		c.focus_neighbor_bottom = next
+		c.focus_neighbor_right = next
+		c.focus_previous = previous
+		c.focus_neighbor_top = previous
+		c.focus_neighbor_left = previous
 
 
 func _save_text() -> String:
@@ -163,11 +205,26 @@ func _save_text() -> String:
 func _fit() -> void:
 	if _stage == null or not visible:
 		return
-	var room := size.y - bottom_inset - _sheet.get_combined_minimum_size().y - _px(72)
-	var stage_h := clampf(room, _px(CARD_MIN_DP), _px(CARD_MAX_DP))
+	var room := size.y - bottom_inset - _sheet.get_combined_minimum_size().y - _px(72) - _keyboard_lift()
+	var least := CARD_MIN_DP if keyboard_height <= 0.0 else CARD_TIGHT_DP
+	var stage_h := clampf(room, _px(least), _px(CARD_MAX_DP))
 	if absf(_stage.custom_minimum_size.y - stage_h) > 0.5:
 		_stage.custom_minimum_size.y = stage_h
 	_place_card()
+
+
+## How far the lobby lifts this step so the buttons clear the keyboard.
+## WHY worked out here: the card must give up that much height, or its
+## top (the name the player is typing) leaves the screen.
+func _keyboard_lift() -> float:
+	if keyboard_height <= 0.0:
+		return 0.0
+	# From the bottom of the buttons to the bottom of the screen.
+	var pad := float(_px(14))
+	if _actions.size.y > 0:
+		pad = _column.get_global_rect().end.y - _actions.get_global_rect().end.y
+	var below := pad - _column.offset_bottom
+	return maxf(0.0, keyboard_height + _px(12) - below)
 
 
 func _place_card() -> void:
@@ -224,7 +281,7 @@ func _on_save() -> void:
 		return
 	var wanted := NamesApi.clean(_edit.text)
 	# The same name again is nothing to save when changing it.
-	if not required and wanted == Net.display_name:
+	if not required and wanted == _opened_with:
 		_on_cancel()
 		return
 	_busy = true
@@ -251,11 +308,17 @@ func _show_error(message: String) -> void:
 	if required and message in [NamesApi.OFFLINE, NamesApi.FAILED, NamesApi.BUSY]:
 		_cancel.text = "Not now"
 		_cancel.visible = true
+		_link_focus()
 	_edit.grab_focus()
-	var x := _edit.position.x
-	var shake := create_tween()
+	# WHY the kept x: a second shake that starts during the first would
+	# otherwise take a shifted field as its rest.
+	if _shake != null and _shake.is_running():
+		_shake.kill()
+	else:
+		_shake_x = _edit.position.x
+	_shake = create_tween()
 	for dx in [-6.0, 5.0, -3.0, 0.0]:
-		shake.tween_property(_edit, "position:x", x + dx * s, 0.05).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+		_shake.tween_property(_edit, "position:x", _shake_x + dx * s, 0.05).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
 
 
 func _on_cancel() -> void:
@@ -265,7 +328,12 @@ func _on_cancel() -> void:
 	cancelled.emit()
 
 
-## A tap outside the sheet cancels, where Cancel is offered.
+## A tap outside the sheet cancels, where Cancel is offered and nothing
+## was typed; with a name typed it only puts the keyboard away.
 func _on_backdrop_input(event: InputEvent) -> void:
-	if event is InputEventMouseButton and event.pressed and _cancel.visible:
+	if not (event is InputEventMouseButton and event.pressed):
+		return
+	if _cancel.visible and NamesApi.clean(_edit.text) == _opened_with:
 		_on_cancel()
+	else:
+		_edit.release_focus()

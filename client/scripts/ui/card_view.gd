@@ -69,6 +69,9 @@ var _press_pos := Vector2.ZERO
 var _press_serial: int = 0
 var _swallow_press: bool = false
 ## Designer preview: pictures shown instead of the room's (null: use the room's).
+## False for a card drawn inside another control's own edge and shadow
+## (the investor card's back).
+var shadow: bool = true
 var preview_back: Texture2D
 var preview_art: Texture2D
 
@@ -153,7 +156,7 @@ func _draw() -> void:
 	outer.border_color = Companies.INK
 	outer.set_border_width_all(2)
 	outer.anti_aliasing = true
-	if not highlight and not selected:
+	if shadow and not highlight and not selected:
 		outer.shadow_color = Color(0.06, 0.16, 0.09, 0.28)
 		outer.shadow_size = 6
 		outer.shadow_offset = Vector2(0, 5)

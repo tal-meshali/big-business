@@ -1704,7 +1704,9 @@ func _profile_checks() -> int:
 
 	var net: Node = root.get_node("Net")
 	var previous_name: String = net.display_name
+	var previous_named: bool = net.named
 	net.display_name = "Tal"
+	net.named = true
 	RemoteConfig.reset()
 	Cosmetics.reset()
 	var lobby = load("res://scripts/ui/main.gd").new()
@@ -1840,6 +1842,32 @@ func _profile_checks() -> int:
 		push_error("the Club row closes the profile and opens the clubs, got %s" % [went])
 		failures += 1
 
+	# Closed in the middle of the card's flight and opened again: the card
+	# still lands in the middle of its place, and cannot be flipped in flight.
+	var avatar: Rect2 = lobby._avatar_label.get_global_rect()
+	profile.open(avatar)
+	await create_timer(0.1).timeout
+	var in_flight: int = profile.card.mouse_filter
+	profile.close()
+	await create_timer(0.05).timeout
+	profile.open(avatar)
+	await create_timer(0.6).timeout
+	var landed: Vector2 = (profile._hero.size - profile.card.size) / 2.0 - Vector2(0, lobby._px(3))
+	if in_flight != Control.MOUSE_FILTER_IGNORE or profile.card.mouse_filter != Control.MOUSE_FILTER_STOP or profile.card.position.distance_to(landed) > 1.0:
+		push_error("a reopened profile lands its card in place (at %s, expected %s)" % [profile.card.position, landed])
+		failures += 1
+	profile.close()
+	await create_timer(0.2).timeout
+
+	# A name a moderator locked: no answer ({}) changes nothing.
+	profile.apply_account({"device": true, "username": "Tal", "named": true, "nameLocked": true})
+	profile.apply_account({})
+	var locked: bool = profile._name_locked and profile._rename_button.disabled
+	profile.apply_account({"device": true, "username": "Tal", "named": true})
+	if not locked or profile._name_locked:
+		push_error("the profile follows the account's name lock")
+		failures += 1
+
 	# An account that has not picked a name shows a stand-in, never the
 	# random string the server made, and has nothing to copy.
 	net.display_name = "NmnqzZdeZg"
@@ -1855,6 +1883,8 @@ func _profile_checks() -> int:
 		failures += 1
 	lobby.queue_free()
 	net.display_name = previous_name
+	net.named = previous_named
+	net.save_settings()
 	RemoteConfig.reset()
 	return failures
 
@@ -1899,7 +1929,10 @@ func _name_step_checks() -> int:
 		failures += 1
 
 	var previous_name: String = net.display_name
+	var previous_named: bool = net.named
 	net.display_name = "xQzRandomName"
+	# What a new install holds, and what "Not now" leaves for the next lobby.
+	net.named = false
 	var lobby = load("res://scripts/ui/main.gd").new()
 	root.add_child(lobby)
 	lobby.size = Vector2(720, 1560)
@@ -1909,12 +1942,18 @@ func _name_step_checks() -> int:
 	if prompt.is_open() or prompt.visible:
 		push_error("the name step is not shown before the server says the account is new")
 		failures += 1
+	if lobby._name_label.text != "New investor" or lobby._connected_text() != "Connected":
+		push_error("a lobby built before the account's answer shows a stand-in, got '%s'" % lobby._name_label.text)
+		failures += 1
 	# A server from before set_name sends no `named`; a named account sends true.
 	lobby._ask_name_if_new({"username": "xQzRandomName"})
 	lobby._ask_name_if_new({"username": "Tal", "named": true})
+	if not net.named:
+		push_error("the account's answer is kept for the next lobby")
+		failures += 1
 	lobby._ask_name_if_new({})
-	if prompt.is_open():
-		push_error("only an account marked unnamed is asked for a name")
+	if prompt.is_open() or not net.named:
+		push_error("only an account marked unnamed is asked for a name, and no answer changes nothing")
 		failures += 1
 	lobby._ask_name_if_new({"username": "xQzRandomName", "named": false})
 	await process_frame
@@ -1927,6 +1966,11 @@ func _name_step_checks() -> int:
 		failures += 1
 	if prompt._edit.text != "" or not prompt._save.disabled or prompt._note.text != names.RULES:
 		push_error("the random name is not offered back, an empty field cannot be saved and the rules are shown (field '%s', note '%s')" % [prompt._edit.text, prompt._note.text])
+		failures += 1
+	# Tab and the arrow keys stay on the sheet, away from the lobby behind it.
+	if prompt._edit.find_next_valid_focus() != prompt._save or prompt._save.find_next_valid_focus() != prompt._edit \
+			or prompt._save.find_valid_focus_neighbor(SIDE_BOTTOM) != prompt._edit or prompt._edit.find_prev_valid_focus() != prompt._save:
+		push_error("focus must go round the name step's own controls")
 		failures += 1
 	# No way round a required step: a tap outside the sheet does nothing.
 	var outside := InputEventMouseButton.new()
@@ -1961,6 +2005,16 @@ func _name_step_checks() -> int:
 	if prompt._note.text != names.RULES:
 		push_error("typing replaces the error with the rules")
 		failures += 1
+	# Two refusals in a row leave the field where it was.
+	await create_timer(0.4).timeout
+	var field_x: float = prompt._edit.position.x
+	prompt._show_error("Pick a different name.")
+	await create_timer(0.07).timeout
+	prompt._show_error("Pick a different name.")
+	await create_timer(0.4).timeout
+	if absf(prompt._edit.position.x - field_x) > 0.5:
+		push_error("a second shake must not leave the field shifted (at %s, was %s)" % [prompt._edit.position.x, field_x])
+		failures += 1
 	# Offline: saving fails, and only then the step can be put off.
 	prompt._edit.text = "Tal"
 	prompt._edit.text_changed.emit("Tal")
@@ -1977,6 +2031,46 @@ func _name_step_checks() -> int:
 	if prompt.is_open() or prompt.visible or events != ["cancelled"]:
 		push_error("'Not now' closes the name step")
 		failures += 1
+	# Still unnamed after "Not now": the profile's Change name starts empty,
+	# never from the random name, and a lobby built later shows the stand-in.
+	if net.named or lobby._name_label.text != "New investor":
+		push_error("'Not now' leaves the account unnamed")
+		failures += 1
+	lobby._open_profile()
+	await process_frame
+	lobby._profile_panel.rename_requested.emit()
+	await process_frame
+	if not prompt.is_open() or prompt.required or not prompt._cancel.visible or prompt._title.text != "Pick a name" or prompt._edit.text != "" or not prompt._save.disabled:
+		push_error("an unnamed player's Change name starts empty with Cancel, got '%s' / '%s'" % [prompt._title.text, prompt._edit.text])
+		failures += 1
+	prompt._cancel.pressed.emit()
+	await create_timer(0.2).timeout
+
+	# With the keyboard up the card gives up height and stays on screen.
+	# WHY the resize: the lobby measures the keyboard against the screen.
+	var screen: Vector2 = lobby.get_viewport_rect().size
+	lobby.size = screen
+	lobby._ask_name_if_new({"username": "xQzRandomName", "named": false})
+	await create_timer(0.5).timeout
+	var tall: float = prompt._card.size.y
+	var keys: float = roundf(screen.y * 0.45)
+	lobby.keyboard_override = keys
+	await create_timer(0.3).timeout
+	var card_top: float = prompt._card.get_global_rect().position.y
+	var buttons_bottom: float = prompt._actions.get_global_rect().end.y
+	if lobby.position.y >= 0.0 or prompt._card.size.y >= tall or card_top < 0.0 or buttons_bottom > screen.y - keys + 1.0:
+		push_error("with the keyboard up the name step's card shrinks and stays in view (screen %s, lobby y %s, card %s -> %s, top %s, buttons end %s)" % [screen, lobby.position.y, tall, prompt._card.size.y, card_top, buttons_bottom])
+		failures += 1
+	lobby.keyboard_override = -1.0
+	await create_timer(0.2).timeout
+	if absf(prompt._card.size.y - tall) > 1.0 or absf(lobby.position.y) > 0.5:
+		push_error("the name step returns to its size when the keyboard goes down")
+		failures += 1
+	lobby.size = Vector2(720, 1560)
+	prompt._show_error(names.OFFLINE)
+	prompt._cancel.pressed.emit()
+	await create_timer(0.2).timeout
+	lobby._profile_panel.close()
 
 	# Renaming from the profile: Cancel is there, and the same name saves nothing.
 	net.display_name = "Tal"
@@ -1993,10 +2087,19 @@ func _name_step_checks() -> int:
 	if prompt.is_open() or events != ["cancelled"]:
 		push_error("saving the name the player already has changes nothing, got %s" % [events])
 		failures += 1
-	# A tap outside the sheet cancels a change of name.
+	# A tap outside the sheet cancels a change of name, unless a new name
+	# was typed: then it only puts the keyboard away.
 	lobby._profile_panel.rename_requested.emit()
 	await process_frame
 	events.clear()
+	prompt._edit.text = "Tal M"
+	prompt._edit.text_changed.emit("Tal M")
+	prompt.gui_input.emit(outside)
+	if not prompt.is_open() or events != []:
+		push_error("a tap outside keeps a typed name, got %s" % [events])
+		failures += 1
+	prompt._edit.text = "Tal"
+	prompt._edit.text_changed.emit("Tal")
 	prompt.gui_input.emit(outside)
 	if prompt.is_open() or events != ["cancelled"]:
 		push_error("a tap outside cancels a change of name, got %s" % [events])
@@ -2010,6 +2113,7 @@ func _name_step_checks() -> int:
 		failures += 1
 	lobby.queue_free()
 	net.display_name = previous_name
+	net.named = previous_named
 	# Leave the settings file as it was found.
 	net.save_settings()
 	return failures

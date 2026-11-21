@@ -64,9 +64,6 @@ var _saved_name := ""
 ## The account the server has said is named, so the lobby does not wait
 ## for that answer again after every game.
 static var _named_user := ""
-## False while the account still has the random name the server made; the
-## HUD and the profile then show a stand-in instead of it.
-var _named := true
 var _press_tween: Tween
 ## The little table on top; its `color` is the picked felt.
 var _felt: StartFan
@@ -80,6 +77,9 @@ var _in_lobby := false
 var _account_switched := false
 ## Design points to px.
 var _s := 1.85
+## A keyboard height in canvas units for tests and screenshots, which have
+## no on-screen keyboard; below 0 the phone's own is used.
+var keyboard_override := -1.0
 
 
 func _ready() -> void:
@@ -215,7 +215,9 @@ func _build() -> void:
 	_profile_panel.s = _s
 	_profile_panel.insets = _insets
 	_profile_panel.navigate.connect(_on_profile_navigate)
-	_profile_panel.rename_requested.connect(func() -> void: _name_prompt.open(Net.display_name, false, _level))
+	_profile_panel.unnamed = not Net.named
+	# WHY "" while unnamed: the random name is not theirs to edit.
+	_profile_panel.rename_requested.connect(func() -> void: _name_prompt.open(Net.display_name if Net.named else "", false, _level))
 	_profile_panel.link_requested.connect(func(provider_name: String) -> void:
 		if provider_name == "apple":
 			_on_link_apple()
@@ -737,11 +739,12 @@ func _build_more_sheet() -> void:
 ## keyboard (phones report its height; desktops report 0).
 func _process(_delta: float) -> void:
 	var lift := 0.0
-	var kb := DisplayServer.virtual_keyboard_get_height()
+	var kb := _keyboard_height()
+	# The name step sizes its card to the room the keyboard leaves.
+	_name_prompt.keyboard_height = kb
 	var focus := get_viewport().gui_get_focus_owner()
-	if kb > 0 and focus is LineEdit and is_ancestor_of(focus) and get_window().size.y > 0:
-		var screen_h := get_viewport_rect().size.y
-		var keyboard_top := screen_h - kb * screen_h / float(get_window().size.y)
+	if kb > 0 and focus is LineEdit and is_ancestor_of(focus):
+		var keyboard_top := get_viewport_rect().size.y - kb
 		# A field may name a control under it that must stay in view with it
 		# (the name step's error line and its Save button).
 		var keep: Control = focus.get_meta(NamePrompt.KEEP_IN_VIEW, focus)
@@ -749,6 +752,16 @@ func _process(_delta: float) -> void:
 		lift = maxf(0.0, field_bottom - keyboard_top)
 	if absf(position.y + lift) > 0.5:
 		position.y = -lift
+
+
+## Height of the on-screen keyboard in canvas units; 0 when it is down.
+func _keyboard_height() -> float:
+	if keyboard_override >= 0.0:
+		return keyboard_override
+	var window_h := get_window().size.y
+	if window_h <= 0:
+		return 0.0
+	return DisplayServer.virtual_keyboard_get_height() * get_viewport_rect().size.y / float(window_h)
 
 
 ## Season standings in a sheet that rises from the bottom.
@@ -825,7 +838,7 @@ func _press_identity(to: Vector2, seconds: float, curve: Tween.TransitionType) -
 ## The HUD name and the avatar's initial follow the account's name; an
 ## account that has not picked one shows a stand-in, not the random string.
 func _show_name() -> void:
-	var who := Net.display_name.strip_edges() if _named else ""
+	var who := Net.display_name.strip_edges() if Net.named else ""
 	_name_label.text = who if not who.is_empty() else "New investor"
 	_avatar_label.text = who.substr(0, 1).to_upper() if not who.is_empty() else "?"
 
@@ -860,8 +873,12 @@ func _on_name_saved(_player_name: String) -> void:
 
 ## Records whether the account has a name of its own and shows it (or the
 ## stand-in) on the HUD and the profile.
+## WHY saved: the lobby is rebuilt after every game and must not show the
+## random name while it waits for the account's answer, or offline.
 func _set_named(named: bool) -> void:
-	_named = named
+	if Net.named != named:
+		Net.named = named
+		Net.save_settings()
 	if named:
 		_named_user = Net.user_id
 	_profile_panel.unnamed = not named
@@ -895,6 +912,8 @@ func _on_connect_pressed() -> void:
 func _on_connected() -> void:
 	_connected = true
 	_board_button.disabled = false
+	# The session has just said which name the account holds.
+	_show_name()
 	_refresh_profile()
 	# WHY the wait: a new player is asked for a name before they can start
 	# a game, and the account answer says whether this one is new. An
@@ -915,7 +934,7 @@ func _on_connected() -> void:
 ## "Connected as Tal", or without the name while the account has only the
 ## random one the server made.
 func _connected_text() -> String:
-	return "Connected as %s" % Net.display_name if _named else "Connected"
+	return "Connected as %s" % Net.display_name if Net.named else "Connected"
 
 
 func _refresh_profile() -> void:
@@ -1058,7 +1077,7 @@ func _ask_name_if_new(links: Dictionary) -> void:
 	if links.is_empty():
 		return
 	_set_named(links.get("named") != false)
-	if _named or _name_prompt.is_open() or _in_lobby or not Net.match_id.is_empty():
+	if Net.named or _name_prompt.is_open() or _in_lobby or not Net.match_id.is_empty():
 		return
 	# A name typed into an earlier build's name field is offered back; the
 	# random one the settings file may hold instead is not.

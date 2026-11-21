@@ -63,11 +63,12 @@ export function nameHeldByAnother(nk: nkruntime.Nakama, name: string, userId: st
 }
 
 /**
- * The account with this name in any casing, the exact spelling first;
- * null when there is none. For find_player, so "tal" finds "Tal".
+ * The account other than `exceptId` with this name in any casing, the
+ * exact spelling first; null when there is none. For find_player, so
+ * "tal" finds "Tal".
  */
-export function userByName(nk: nkruntime.Nakama, name: string): { userId: string; username: string } | null {
-  const rows = nk.sqlQuery('SELECT id, username FROM users WHERE lower(username) = lower($1) AND id <> $2::uuid ORDER BY (username = $1) DESC LIMIT 1', [name, NOBODY]);
+export function userByName(nk: nkruntime.Nakama, name: string, exceptId: string): { userId: string; username: string } | null {
+  const rows = nk.sqlQuery('SELECT id, username FROM users WHERE lower(username) = lower($1) AND id <> $2::uuid ORDER BY (username = $1) DESC LIMIT 1', [name, exceptId]);
   const row = rows[0];
   return row ? { userId: String(row['id']), username: String(row['username']) } : null;
 }
@@ -78,6 +79,9 @@ export function userByName(nk: nkruntime.Nakama, name: string): { userId: string
  * once at start-up. A database that already holds two such names (from
  * before the name rules) gets a plain index instead; without any index the
  * lookups still work, only slower.
+ * WHY here and not in a migration: the table is Nakama's, and its own
+ * migrations know nothing of this index. Nakama reports a clash on it as a
+ * plain database error, which set_name turns into "taken" by looking again.
  */
 export function prepareNames(nk: nkruntime.Nakama, logger: nkruntime.Logger): void {
   try {

@@ -52,6 +52,7 @@ describe('accountLinks', () => {
       device: true,
       username: 'guest1',
       named: false,
+      nameLocked: false,
     });
   });
 
@@ -62,14 +63,22 @@ describe('accountLinks', () => {
       device: false,
       username: 'pat',
       named: false,
+      nameLocked: false,
     });
-    expect(accountLinks({ user: { googleId: '1099' } })).toEqual({ apple: false, google: true, device: false, username: '', named: false });
-    expect(accountLinks({ user: null, devices: null })).toEqual({ apple: false, google: false, device: false, username: '', named: false });
+    expect(accountLinks({ user: { googleId: '1099' } })).toEqual({ apple: false, google: true, device: false, username: '', named: false, nameLocked: false });
+    expect(accountLinks({ user: null, devices: null })).toEqual({ apple: false, google: false, device: false, username: '', named: false, nameLocked: false });
   });
 
   it('says whether the player picked the name', () => {
     expect(accountLinks({ user: { username: 'Tal', metadata: { named: true } } }).named).toBe(true);
     expect(accountLinks({ user: { username: 'NmnqzZdeZg', metadata: {} } }).named).toBe(false);
     expect(accountLinks({ user: { username: 'x', metadata: { named: 'yes' } } }).named).toBe(false);
+  });
+
+  it('counts a name an operator locked as picked, so the player is not asked for one', () => {
+    const locked = accountLinks({ user: { username: 'Player 12', metadata: { nameLocked: true } } });
+    expect(locked.named).toBe(true);
+    expect(locked.nameLocked).toBe(true);
+    expect(accountLinks({ user: { username: 'Tal', metadata: { named: true, nameLocked: 'yes' } } }).nameLocked).toBe(false);
   });
 });

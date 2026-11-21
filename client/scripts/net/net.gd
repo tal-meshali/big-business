@@ -49,6 +49,11 @@ var room_code: String = ""
 var last_view: Dictionary = {}
 var user_id: String = ""
 var display_name: String = ""
+## False until the server has said the player picked the account's name
+## (it starts with a random one), so nothing shows that name as theirs.
+## Set by the lobby from the account's answer and kept in the settings, so
+## the next launch and an offline one know it too.
+var named: bool = false
 ## True while the current match is the tutorial (coach overlay on).
 var tutorial_mode: bool = false
 ## Sign-in provider used last ("apple", "google" or "" for the device id),
@@ -83,6 +88,7 @@ func _load_settings() -> void:
 		port = cfg.get_value("server", "port", port)
 		scheme = cfg.get_value("server", "scheme", scheme)
 		display_name = cfg.get_value("player", "name", "")
+		named = bool(cfg.get_value("player", "named", false))
 		for id in cfg.get_value("social", "muted", PackedStringArray()):
 			muted[String(id)] = true
 		provider = String(cfg.get_value("player", "provider", ""))
@@ -94,6 +100,7 @@ func save_settings() -> void:
 	cfg.set_value("server", "port", port)
 	cfg.set_value("server", "scheme", scheme)
 	cfg.set_value("player", "name", display_name)
+	cfg.set_value("player", "named", named)
 	cfg.set_value("player", "provider", provider)
 	cfg.set_value("social", "muted", PackedStringArray(muted.keys()))
 	cfg.save(SETTINGS_PATH)
@@ -158,6 +165,8 @@ func connect_to_server() -> bool:
 		push_warning(msg)
 		connection_failed.emit(msg)
 		return false
+	# A token issued just now carries the current name.
+	_identity_stale = false
 	return await _open_socket()
 
 
@@ -552,6 +561,8 @@ func refresh_identity() -> bool:
 	var fresh: NakamaSession = await client.session_refresh_async(session)
 	if fresh.is_exception():
 		_reconnecting = false
+		# A close of the socket during the attempt went unanswered.
+		check_connection()
 		return false
 	session = fresh
 	_identity_stale = false
@@ -576,9 +587,12 @@ func refresh_identity() -> bool:
 func _reconnect_session() -> bool:
 	if _identity_stale and session != null and not session.is_exception():
 		var fresh: NakamaSession = await client.session_refresh_async(session)
-		if not fresh.is_exception():
-			session = fresh
-			_identity_stale = false
+		if fresh.is_exception():
+			# WHY: a refresh the server no longer takes would keep the old
+			# name in the token for good; a new sign-in issues a fresh one.
+			return await connect_preferred()
+		session = fresh
+		_identity_stale = false
 	if session != null and not session.is_exception() and not session.would_expire_in(60):
 		return await _open_socket()
 	return await connect_preferred()
@@ -884,6 +898,7 @@ func _switch_to_social(name: String, token: String) -> bool:
 		socket.close()
 	_closing = false
 	session = found
+	_identity_stale = false
 	provider = name
 	save_settings()
 	if not await _open_socket():
@@ -910,6 +925,7 @@ func connect_preferred() -> bool:
 		var found := await _social_session(provider, token, false)
 		if not found.is_exception():
 			session = found
+			_identity_stale = false
 			return await _open_socket()
 		push_warning("%s sign-in failed, using the device id: %s" % [provider, found.get_exception().message])
 	return await connect_to_server()

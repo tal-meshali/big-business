@@ -63,6 +63,9 @@ func _init() -> void:
 	add_child(_back_port)
 	_back = CardView.new()
 	_back.setup(-1, 0, 0, false)
+	# WHY: the viewport would cut the back's own shadow into square corners;
+	# this card draws the shadow for both sides.
+	_back.shadow = false
 	_back.size = Vector2(CardView.W, CardView.H)
 	_back.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_back_port.add_child(_back)
@@ -233,9 +236,21 @@ func _draw_sheen(u: float) -> void:
 	var slant := h * 0.35
 	var x := lerpf(-w - slant, size.x, _sheen)
 	var top := PackedVector2Array([Vector2(x + slant, pad), Vector2(x + slant + w, pad), Vector2(x + w, pad + h), Vector2(x, pad + h)])
-	var clip := PackedVector2Array([Vector2(pad, pad), Vector2(size.x - pad, pad), Vector2(size.x - pad, pad + h), Vector2(pad, pad + h)])
+	# WHY rounded: a plain rectangle shows the streak past the card's corners.
+	var clip := _rounded(Rect2(pad, pad, size.x - pad * 2.0, h), RADIUS * u - pad)
 	for part in Geometry2D.intersect_polygons(top, clip):
 		draw_colored_polygon(part, Color(1, 1, 1, 0.38))
+
+
+## The outline of `rect` with its corners rounded by `r`, clockwise.
+static func _rounded(rect: Rect2, r: float) -> PackedVector2Array:
+	var points := PackedVector2Array()
+	var centers: Array[Vector2] = [rect.position + Vector2(rect.size.x - r, r), rect.end - Vector2(r, r), rect.position + Vector2(r, rect.size.y - r), rect.position + Vector2(r, r)]
+	for corner in 4:
+		for step in 5:
+			var angle := -PI / 2.0 + (corner + step / 4.0) * PI / 2.0
+			points.append(centers[corner] + Vector2(cos(angle), sin(angle)) * r)
+	return points
 
 
 ## The largest size from `px` down to `floor_px` at which `text` fits `room`.

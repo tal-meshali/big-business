@@ -24,6 +24,10 @@ func _run() -> void:
 	DirAccess.make_dir_recursive_absolute(out_dir)
 	root.get_window().size = Vector2i(720, 1280)
 	await process_frame
+	# The name shots change what the settings file holds; put it back after.
+	var settings: Node = root.get_node("Net")
+	var previous_name: String = settings.display_name
+	var previous_named: bool = settings.named
 
 	var main = load("res://scenes/main.tscn").instantiate()
 	root.add_child(main)
@@ -179,6 +183,7 @@ func _run() -> void:
 	tall._apply_progress({"xp": 120, "level": 2, "gamesPlayed": 3, "wins": 1, "streak": 4}, true)
 	tall._status.text = "Connected as Tal"
 	net.display_name = "Tal"
+	net.named = true
 	tall._show_name()
 	await _settle()
 	for b in tall._buttons:
@@ -227,6 +232,9 @@ func _run() -> void:
 	await _save(out_dir + "/coach_tall.png")
 	coached.queue_free()
 	net.tutorial_mode = false
+	net.display_name = previous_name
+	net.named = previous_named
+	net.save_settings()
 	print("SCREENSHOTS OK")
 	quit(0)
 
@@ -303,6 +311,19 @@ func _profile_shots(lobby, out_dir: String, suffix: String) -> void:
 	lobby._name_prompt._show_error("That name is taken. Try another.")
 	await create_timer(0.4).timeout
 	await _save(out_dir + "/name_taken%s.png" % suffix)
+	# The same step with a keyboard up (a grey block stands in for it).
+	var keyboard := ColorRect.new()
+	keyboard.color = Color("#2B2B33")
+	keyboard.size = Vector2(root.size.x, roundf(root.size.y * 0.4))
+	keyboard.position = Vector2(0, root.size.y - keyboard.size.y)
+	root.add_child(keyboard)
+	lobby._name_prompt._on_typed("Tal")
+	lobby.keyboard_override = keyboard.size.y
+	await create_timer(0.4).timeout
+	await _save(out_dir + "/name_keyboard%s.png" % suffix)
+	lobby.keyboard_override = -1.0
+	keyboard.queue_free()
+	await create_timer(0.2).timeout
 	lobby._name_prompt._on_cancel()
 	await create_timer(0.2).timeout
 	lobby._set_named(true)

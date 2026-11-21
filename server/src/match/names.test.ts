@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { cleanName, fold, isNamed, NAME_BAD_CHARACTERS, NAME_LOCKED, NAME_MIXED, NAME_NOT_ALLOWED, NAME_TAKEN, NAME_TOO_LONG, NAME_TOO_SHORT, nameLength, nameProblem } from './names';
+import { cleanName, fold, isNamed, NAME_BAD_CHARACTERS, NAME_DIGITS, NAME_LOCKED, NAME_MIXED, NAME_NOT_ALLOWED, NAME_TAKEN, NAME_TOO_LONG, NAME_TOO_SHORT, nameLength, nameProblem } from './names';
 import { ALICE, BOB } from './test_support';
 import { beforeAuthenticateDevice, beforeUpdateAccount, refuseSignIn, rpcSetName, userByName } from './rpc_names';
 
@@ -10,9 +10,9 @@ describe('cleanName', () => {
   });
 
   it('folds compatibility forms to the plain ones', () => {
-    expect(cleanName('Ｔａｌ')).toBe('Tal');
-    expect(cleanName('Tal 　M')).toBe('Tal M');
-    expect(cleanName('Zoë')).toBe('Zoë');
+    expect(cleanName('\uff34\uff41\uff4c')).toBe('Tal');
+    expect(cleanName('Tal\u00a0\u3000M')).toBe('Tal M');
+    expect(cleanName('Zoe\u0308')).toBe('Zo\u00eb');
   });
 
   it('answers an empty string for anything that is not text', () => {
@@ -24,13 +24,13 @@ describe('cleanName', () => {
 
 describe('nameProblem', () => {
   it('accepts ordinary names in the listed alphabets', () => {
-    const ok = ['Tal', 'Bo', 'Golden Broker 41', 'maya_k', 'Noa-Lee', 'Zoë', 'Nguyễn', 'טל', 'טל משעלי', 'Tal טל',
-      '太郎', '山田太郎', '지민', 'Иван', 'Νίκος', 'علي', 'Player 7'];
+    const ok = ['Tal', 'Bo', 'Golden Broker 41', 'maya_k', 'Noa-Lee', 'Zo\u00eb', 'Nguy\u1ec5n', '\u05d8\u05dc', '\u05d8\u05dc \u05de\u05e9\u05e2\u05dc\u05d9', 'Tal \u05d8\u05dc',
+      '\u592a\u90ce', '\u5c71\u7530\u592a\u90ce', '\uc9c0\ubbfc', '\u0418\u0432\u0430\u043d', '\u039d\u03af\u03ba\u03bf\u03c2', '\u0639\u0644\u064a', 'Player 7'];
     for (const name of ok) expect(nameProblem(name)).toBeNull();
   });
 
   it('counts characters, not UTF-16 units', () => {
-    expect(nameLength('🙂🙂🙂')).toBe(3);
+    expect(nameLength('\ud83d\ude42\ud83d\ude42\ud83d\ude42')).toBe(3);
     expect(nameProblem('a')).toBe(NAME_TOO_SHORT);
     expect(nameProblem('')).toBe(NAME_TOO_SHORT);
     expect(nameProblem('a'.repeat(16))).toBeNull();
@@ -38,40 +38,66 @@ describe('nameProblem', () => {
   });
 
   it('refuses symbols, emoji, controls and anything invisible', () => {
-    const bad = ['tal@home', 'a<b>c', 'x/y/z', 'semi;colon', 'quote"d', 'new\nline', 't.me.kiddo', 'J.R.', '...', '_-_', '🙂🙂🙂',
+    const bad = ['tal@home', 'a<b>c', 'x/y/z', 'semi;colon', 'quote"d', 'new\nline', 't.me.kiddo', 'J.R.', '...', '_-_', '\ud83d\ude42\ud83d\ude42\ud83d\ude42',
       // Zero width space, right-to-left override, no-break space (when not cleaned), Hangul filler,
       // braille blank, variation selector, Arabic letter mark, a lone surrogate, a tag character, a combining mark left over.
-      'zero​width', 'flip‮ped', 'nb sp', 'ㅤㅤㅤ', '⠀⠀⠀', 'Tal️', 'Tal؜', 'Tal\ud800', 'Tal󠁁', 'Ta̶l'];
+      'zero\u200bwidth', 'flip\u202eped', 'nb\u00a0sp', '\u3164\u3164\u3164', '\u2800\u2800\u2800', 'Tal\ufe0f', 'Tal\u061c', 'Tal\ud800', 'Tal\udb40\udc41', 'Ta\u0336l'];
     for (const name of bad) expect(nameProblem(name)).toBe(NAME_BAD_CHARACTERS);
   });
 
   it('refuses a name that borrows look-alike letters from another alphabet', () => {
     // Cyrillic A in "Admin", Cyrillic es in a listed word, Greek omicron in "Tom".
-    for (const name of ['Аdmin', 'fuсk', 'Tοm']) expect(nameProblem(name)).toBe(NAME_MIXED);
+    for (const name of ['\u0410dmin', 'fu\u0441k', 'T\u03bfm']) expect(nameProblem(name)).toBe(NAME_MIXED);
   });
 
   it('refuses listed words however they are spaced or spelled', () => {
     expect(fold('F-u_c K 5h1t')).toBe('fuckshit');
-    for (const bad of ['fuck', 'FuCk you', 'f u c k', 'sh1t head', 'Sh1tHead', 's h i t', 'shit99', 'b1tch', 'xXn1ggerXx', 'H1tler', 'fück', 'NaziKing', 'nazis', 'Porn Hub']) {
+    for (const bad of ['fuck', 'FuCk you', 'f u c k', 'sh1t head', 'Sh1tHead', 's h i t', 'shit99', 'b1tch', 'xXn1ggerXx', 'H1tler', 'f\u00fcck', 'NaziKing', 'nazis', 'Porn Hub', 'porn4u', 'nazi4life']) {
       expect(nameProblem(cleanName(bad))).toBe(NAME_NOT_ALLOWED);
     }
-    expect(nameProblem(cleanName('ｆｕｃｋ'))).toBe(NAME_NOT_ALLOWED);
+    expect(nameProblem(cleanName('\uff46\uff55\uff43\uff4b'))).toBe(NAME_NOT_ALLOWED);
+  });
+
+  it('reads look-alike letters as the Latin ones they copy', () => {
+    // Dotless i, o with a stroke; then whole words in Greek and in Cyrillic capitals.
+    const bad = ['Adm\u0131n', 'Offic\u0131al', 'Moderat\u00f8r', 'sh\u0131t', 'h\u0131tler', '\u039d\u0391\u0396\u0399', '\u0392\u039f\u03a4', '\u0412\u041e\u0422', '\u0405\u041d\u0406\u0422', '\u0412\u0406\u0422\u0421\u041d'];
+    for (const name of bad) expect(nameProblem(name)).toBe(NAME_NOT_ALLOWED);
+    // Ordinary names in those alphabets and with those letters still pass.
+    for (const ok of ['Y\u0131ld\u0131z', 'S\u00f8ren', '\u0412\u0435\u0440\u0430', '\u041c\u0430\u043a\u0441', '\u0395\u03bb\u03ad\u03bd\u03b7']) expect(nameProblem(ok)).toBeNull();
+  });
+
+  it('needs letters, and refuses a phone number', () => {
+    for (const name of ['0544123456', '054-412-3456', 'call 0544123456', '12', '7 7']) expect(nameProblem(name)).toBe(NAME_DIGITS);
+    for (const ok of ['Player 123456', 'R2D2', 'Tal 7']) expect(nameProblem(ok)).toBeNull();
+  });
+
+  it('allows marks on a letter but not a stack of them', () => {
+    // Singh in Devanagari and a Thai word with a vowel and a tone mark on one letter.
+    for (const ok of ['\u0938\u093f\u0902\u0939', '\u0905\u0902\u0915\u093f\u0924', '\u0e17\u0e35\u0e48']) expect(nameProblem(ok)).toBeNull();
+    // Fifteen marks on one Thai letter, the same in Devanagari, marks alone, a mark first.
+    const bad = ['\u0e01' + '\u0e47'.repeat(15), '\u0915' + '\u0941'.repeat(15), '\u0e34\u0e34', '\u0e34\u0e01\u0e01', 'a \u0e34b'];
+    for (const name of bad) expect(nameProblem(name)).toBe(NAME_BAD_CHARACTERS);
+  });
+
+  it('allows one separator between words and none at the ends', () => {
+    for (const name of ['a---b', '_a_', '- a -', 'ab-', '-ab', 'a - b', 'a__b']) expect(nameProblem(name)).toBe(NAME_BAD_CHARACTERS);
+    for (const ok of ['Noa-Lee', 'maya_k', 'a b c d']) expect(nameProblem(ok)).toBeNull();
   });
 
   it('lets ordinary names through that only contain a listed word', () => {
-    for (const ok of ['Yamashita', 'Nazir', 'Benazir', 'Therapist', 'Swank', 'Pornchai', 'Push It', 'Mass Hit', 'Cassandra', 'Dickens', 'Analyst Amy', 'Grape Soda', 'Badminton', 'Botanist', 'Modesty', 'Devon', 'Systematic']) {
+    for (const ok of ['Yamashita', 'Nazir', 'Benazir', 'Therapist', 'Swank', 'Pornchai', 'Push It', 'Mass Hit', 'Cassandra', 'Dickens', 'Analyst Amy', 'Grape Soda', 'Badminton', 'Botanist', 'Modesty', 'Devon', 'Systematic', 'Dev', 'Dev Patel', 'Stafford', 'Staffan']) {
       expect(nameProblem(ok)).toBeNull();
     }
   });
 
   it('reserves the names of the game, its staff and its bots', () => {
-    const bad = ['Admin', 'Admin1', 'Admin 2', 'adm1n', 'Administrator Al', 'MODERATOR', 'Moderator 7', 'Support Team', 'Official Mod', 'Tal Mod', 'Staff', 'System', 'Owner', 'Dev',
+    const bad = ['Admin', 'Admin1', 'Admin 2', 'adm1n', 'Administrator Al', 'MODERATOR', 'Moderator 7', 'Support Team', 'Official Mod', 'Tal Mod', 'Staff', 'System', 'Owner', 'theadmin', 'RealAdmin', 'xadmin', 'IAdmin', 'unofficial',
       'Big Business', 'big_business', 'Big Business HQ', 'Intern Ivy', 'analyst avi', 'CEO Cal', 'Bot', 'Tal Bot'];
     for (const name of bad) expect(nameProblem(name)).toBe(NAME_NOT_ALLOWED);
   });
 
   it('never says " at ", where the client cuts a server error', () => {
-    for (const sentence of [NAME_TOO_SHORT, NAME_TOO_LONG, NAME_BAD_CHARACTERS, NAME_MIXED, NAME_NOT_ALLOWED, NAME_TAKEN, NAME_LOCKED]) {
+    for (const sentence of [NAME_TOO_SHORT, NAME_TOO_LONG, NAME_BAD_CHARACTERS, NAME_DIGITS, NAME_MIXED, NAME_NOT_ALLOWED, NAME_TAKEN, NAME_LOCKED]) {
       expect(sentence).not.toContain(' at ');
       expect(sentence.endsWith('.')).toBe(true);
       expect(sentence.length).toBeLessThan(80);
@@ -188,9 +214,12 @@ describe('set_name', () => {
 describe('userByName', () => {
   it('finds a player in any letter case, the exact spelling first', () => {
     const nk = fakeAccounts({ [ALICE]: { username: 'tal', metadata: {} }, [BOB]: { username: 'Tal', metadata: {} } });
-    expect(userByName(nk, 'Tal')).toEqual({ userId: BOB, username: 'Tal' });
-    expect(userByName(nk, 'TAL')).not.toBeNull();
-    expect(userByName(nk, 'Dana')).toBeNull();
+    expect(userByName(nk, 'Tal', '')).toEqual({ userId: BOB, username: 'Tal' });
+    expect(userByName(nk, 'TAL', '')).not.toBeNull();
+    expect(userByName(nk, 'Dana', '')).toBeNull();
+    // Never the caller: "tal" looking for "TAL" finds the other account.
+    expect(userByName(nk, 'TAL', ALICE)).toEqual({ userId: BOB, username: 'Tal' });
+    expect(userByName(nk, 'tal', BOB)).toEqual({ userId: ALICE, username: 'tal' });
   });
 });
 

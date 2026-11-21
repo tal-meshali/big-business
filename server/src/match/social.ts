@@ -94,8 +94,8 @@ export const rpcFindPlayer: nkruntime.RpcFunction = (ctx, logger, nk, payload) =
   const name = readString(parseBody(payload), 'name', USERNAME_MAX + 1);
   if (!name || name.length > USERNAME_MAX) reject('not found');
   checkRate(nk, callerId, 'find_player', Date.now());
-  const user = userByName(nk, name);
-  if (!user || user.userId === callerId) reject('not found');
+  const user = userByName(nk, name, callerId);
+  if (!user) reject('not found');
   return JSON.stringify({ userId: user.userId, username: user.username });
 };
 
@@ -137,8 +137,10 @@ export interface AccountLinks {
   google: boolean;
   device: boolean;
   username: string;
-  /** True once the player picked the name (set_name); false for Nakama's random one. */
+  /** True once the player picked the name (set_name), or an operator set it; false for Nakama's random one. */
   named: boolean;
+  /** True when an operator set the name after a report: set_name refuses this account. */
+  nameLocked: boolean;
 }
 
 /**
@@ -148,16 +150,20 @@ export interface AccountLinks {
  */
 export function accountLinks(account: { user?: { appleId?: string; googleId?: string; username?: string; metadata?: { [key: string]: unknown } | null } | null; devices?: { id: string }[] | null }): AccountLinks {
   const user = account.user || {};
+  const locked = !!user.metadata && user.metadata['nameLocked'] === true;
   return {
     apple: !!user.appleId,
     google: !!user.googleId,
     device: (account.devices || []).length > 0,
     username: user.username || '',
-    named: isNamed(account),
+    // WHY locked counts as named: the name step would otherwise ask for a
+    // name that set_name refuses, with no way past it.
+    named: isNamed(account) || locked,
+    nameLocked: locked,
   };
 }
 
-/** RPC account_links: {apple, google, device, username, named} for the caller. */
+/** RPC account_links: {apple, google, device, username, named, nameLocked} for the caller. */
 export const rpcAccountLinks: nkruntime.RpcFunction = (ctx, logger, nk, payload) => {
   void logger; void payload;
   const userId = requireUser(ctx);

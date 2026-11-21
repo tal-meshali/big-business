@@ -1388,6 +1388,14 @@ func _seat_anchor(seat_idx: int) -> Vector2:
 	return get_viewport_rect().size / 2.0
 
 
+## The coin on a seat's capital pill, where coins leave and land.
+func _capital_anchor(seat_idx: int, gold := false) -> Vector2:
+	for sv in _seat_views:
+		if sv.visible and sv.seat_index == seat_idx:
+			return sv.capital_center("gold" if gold else "bronze")
+	return get_viewport_rect().size / 2.0
+
+
 func _center_of(cv: CardView) -> Vector2:
 	return cv.get_global_transform() * (Vector2(CardView.W, CardView.H) / 2.0)
 
@@ -1436,7 +1444,7 @@ func _play_events_then_render() -> void:
 					var d := 0.0
 					for cv in _market_row.get_children():
 						if cv is CardView and not cv.blocked:
-							_fly_coin(_seat_anchor(seat), _center_of(cv), false, d)
+							_fly_coin(_capital_anchor(seat), _center_of(cv), false, d)
 							d = minf(d + 0.04, 0.12)
 					await get_tree().create_timer(COIN_TIME + d).timeout
 				_action_note = "" if mine else "%s draws from the supply%s." % [_seat_name(seat), " and pays %d capital onto the Market" % cost if cost > 0 else ""]
@@ -1453,7 +1461,7 @@ func _play_events_then_render() -> void:
 				var from := _market_card_anchor(int(card.get("id", -1)))
 				_action_note = "" if mine else "%s takes a %s share from the Market%s." % [_seat_name(seat), Companies.name_of(company), " with %d capital on it" % coins if coins > 0 else ""]
 				for i in mini(coins, 8):
-					_fly_coin(from, _seat_anchor(seat), false, i * 0.07)
+					_fly_coin(from, _capital_anchor(seat), false, i * 0.07)
 				var market_k := _felt_scale(_market_pos(0, 1), MARKET_CARD)
 				if mine:
 					await _fly_to_hand(from, market_k)
@@ -1605,15 +1613,9 @@ func _fly_card(from: Vector2, to: Vector2, company: int, face_up: bool, from_k: 
 
 ## A bronze (or gold) coin hops from one point to another after `delay`.
 func _fly_coin(from: Vector2, to: Vector2, gold: bool = false, delay: float = 0.0) -> void:
-	var coin := Panel.new()
+	var coin := Control.new()
 	var r := 9.0 * _s
-	var face := StyleBoxFlat.new()
-	face.bg_color = Companies.GOLD if gold else Companies.BRONZE
-	face.border_color = Companies.INK
-	face.set_border_width_all(2)
-	face.border_width_bottom = 4
-	face.set_corner_radius_all(int(r) + 2)
-	coin.add_theme_stylebox_override("panel", face)
+	coin.draw.connect(func() -> void: CapitalChip.coin(coin, Vector2(r, r), r, gold))
 	coin.size = Vector2(r, r) * 2.0
 	coin.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	coin.visible = delay <= 0.0
@@ -1640,13 +1642,13 @@ func _animate_dividends(result: Dictionary) -> void:
 			continue
 		var company := int(div.get("company", 0))
 		_status.text = "%s pays out to %s" % [Companies.name_of(company), seats[int(majority)].get("name", "?")]
-		var to := _seat_anchor(int(majority))
+		var to := _capital_anchor(int(majority), true)
 		var any := false
 		if not div.get("payments", []).is_empty():
 			sfx.play("gold")
 		for p in div.get("payments", []):
 			for i in mini(int(p.get("coins", 0)), 8):
-				_fly_coin(_seat_anchor(int(p.get("from", 0))), to, true)
+				_fly_coin(_capital_anchor(int(p.get("from", 0))), to, true)
 				any = true
 				await get_tree().create_timer(0.05).timeout
 		if any:

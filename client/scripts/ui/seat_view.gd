@@ -27,6 +27,18 @@ var strip := false
 ## Wide plates (one or two opponents) spell out "capital".
 var wide := false
 var avatar_color := AVATARS[1]
+## Capital pop: 0 to 1, per coin kind, while a count that just changed
+## swells and flashes gold. Deltas float up from the pill and fade.
+var _pop := {"bronze": 0.0, "gold": 0.0}
+var _pop_tweens := {}
+var _deltas: Array = []
+var _shown := {}
+## Where each pill was drawn last, for the floating deltas.
+var _pill_rects := {}
+
+const POP_UP := 0.1
+const POP_DOWN := 0.28
+const DELTA_TIME := 0.8
 
 
 func _init() -> void:
@@ -47,7 +59,42 @@ func update(p_index: int, p_data: Dictionary, p_active: bool, p_me: bool, p_dead
 	is_me = p_me
 	deadline_ms = p_deadline
 	step_ms = p_step_seconds * 1000.0
+	_watch_capital()
 	queue_redraw()
+
+
+## Pops a count that changed since the last update of the same seat.
+func _watch_capital() -> void:
+	var seen: bool = int(_shown.get("seat", -1)) == seat_index
+	for kind in ["bronze", "gold"]:
+		var now := int(data.get(kind, 0))
+		if seen and _shown.has(kind) and int(_shown[kind]) != now:
+			_start_pop(kind, now - int(_shown[kind]))
+		_shown[kind] = now
+	_shown["seat"] = seat_index
+
+
+func _start_pop(kind: String, delta: int) -> void:
+	if _pop_tweens.has(kind) and _pop_tweens[kind].is_valid():
+		_pop_tweens[kind].kill()
+	# WHY from the current value: a second change mid-pop swells again
+	# from where it is instead of snapping back to rest.
+	var tw := create_tween()
+	var setter := func(v: float) -> void:
+		_pop[kind] = v
+		queue_redraw()
+	tw.tween_method(setter, float(_pop[kind]), 1.0, POP_UP).set_ease(Tween.EASE_OUT).set_trans(Tween.TRANS_CUBIC)
+	tw.tween_method(setter, 1.0, 0.0, POP_DOWN).set_ease(Tween.EASE_OUT).set_trans(Tween.TRANS_CUBIC)
+	_pop_tweens[kind] = tw
+	var d := {"kind": kind, "delta": delta, "t": 0.0}
+	_deltas.append(d)
+	var dt := create_tween()
+	dt.tween_method(func(v: float) -> void:
+		d["t"] = v
+		queue_redraw(), 0.0, 1.0, DELTA_TIME).set_ease(Tween.EASE_OUT).set_trans(Tween.TRANS_QUART)
+	dt.tween_callback(func() -> void:
+		_deltas.erase(d)
+		queue_redraw())
 
 
 func _process(_delta: float) -> void:
@@ -57,6 +104,18 @@ func _process(_delta: float) -> void:
 
 func avatar_center() -> Vector2:
 	return get_global_transform() * _avatar_local()
+
+
+## Where coins leave from and land: the coin on the capital pill (or, for
+## gold before there is any, just right of the capital pill).
+func capital_center(kind := "bronze") -> Vector2:
+	if not _pill_rects.has("bronze"):
+		return avatar_center()
+	var rect: Rect2 = _pill_rects.get(kind, _pill_rects["bronze"])
+	var local := Vector2(rect.position.x + rect.size.y * 0.62, rect.get_center().y)
+	if not _pill_rects.has(kind):
+		local = Vector2(rect.end.x + rect.size.y, rect.get_center().y)
+	return get_global_transform() * local
 
 
 func _avatar_local() -> Vector2:
@@ -136,9 +195,11 @@ func _draw() -> void:
 		tb.set_corner_radius_all(int(4 * s))
 		draw_style_box(tb, tag_box)
 		draw_string(text, Vector2(tx + 2 * s, top + 13 * s), tag, HORIZONTAL_ALIGNMENT_LEFT, -1, int(9 * s), Companies.INK)
-	_draw_coins(text, Vector2(nx, top + 26 * s), bronze, gold, wide)
+	_draw_coins(text, Vector2(nx, top + 24.5 * s), bronze, gold, wide, size.x - 6 * s)
 
-	_draw_pips(text, Vector2(8 * s, top + 35 * s), size.x - 12 * s)
+	# WHY 38: clears the capital pill above, so a regulator seal on a pip
+	# does not cover the count.
+	_draw_pips(text, Vector2(8 * s, top + 38 * s), size.x - 12 * s)
 
 
 func _draw_strip(text: Font, c: Vector2, r: float, name_text: String, bronze: int, gold: int) -> void:
@@ -154,20 +215,58 @@ func _draw_strip(text: Font, c: Vector2, r: float, name_text: String, bronze: in
 	_draw_pips(text, Vector2(maxf(x + 8 * s, size.x - pw - 4 * s), size.y / 2.0 - 9 * s), size.x)
 
 
-## Coin icons with the bronze (and gold) count; returns the x after them.
-func _draw_coins(text: Font, at: Vector2, bronze: int, gold: int, spell: bool) -> float:
-	var px := int(12 * s)
+## Capital pills (bronze, then gold once there is any); returns the x
+## after them. Shrinks to fit `right` when a narrow plate holds both.
+func _draw_coins(_text: Font, at: Vector2, bronze: int, gold: int, spell: bool, right: float = INF) -> float:
+	var h := (15.0 if strip else 14.0) * s
+	var pills := [["bronze", bronze, " capital" if spell else ""]]
+	if gold > 0:
+		pills.append(["gold", gold, " gold" if spell else ""])
+	var gap := 6.0 * s
+	var total := -gap
+	for p in pills:
+		total += CapitalChip.pill_width(int(p[1]), String(p[2]).strip_edges(), h) + gap
+	if at.x + total > right and spell:
+		# Drop the words before shrinking.
+		for p in pills:
+			p[2] = ""
+		total = -gap
+		for p in pills:
+			total += CapitalChip.pill_width(int(p[1]), "", h) + gap
+	if at.x + total > right:
+		var k := maxf(0.7, (right - at.x) / total)
+		h *= k
+		gap *= k
 	var x := at.x
-	for coin in [[bronze, Companies.BRONZE, " capital" if spell else ""], [gold, Companies.GOLD, " gold" if spell else ""]]:
-		if coin[1] == Companies.GOLD and int(coin[0]) == 0:
+	_pill_rects.clear()
+	for p in pills:
+		var kind: String = p[0]
+		var rect := CapitalChip.pill(self, Vector2(x, at.y), int(p[1]), String(p[2]).strip_edges(), h, kind == "gold", float(_pop[kind]))
+		_pill_rects[kind] = rect
+		x = rect.end.x + gap
+	_draw_deltas(h)
+	return x - gap + 8.0 * s
+
+
+## "+3" or "-2" drifting up beside a pill whose count just changed.
+func _draw_deltas(h: float) -> void:
+	var font := UiTheme.display_font()
+	var px := int(h * 0.9)
+	for d in _deltas:
+		if not _pill_rects.has(d["kind"]):
 			continue
-		var cc := Vector2(x + 6 * s, at.y)
-		draw_circle(cc, 6 * s, Companies.INK)
-		draw_circle(cc, 4.6 * s, coin[1])
-		var label := "%d%s" % [int(coin[0]), coin[2]]
-		draw_string(text, Vector2(x + 15 * s, at.y + px * 0.36), label, HORIZONTAL_ALIGNMENT_LEFT, -1, px, Companies.INK)
-		x += 15 * s + text.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, px).x + 8 * s
-	return x
+		var rect: Rect2 = _pill_rects[d["kind"]]
+		var t: float = d["t"]
+		var delta: int = d["delta"]
+		var txt := ("+%d" if delta > 0 else "%d") % delta
+		# WHY beside the pill, not above it: above it lands on the name.
+		var swell := rect.size.x * CapitalChip.POP_SCALE / 2.0 * float(_pop[d["kind"]])
+		var at := Vector2(rect.end.x + swell + 4.0 * s, rect.get_center().y + px * 0.36 - t * 10.0 * s)
+		# Hold, then fade over the second half.
+		var a := clampf(2.0 - t * 2.0, 0.0, 1.0)
+		var fill := UiTheme.MINT if delta > 0 else UiTheme.BADGE
+		draw_string_outline(font, at, txt, HORIZONTAL_ALIGNMENT_LEFT, -1, px, maxi(4, int(px * 0.3)), Color(UiTheme.OUTLINE, a))
+		draw_string(font, at, txt, HORIZONTAL_ALIGNMENT_LEFT, -1, px, Color(fill, a))
 
 
 func _pip_list() -> Array:

@@ -23,6 +23,7 @@ var _pulse := 0.0
 var _angle := 0.0
 var _angle_to := 0.0
 var _current: Control = null
+static var _glow_tex: GradientTexture2D = null
 
 
 func _init() -> void:
@@ -110,10 +111,23 @@ func _process(delta: float) -> void:
 func _draw() -> void:
 	var c := size / 2.0
 	var r := px * 2.3
-	# Warm glow: stacked translucent discs, brighter in the middle, that
-	# swell on each beat.
+	# Warm glow that swells on each beat.
 	var glow := r * (0.62 + 0.1 * _pulse)
-	for i in 6:
-		var k := 1.0 - float(i) / 6.0
-		draw_circle(c, glow * k, Color(1.0, 0.78, 0.24, 0.05 + 0.03 * _pulse), true, -1.0, true)
-	LobbyBackdrop.draw_rays(self, c, r, _angle, RAYS, 0.34)
+	draw_texture_rect(_glow_texture(), Rect2(c - Vector2.ONE * glow, Vector2.ONE * glow * 2.0), false, Color(1, 1, 1, 0.75 + 0.25 * _pulse))
+	LobbyBackdrop.draw_rays(self, c, r, _angle, RAYS, 0.28)
+
+
+## A soft round gold glow, transparent at the rim.
+static func _glow_texture() -> GradientTexture2D:
+	if _glow_tex == null:
+		var g := Gradient.new()
+		g.offsets = PackedFloat32Array([0.0, 0.5, 1.0])
+		g.colors = PackedColorArray([Color(1.0, 0.8, 0.3, 0.42), Color(1.0, 0.75, 0.2, 0.14), Color(1.0, 0.75, 0.2, 0.0)])
+		_glow_tex = GradientTexture2D.new()
+		_glow_tex.gradient = g
+		_glow_tex.fill = GradientTexture2D.FILL_RADIAL
+		_glow_tex.fill_from = Vector2(0.5, 0.5)
+		_glow_tex.fill_to = Vector2(1.0, 0.5)
+		_glow_tex.width = 128
+		_glow_tex.height = 128
+	return _glow_tex

@@ -748,6 +748,28 @@ func _get_ready_checks() -> int:
 	if table._timer_label.text != "":
 		push_error("the step timer should stay hidden during the countdown")
 		failures += 1
+	# Nothing on the shade but the shade itself takes taps, so that it can
+	# let them through during GO!.
+	for c in table._ready_overlay.find_children("*", "Control", true, false):
+		if c.mouse_filter != Control.MOUSE_FILTER_IGNORE:
+			push_error("%s on the get-ready shade should ignore the mouse" % c)
+			failures += 1
+			break
+	# A view whose countdown end moved by a few ms (latency) keeps the end.
+	var ends: int = table._ready_ends_msec
+	var jitter := v.duplicate(true)
+	jitter["startsInMs"] = int(v["startsInMs"]) - 120
+	await create_timer(0.05).timeout
+	table._on_view(jitter)
+	if table._ready_ends_msec != ends:
+		push_error("latency jitter should not move the countdown's end")
+		failures += 1
+	# Reconnecting shows above the shade.
+	table._on_reconnecting(1)
+	if table._reconnect_overlay.get_index() < table._ready_overlay.get_index():
+		push_error("Reconnecting should show above the get-ready shade")
+		failures += 1
+	table._on_reconnected()
 	# My turn comes first in this deal: no chime until the countdown ends.
 	v["active"] = 1
 	table._on_view(v.duplicate(true))
@@ -792,6 +814,16 @@ func _get_ready_checks() -> int:
 			break
 	if table._ready_overlay.visible:
 		push_error("the countdown should end on its own when time is up")
+		failures += 1
+	# A game that ends during the countdown goes to dividend day without GO!.
+	v["startsInMs"] = 1200
+	table._on_view(v.duplicate(true))
+	var ended := v.duplicate(true)
+	ended["startsInMs"] = 0
+	ended["phase"] = "ended"
+	table._on_view(ended)
+	if table._ready_burst.text == "GO!":
+		push_error("no GO! when the game ended during the countdown")
 		failures += 1
 	table.queue_free()
 	return failures

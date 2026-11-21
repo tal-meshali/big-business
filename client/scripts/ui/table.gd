@@ -102,6 +102,7 @@ var _ready_overlay: ColorRect
 var _ready_seats: Label
 var _ready_first: Label
 var _ready_burst: CountdownBurst
+var _ready_center: CenterContainer
 ## Ticks (ms) when the get-ready countdown ends; 0 when play has begun.
 var _ready_ends_msec: int = 0
 var _ready_tween: Tween
@@ -386,6 +387,9 @@ func _layout() -> void:
 	_hand_layer.offset_bottom = bar_top - screen.y
 	_hand_layer.offset_top = _hand_layer.offset_bottom - hand_h
 	_emote_bar.offset_bottom = bar_top - screen.y - _px(6)
+	# The get-ready content centres between the top bar and the bottom bar.
+	if _ready_center != null:
+		_ready_center.offset_bottom = bar_top - screen.y
 	_place_supply()
 
 
@@ -402,12 +406,15 @@ func _build_get_ready() -> void:
 	var center := CenterContainer.new()
 	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	center.offset_top = _px(56) + _insets.x
-	center.offset_bottom = -_insets.y
 	center.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_ready_overlay.add_child(center)
+	_ready_center = center
+	# Everything on the shade ignores the mouse (labels already do): during
+	# GO! the shade lets taps through, and a PASS container would eat them.
 	var column := VBoxContainer.new()
+	column.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	column.alignment = BoxContainer.ALIGNMENT_CENTER
-	column.add_theme_constant_override("separation", _px(10))
+	column.add_theme_constant_override("separation", _px(8))
 	center.add_child(column)
 	_ready_burst = CountdownBurst.new()
 	_ready_burst.px = _px(110)
@@ -419,6 +426,7 @@ func _build_get_ready() -> void:
 	column.add_child(_ready_first)
 
 	var card := PanelContainer.new()
+	card.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var style := StyleBoxFlat.new()
 	style.bg_color = UiTheme.ROYAL
 	style.border_color = UiTheme.OUTLINE
@@ -435,6 +443,7 @@ func _build_get_ready() -> void:
 	card.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	column.add_child(card)
 	var box := VBoxContainer.new()
+	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	box.add_theme_constant_override("separation", _px(6))
 	card.add_child(box)
 	var order_title := UiTheme.label("TURN ORDER", _px(11), UiTheme.LILAC, true)
@@ -816,7 +825,7 @@ func _process(_delta: float) -> void:
 	if view.is_empty():
 		return
 	var deadline := float(view.get("deadline", 0))
-	if deadline <= 0 or view.get("phase") == "ended" or _ready_ends_msec > 0:
+	if deadline <= 0 or view.get("phase") == "ended" or _ready_overlay.visible:
 		_timer_label.text = ""
 		_glow.visible = false
 		return
@@ -830,6 +839,9 @@ func _process(_delta: float) -> void:
 func _update_get_ready(starts_in_ms: int) -> void:
 	if starts_in_ms > 0 and view.get("phase") != "ended":
 		var fading_out := _ready_overlay.visible and _ready_ends_msec == 0
+		# A late view from before GO! (its few ms left are latency): GO! stands.
+		if fading_out and starts_in_ms <= READY_JITTER_MS:
+			return
 		var ends := Time.get_ticks_msec() + starts_in_ms
 		# WHY: views arrive with a little latency jitter; a later view that
 		# moves the end by a few ms must not step the number back.

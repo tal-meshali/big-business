@@ -22,6 +22,7 @@ export const NAME_MAX = 16;
 export const NAME_TOO_SHORT = `Too short. Use ${NAME_MIN} to ${NAME_MAX} characters.`;
 export const NAME_TOO_LONG = `Too long. Use ${NAME_MIN} to ${NAME_MAX} characters.`;
 export const NAME_BAD_CHARACTERS = 'Use letters, numbers and spaces only.';
+export const NAME_SEPARATORS = 'Use a single space, - or _ between words only.';
 export const NAME_MIXED = 'Use letters from one alphabet.';
 export const NAME_DIGITS = 'Use letters, and no more than 6 numbers.';
 export const NAME_NOT_ALLOWED = 'Pick a different name.';
@@ -59,11 +60,13 @@ const LETTERS: number[][] = [
 
 /**
  * Marks that sit on the letter before them (Devanagari and Thai vowel and
- * tone signs), as [first, last]. A name may not start with one or stack
- * more than two, so it cannot be drawn over the rows around it.
+ * tone signs), as [first, last]. One must follow a letter of those
+ * alphabets, and no more than three may stack (a Devanagari letter takes
+ * a dot, a vowel sign and a nasal sign), so a name cannot be drawn over
+ * the rows around it.
  */
 const MARKS: number[][] = [[0x901, 0x903], [0x93c, 0x93c], [0x93e, 0x94d], [0xe31, 0xe31], [0xe34, 0xe3a], [0xe47, 0xe4e]];
-const MARKS_IN_A_ROW = 2;
+const MARKS_IN_A_ROW = 3;
 
 /**
  * Letters that read as a Latin one, for the word and staff checks only:
@@ -72,7 +75,7 @@ const MARKS_IN_A_ROW = 2;
  * letter, so a refused word spelled in them is still refused.
  */
 const LOOKALIKES: { [c: string]: string } = {
-  '\u0131': 'i', '\u00f8': 'o', '\u0142': 'l', '\u0111': 'd', '\u0127': 'h',
+  '\u0131': 'i', '\u00f8': 'o', '\u0142': 'l', '\u0111': 'd', '\u0127': 'h', '\u0167': 't', '\u014b': 'n', '\u00f0': 'd', '\u00fe': 'p',
   '\u03b1': 'a', '\u03b2': 'b', '\u03b5': 'e', '\u03b6': 'z', '\u03b7': 'h', '\u03b9': 'i', '\u03ba': 'k', '\u03bc': 'm', '\u03bd': 'n', '\u03bf': 'o', '\u03c1': 'p', '\u03c4': 't', '\u03c5': 'y', '\u03c7': 'x',
   '\u0430': 'a', '\u0432': 'b', '\u0435': 'e', '\u043a': 'k', '\u043c': 'm', '\u043d': 'h', '\u043e': 'o', '\u0440': 'p', '\u0441': 'c', '\u0442': 't', '\u0443': 'y', '\u0445': 'x', '\u0455': 's', '\u0456': 'i', '\u0458': 'j',
 };
@@ -173,10 +176,15 @@ function wordsOf(name: string): string[] {
 function refusedReading(reading: string, whole: boolean): boolean {
   for (const stem of BLOCKED_WORDS) if (reading === stem || reading === stem + 's') return true;
   if (STAFF_WORDS.indexOf(reading) >= 0) return true;
-  if (!whole) return false;
+  // WHY only the start of the whole name: read through its spaces, "Mad
+  // Miner" holds "admin" too; inside one word it is refused anywhere.
   let rest = reading;
   for (const word of NOT_STAFF) rest = rest.split(word).join(' ');
-  for (const stem of STAFF_ANYWHERE) if (rest.indexOf(stem) >= 0) return true;
+  for (const stem of STAFF_ANYWHERE) {
+    const at = rest.indexOf(stem);
+    if (whole ? at === 0 : at >= 0) return true;
+  }
+  if (!whole) return false;
   if (reading.indexOf(GAME_NAME) >= 0) return true;
   for (const stem of BLOCKED_ANYWHERE) if (reading.indexOf(stem) >= 0) return true;
   for (const bot of BOT_NAMES) if (reading === fold(bot)) return true;
@@ -186,7 +194,8 @@ function refusedReading(reading: string, whole: boolean): boolean {
 /** True when the characters of a cleaned name are ones a name may be made of, in an order it may have. */
 function wellFormed(name: string): boolean {
   let marks = 0;
-  // 0 a separator (or the start), 1 a letter or digit, 2 a mark.
+  // 0 a separator (or the start), 1 a digit or a letter that takes no
+  // mark, 2 a mark, 3 a letter that takes marks.
   let before = 0;
   for (let i = 0; i < name.length; i++) {
     const c = name.charCodeAt(i);
@@ -203,11 +212,11 @@ function wellFormed(name: string): boolean {
     if (alphabetOf(c) === 0) return false;
     if (isMark(c)) {
       marks = before === 2 ? marks + 1 : 1;
-      if (before === 0 || marks > MARKS_IN_A_ROW) return false;
+      if (before < 2 || marks > MARKS_IN_A_ROW) return false;
       before = 2;
       continue;
     }
-    before = 1;
+    before = alphabetOf(c) === OTHER ? 3 : 1;
   }
   return name.length > 0;
 }
@@ -220,6 +229,11 @@ export function nameProblem(name: string): string | null {
   const length = nameLength(name);
   if (length < NAME_MIN) return NAME_TOO_SHORT;
   if (length > NAME_MAX) return NAME_TOO_LONG;
+  for (let i = 0; i < name.length; i++) {
+    const c = name.charCodeAt(i);
+    if (SEPARATORS.indexOf(name.charAt(i)) < 0 && !(c >= 0x30 && c <= 0x39) && alphabetOf(c) === 0) return NAME_BAD_CHARACTERS;
+  }
+  if (/^[ _-]|[ _-]$|[ _-]{2}/.test(name)) return NAME_SEPARATORS;
   if (!wellFormed(name)) return NAME_BAD_CHARACTERS;
   const seen: { [alphabet: number]: boolean } = {};
   let digits = 0;

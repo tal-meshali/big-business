@@ -1846,8 +1846,8 @@ func _profile_checks() -> int:
 	# still lands in the middle of its place, and cannot be flipped in flight.
 	var avatar: Rect2 = lobby._avatar_label.get_global_rect()
 	profile.open(avatar)
-	await create_timer(0.1).timeout
 	var in_flight: int = profile.card.mouse_filter
+	await create_timer(0.1).timeout
 	profile.close()
 	await create_timer(0.05).timeout
 	profile.open(avatar)
@@ -1909,7 +1909,7 @@ func _name_step_checks() -> int:
 		failures += 1
 	# The server's sentences must survive the cut that drops the stack trace.
 	var api = load("res://scripts/net/designer_api.gd")
-	for sentence in ["Too short. Use 2 to 16 characters.", "Too long. Use 2 to 16 characters.", "Use letters from one alphabet.", "A moderator set this name. It cannot be changed."]:
+	for sentence in ["Too short. Use 2 to 16 characters.", "Too long. Use 2 to 16 characters.", "Use letters from one alphabet.", "Use a single space, - or _ between words only.", "Use letters, and no more than 6 numbers.", "A moderator set this name. It cannot be changed."]:
 		if names._message(api.clean_error("Error: %s at reject (index.js:868:13(3))" % sentence)) != sentence:
 			push_error("the refusal '%s' should reach the player whole" % sentence)
 			failures += 1
@@ -1980,6 +1980,23 @@ func _name_step_checks() -> int:
 	if not prompt.is_open():
 		push_error("a tap outside must not close the required name step")
 		failures += 1
+	# The tap put the keyboard away; Tab or Enter must come back to the
+	# field, not reach the lobby's buttons behind the sheet.
+	for key in [KEY_TAB, KEY_ENTER]:
+		if key == KEY_ENTER:
+			lobby._buttons[0].grab_focus()
+		else:
+			prompt._edit.release_focus()
+		var press := InputEventKey.new()
+		press.keycode = key
+		press.physical_keycode = key
+		press.pressed = true
+		Input.parse_input_event(press)
+		await process_frame
+		await process_frame
+		if root.gui_get_focus_owner() != prompt._edit or lobby._in_lobby or not prompt.is_open():
+			push_error("a focus key pressed outside the name step returns to its field (key %s, focus %s)" % [key, root.gui_get_focus_owner()])
+			failures += 1
 	prompt._edit.text = "T"
 	prompt._edit.text_changed.emit("T")
 	if not prompt._save.disabled or prompt._card.player_name != "T":

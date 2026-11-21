@@ -18,6 +18,8 @@ const CARD_MAX_DP := 230.0
 ## Metadata on a text field: the control under it that the lobby keeps
 ## above the on-screen keyboard together with the field.
 const KEEP_IN_VIEW := &"keep_in_view"
+## Keys and buttons that move focus or press what holds it.
+const FOCUS_ACTIONS: Array[StringName] = [&"ui_focus_next", &"ui_focus_prev", &"ui_up", &"ui_down", &"ui_left", &"ui_right", &"ui_accept"]
 
 ## Design points to px, and the phone's bottom inset in px.
 var s := 1.85
@@ -39,6 +41,7 @@ var _note: Label
 var _save: Button
 var _cancel: Button
 var _actions: HBoxContainer
+var _room: LobbyBackdrop
 ## What the field held when the step opened.
 var _opened_with := ""
 var _shake: Tween
@@ -59,9 +62,9 @@ func _ready() -> void:
 	visible = false
 	gui_input.connect(_on_backdrop_input)
 
-	var room := LobbyBackdrop.new()
-	room.center = Vector2(0.5, 0.3)
-	add_child(room)
+	_room = LobbyBackdrop.new()
+	_room.center = Vector2(0.5, 0.45)
+	add_child(_room)
 
 	_rise = Control.new()
 	_rise.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -81,6 +84,10 @@ func _ready() -> void:
 	_stage = Control.new()
 	_stage.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_stage.resized.connect(_place_card)
+	# The room's rays and glow sit behind the card, wherever the sheet and
+	# the keyboard leave it.
+	_stage.item_rect_changed.connect(_aim_room)
+	_column.item_rect_changed.connect(_aim_room)
 	_column.add_child(_stage)
 	_card = InvestorCard.new()
 	_card.rotation = deg_to_rad(LogoTitle.TILT_DEG)
@@ -176,6 +183,22 @@ func open(current: String, must_name: bool, level := 1) -> void:
 	_play_open()
 
 
+## WHY: after a tap outside the sheet nothing holds focus, and the next Tab
+## would land on the lobby's buttons behind a step that must not be
+## skipped. Any focus key pressed from outside the sheet returns to the field.
+func _input(event: InputEvent) -> void:
+	if not _open or not event.is_pressed():
+		return
+	var focus := get_viewport().gui_get_focus_owner()
+	if focus != null and _sheet.is_ancestor_of(focus):
+		return
+	for action in FOCUS_ACTIONS:
+		if event.is_action(action):
+			_edit.grab_focus()
+			get_viewport().set_input_as_handled()
+			return
+
+
 ## Tab and the arrow keys go round the sheet's own controls.
 ## WHY: with a keyboard or a d-pad, focus would otherwise walk on to the
 ## lobby's buttons behind a step that must not be skipped.
@@ -211,6 +234,15 @@ func _fit() -> void:
 	if absf(_stage.custom_minimum_size.y - stage_h) > 0.5:
 		_stage.custom_minimum_size.y = stage_h
 	_place_card()
+
+
+func _aim_room() -> void:
+	if size.x <= 0.0 or size.y <= 0.0 or _stage.size.y <= 0.0:
+		return
+	var middle := _column.position + _stage.position + _stage.size / 2.0
+	var aim := middle / size
+	if aim.distance_to(_room.center) > 0.002:
+		_room.center = aim
 
 
 ## How far the lobby lifts this step so the buttons clear the keyboard.

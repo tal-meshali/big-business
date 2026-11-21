@@ -68,10 +68,10 @@ var _press_pos := Vector2.ZERO
 ## Bumped on every press and release so a stale hold timer does nothing.
 var _press_serial: int = 0
 var _swallow_press: bool = false
-## Designer preview: pictures shown instead of the room's (null: use the room's).
 ## False for a card drawn inside another control's own edge and shadow
 ## (the investor card's back).
 var shadow: bool = true
+## Designer preview: pictures shown instead of the room's (null: use the room's).
 var preview_back: Texture2D
 var preview_art: Texture2D
 

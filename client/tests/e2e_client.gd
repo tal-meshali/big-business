@@ -45,6 +45,22 @@ func _run() -> void:
 		return
 	print("named ", wanted)
 
+	# A refresh token the server refuses: the client signs in again, so the
+	# session still follows a change of name.
+	net.session._refresh_token = "refused"
+	var again := "Godot %d" % ((Time.get_ticks_usec() + 7) % 1000000)
+	problem = await names.save(again)
+	var renewing := 0
+	while (net.session.username != again or not net.is_connected_to_server()) and renewing < 100:
+		await create_timer(0.1).timeout
+		renewing += 1
+	if not problem.is_empty() or net.session.username != again or net.display_name != again or not net.is_connected_to_server():
+		print("E2E CLIENT FAILED: a refused session refresh should end in a new sign-in under the new name ('%s', session '%s')" % [problem, net.session.username])
+		quit(1)
+		return
+	wanted = again
+	print("renamed past a refused refresh ", wanted)
+
 	# Private room through the real client: creating joins with the room code
 	# (the server refuses a private join without it); leave and come back by code.
 	var lobby_seen := {"code": "", "names": []}

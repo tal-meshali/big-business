@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { cleanName, fold, isNamed, NAME_BAD_CHARACTERS, NAME_DIGITS, NAME_LOCKED, NAME_MIXED, NAME_NOT_ALLOWED, NAME_TAKEN, NAME_TOO_LONG, NAME_TOO_SHORT, nameLength, nameProblem } from './names';
+import { cleanName, fold, isNamed, NAME_BAD_CHARACTERS, NAME_DIGITS, NAME_LOCKED, NAME_MIXED, NAME_NOT_ALLOWED, NAME_SEPARATORS, NAME_TAKEN, NAME_TOO_LONG, NAME_TOO_SHORT, nameLength, nameProblem } from './names';
 import { ALICE, BOB } from './test_support';
 import { beforeAuthenticateDevice, beforeUpdateAccount, refuseSignIn, rpcSetName, userByName } from './rpc_names';
 
@@ -38,7 +38,7 @@ describe('nameProblem', () => {
   });
 
   it('refuses symbols, emoji, controls and anything invisible', () => {
-    const bad = ['tal@home', 'a<b>c', 'x/y/z', 'semi;colon', 'quote"d', 'new\nline', 't.me.kiddo', 'J.R.', '...', '_-_', '\ud83d\ude42\ud83d\ude42\ud83d\ude42',
+    const bad = ['tal@home', 'a<b>c', 'x/y/z', 'semi;colon', 'quote"d', 'new\nline', 't.me.kiddo', 'J.R.', '...', '\ud83d\ude42\ud83d\ude42\ud83d\ude42',
       // Zero width space, right-to-left override, no-break space (when not cleaned), Hangul filler,
       // braille blank, variation selector, Arabic letter mark, a lone surrogate, a tag character, a combining mark left over.
       'zero\u200bwidth', 'flip\u202eped', 'nb\u00a0sp', '\u3164\u3164\u3164', '\u2800\u2800\u2800', 'Tal\ufe0f', 'Tal\u061c', 'Tal\ud800', 'Tal\udb40\udc41', 'Ta\u0336l'];
@@ -60,7 +60,7 @@ describe('nameProblem', () => {
 
   it('reads look-alike letters as the Latin ones they copy', () => {
     // Dotless i, o with a stroke; then whole words in Greek and in Cyrillic capitals.
-    const bad = ['Adm\u0131n', 'Offic\u0131al', 'Moderat\u00f8r', 'sh\u0131t', 'h\u0131tler', '\u039d\u0391\u0396\u0399', '\u0392\u039f\u03a4', '\u0412\u041e\u0422', '\u0405\u041d\u0406\u0422', '\u0412\u0406\u0422\u0421\u041d'];
+    const bad = ['Adm\u0131n', 'Offic\u0131al', 'Moderat\u00f8r', 'sh\u0131t', 'h\u0131tler', 'Suppor\u0167', 'Admi\u014b', 'A\u00f0min', 'shi\u0167', '\u039d\u0391\u0396\u0399', '\u0392\u039f\u03a4', '\u0412\u041e\u0422', '\u0405\u041d\u0406\u0422', '\u0412\u0406\u0422\u0421\u041d'];
     for (const name of bad) expect(nameProblem(name)).toBe(NAME_NOT_ALLOWED);
     // Ordinary names in those alphabets and with those letters still pass.
     for (const ok of ['Y\u0131ld\u0131z', 'S\u00f8ren', '\u0412\u0435\u0440\u0430', '\u041c\u0430\u043a\u0441', '\u0395\u03bb\u03ad\u03bd\u03b7']) expect(nameProblem(ok)).toBeNull();
@@ -73,31 +73,34 @@ describe('nameProblem', () => {
 
   it('allows marks on a letter but not a stack of them', () => {
     // Singh in Devanagari and a Thai word with a vowel and a tone mark on one letter.
-    for (const ok of ['\u0938\u093f\u0902\u0939', '\u0905\u0902\u0915\u093f\u0924', '\u0e17\u0e35\u0e48']) expect(nameProblem(ok)).toBeNull();
-    // Fifteen marks on one Thai letter, the same in Devanagari, marks alone, a mark first.
-    const bad = ['\u0e01' + '\u0e47'.repeat(15), '\u0915' + '\u0941'.repeat(15), '\u0e34\u0e34', '\u0e34\u0e01\u0e01', 'a \u0e34b'];
+    // Then Khan, spelled with a dot, a vowel sign and a nasal sign on one letter.
+    for (const ok of ['\u0938\u093f\u0902\u0939', '\u0905\u0902\u0915\u093f\u0924', '\u0e17\u0e35\u0e48', '\u0916\u093c\u093e\u0901']) expect(nameProblem(ok)).toBeNull();
+    // Fifteen marks on one Thai letter, the same in Devanagari, marks alone, a mark first,
+    // and a mark on a digit or on a Latin letter.
+    const bad = ['\u0e01' + '\u0e47'.repeat(15), '\u0915' + '\u0941'.repeat(15), '\u0e34\u0e34', '\u0e34\u0e01\u0e01', 'a \u0e34b', '7\u0e34\u0e48', 'a\u093f'];
     for (const name of bad) expect(nameProblem(name)).toBe(NAME_BAD_CHARACTERS);
   });
 
   it('allows one separator between words and none at the ends', () => {
-    for (const name of ['a---b', '_a_', '- a -', 'ab-', '-ab', 'a - b', 'a__b']) expect(nameProblem(name)).toBe(NAME_BAD_CHARACTERS);
+    for (const name of ['a---b', '_-_', '_a_', '- a -', 'ab-', '-ab', 'a - b', 'a__b']) expect(nameProblem(name)).toBe(NAME_SEPARATORS);
     for (const ok of ['Noa-Lee', 'maya_k', 'a b c d']) expect(nameProblem(ok)).toBeNull();
   });
 
   it('lets ordinary names through that only contain a listed word', () => {
-    for (const ok of ['Yamashita', 'Nazir', 'Benazir', 'Therapist', 'Swank', 'Pornchai', 'Push It', 'Mass Hit', 'Cassandra', 'Dickens', 'Analyst Amy', 'Grape Soda', 'Badminton', 'Botanist', 'Modesty', 'Devon', 'Systematic', 'Dev', 'Dev Patel', 'Stafford', 'Staffan']) {
+    for (const ok of ['Yamashita', 'Nazir', 'Benazir', 'Therapist', 'Swank', 'Pornchai', 'Push It', 'Mass Hit', 'Cassandra', 'Dickens', 'Analyst Amy', 'Grape Soda', 'Badminton', 'Botanist', 'Modesty', 'Devon', 'Systematic', 'Dev', 'Dev Patel', 'Stafford', 'Staffan',
+      'Mad Miner', 'Bad Minion', 'Head Miner', 'Nomad Minh']) {
       expect(nameProblem(ok)).toBeNull();
     }
   });
 
   it('reserves the names of the game, its staff and its bots', () => {
-    const bad = ['Admin', 'Admin1', 'Admin 2', 'adm1n', 'Administrator Al', 'MODERATOR', 'Moderator 7', 'Support Team', 'Official Mod', 'Tal Mod', 'Staff', 'System', 'Owner', 'theadmin', 'RealAdmin', 'xadmin', 'IAdmin', 'unofficial',
+    const bad = ['Admin', 'Admin1', 'Admin 2', 'adm1n', 'Administrator Al', 'MODERATOR', 'Moderator 7', 'Support Team', 'Official Mod', 'Tal Mod', 'Staff', 'System', 'Owner', 'theadmin', 'RealAdmin', 'xadmin', 'IAdmin', 'unofficial', 'Ad min', 'A d m i n', 'xXadminXx', 'gamemoderator',
       'Big Business', 'big_business', 'Big Business HQ', 'Intern Ivy', 'analyst avi', 'CEO Cal', 'Bot', 'Tal Bot'];
     for (const name of bad) expect(nameProblem(name)).toBe(NAME_NOT_ALLOWED);
   });
 
   it('never says " at ", where the client cuts a server error', () => {
-    for (const sentence of [NAME_TOO_SHORT, NAME_TOO_LONG, NAME_BAD_CHARACTERS, NAME_DIGITS, NAME_MIXED, NAME_NOT_ALLOWED, NAME_TAKEN, NAME_LOCKED]) {
+    for (const sentence of [NAME_TOO_SHORT, NAME_TOO_LONG, NAME_BAD_CHARACTERS, NAME_SEPARATORS, NAME_DIGITS, NAME_MIXED, NAME_NOT_ALLOWED, NAME_TAKEN, NAME_LOCKED]) {
       expect(sentence).not.toContain(' at ');
       expect(sentence.endsWith('.')).toBe(true);
       expect(sentence.length).toBeLessThan(80);

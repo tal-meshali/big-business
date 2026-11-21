@@ -8,8 +8,12 @@ const RAYS := 16
 const RAY_SECONDS := 60.0
 const SPARKS := 18
 
-## Centre of the rays, as a fraction of the size.
-var center := Vector2(0.5, 0.26)
+## Centre of the rays and the glow, as a fraction of the size.
+var center := Vector2(0.5, 0.26):
+	set(v):
+		center = v
+		_aim_glow()
+var _glow_texture: GradientTexture2D
 var _t := 0.0
 var _glow: TextureRect
 var _sparks: Array[Vector3] = []
@@ -32,10 +36,10 @@ func _ready() -> void:
 	var tex := GradientTexture2D.new()
 	tex.gradient = g
 	tex.fill = GradientTexture2D.FILL_RADIAL
-	tex.fill_from = center
-	tex.fill_to = center + Vector2(0.0, 0.8)
 	tex.width = 128
 	tex.height = 256
+	_glow_texture = tex
+	_aim_glow()
 	_glow.texture = tex
 	add_child(_glow)
 	# The rays draw on a child so they sit above the glow.
@@ -49,6 +53,13 @@ func _ready() -> void:
 	for i in SPARKS:
 		# x, phase, speed
 		_sparks.append(Vector3(rng.randf(), rng.randf(), rng.randf_range(0.6, 1.4)))
+
+
+func _aim_glow() -> void:
+	if _glow_texture == null:
+		return
+	_glow_texture.fill_from = center
+	_glow_texture.fill_to = center + Vector2(0.0, 0.8)
 
 
 func _process(delta: float) -> void:

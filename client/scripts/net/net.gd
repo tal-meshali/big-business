@@ -561,8 +561,13 @@ func refresh_identity() -> bool:
 	var fresh: NakamaSession = await client.session_refresh_async(session)
 	if fresh.is_exception():
 		_reconnecting = false
-		# A close of the socket during the attempt went unanswered.
-		check_connection()
+		if _refresh_refused(fresh) and socket != null:
+			# WHY: only a new sign-in gets a token with the new name; the
+			# reconnect that follows the close makes one (_reconnect_session).
+			socket.close()
+		else:
+			# A close of the socket during the attempt went unanswered.
+			check_connection()
 		return false
 	session = fresh
 	_identity_stale = false
@@ -579,6 +584,13 @@ func refresh_identity() -> bool:
 	return opened
 
 
+## True when the server answered a session refresh and refused its token,
+## as opposed to not being reached.
+static func _refresh_refused(result: NakamaSession) -> bool:
+	var e: NakamaException = result.get_exception()
+	return e != null and (e.status_code == 401 or e.grpc_status_code == 16)
+
+
 ## Reopens the socket for the account we were signed in as.
 ## WHY: connect_to_server signs in with the device id, which after an Apple
 ## or Google sign-in is a different account; rejoining as that account would
@@ -587,12 +599,14 @@ func refresh_identity() -> bool:
 func _reconnect_session() -> bool:
 	if _identity_stale and session != null and not session.is_exception():
 		var fresh: NakamaSession = await client.session_refresh_async(session)
-		if fresh.is_exception():
-			# WHY: a refresh the server no longer takes would keep the old
-			# name in the token for good; a new sign-in issues a fresh one.
+		if not fresh.is_exception():
+			session = fresh
+			_identity_stale = false
+		elif _refresh_refused(fresh):
+			# WHY only when refused: the token would carry the old name until
+			# it expires, and a new sign-in issues one with the new name. A
+			# refresh that failed for want of a network keeps the session.
 			return await connect_preferred()
-		session = fresh
-		_identity_stale = false
 	if session != null and not session.is_exception() and not session.would_expire_in(60):
 		return await _open_socket()
 	return await connect_preferred()
@@ -756,7 +770,7 @@ func equip_cosmetic(slot: String, id: String) -> Dictionary:
 # SocialTokens (native plugins, a local step in docs/TODO-local.md E).
 
 ## Which sign-in methods the account has, its name and whether the player
-## picked that name: {apple, google, device, username, named}; {} when
+## picked that name: {apple, google, device, username, named, nameLocked}; {} when
 ## offline or on failure.
 func get_account_links() -> Dictionary:
 	if client == null or session == null:
@@ -881,6 +895,7 @@ func _finish_social_sign_in(name: String, new_session: NakamaSession) -> bool:
 		connection_failed.emit(msg)
 		return false
 	session = new_session
+	_identity_stale = false
 	if provider != name:
 		provider = name
 		save_settings()
@@ -899,6 +914,8 @@ func _switch_to_social(name: String, token: String) -> bool:
 	_closing = false
 	session = found
 	_identity_stale = false
+	# Another account: whether it has a name is not known until it says.
+	named = false
 	provider = name
 	save_settings()
 	if not await _open_socket():

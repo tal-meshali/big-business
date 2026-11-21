@@ -731,8 +731,16 @@ func _get_ready_checks() -> int:
 	if table.view.is_empty() or table._hand_cards.size() != 3:
 		push_error("the table should render the view the lobby already received")
 		failures += 1
-	if not table._ready_overlay.visible or table._ready_count.text != "2":
-		push_error("get-ready should count down from the first view, got visible=%s count=%s" % [table._ready_overlay.visible, table._ready_count.text])
+	if not table._ready_overlay.visible or table._ready_burst.text != "2":
+		push_error("get-ready should count down from the first view, got visible=%s count=%s" % [table._ready_overlay.visible, table._ready_burst.text])
+		failures += 1
+	# The shade covers the whole screen (notch and home indicator too), and
+	# the top bar sits above it so Forfeit stays tappable.
+	if table._ready_overlay.get_global_rect() != table.get_viewport_rect():
+		push_error("the get-ready shade should cover the whole screen, got %s" % [table._ready_overlay.get_global_rect()])
+		failures += 1
+	if table._top_bar.get_index() != table._ready_overlay.get_index() + 1:
+		push_error("the top bar should sit just above the get-ready shade")
 		failures += 1
 	if not table._ready_seats.text.begins_with("1.  Ivy  • bot\n2.  You") or table._ready_first.text != "Ivy goes first":
 		push_error("get-ready should list the turn order, got %s / %s" % [table._ready_seats.text, table._ready_first.text])
@@ -755,8 +763,11 @@ func _get_ready_checks() -> int:
 		await create_timer(0.05).timeout
 		if not table._ready_overlay.visible:
 			break
-	if table._ready_overlay.visible or table._ready_count.text != "Go!" or table._ready_ends_msec != 0:
-		push_error("the countdown should end with Go! when play begins")
+	if table._ready_overlay.visible or table._ready_burst.text != "GO!" or table._ready_ends_msec != 0:
+		push_error("the countdown should end with GO! when play begins")
+		failures += 1
+	if table._top_bar.get_index() != table._top_bar_home:
+		push_error("the top bar should go back under the table's overlays after the countdown")
 		failures += 1
 	if table.sfx.history.count("turn") != 1:
 		push_error("the turn chime should play once the countdown ends, history %s" % [table.sfx.history])

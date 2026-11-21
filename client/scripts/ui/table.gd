@@ -90,11 +90,14 @@ var _glow: Panel
 var _last_tick := -1
 var _announced_turn := -1
 var _leave_button: Button
+## The top bar (brand, status, timer, Leave); lifted over the get-ready shade.
+var _top_bar: HBoxContainer
+var _top_bar_home := 0
 var _forfeit_overlay: ColorRect
 var _ready_overlay: ColorRect
 var _ready_seats: Label
 var _ready_first: Label
-var _ready_count: Label
+var _ready_burst: CountdownBurst
 ## Ticks (ms) when the get-ready countdown ends; 0 when play has begun.
 var _ready_ends_msec: int = 0
 var _ready_tween: Tween
@@ -230,6 +233,8 @@ func _build_top_bar() -> void:
 	top.custom_minimum_size = Vector2(0, _px(48))
 	top.add_theme_constant_override("separation", _px(10))
 	add_child(top)
+	_top_bar = top
+	_top_bar_home = top.get_index()
 	var brand := LogoTitle.new()
 	brand.px = _px(17)
 	brand.tilt = 0.0
@@ -380,25 +385,40 @@ func _layout() -> void:
 	_place_supply()
 
 
-## The countdown before the first turn: seat order, who starts, 3-2-1.
-## It sits below the top bar so rules, emotes and Forfeit stay in reach.
+## The countdown before the first turn: a gold 3-2-1 over rays, then who
+## starts and the seat order. The shade covers the whole screen, notch and
+## home indicator included; the top bar is lifted above it while it shows so
+## Forfeit stays in reach.
 func _build_get_ready() -> void:
 	_ready_overlay = ColorRect.new()
-	_ready_overlay.color = Color(0, 0, 0, 0.45)
+	_ready_overlay.color = Color(UiTheme.NIGHT, 0.66)
 	_ready_overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	_ready_overlay.offset_top = _px(60) + _insets.x
 	_ready_overlay.visible = false
 	add_child(_ready_overlay)
 	var center := CenterContainer.new()
 	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	center.offset_top = _px(56) + _insets.x
+	center.offset_bottom = -_insets.y
 	center.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_ready_overlay.add_child(center)
+	var column := VBoxContainer.new()
+	column.alignment = BoxContainer.ALIGNMENT_CENTER
+	column.add_theme_constant_override("separation", _px(4))
+	center.add_child(column)
+	_ready_burst = CountdownBurst.new()
+	_ready_burst.px = _px(100)
+	column.add_child(_ready_burst)
 	var deed := UiTheme.deed_panel(Companies.CHEST, "Get ready", Color.WHITE)
 	deed["panel"].custom_minimum_size = Vector2(520, 0)
-	center.add_child(deed["panel"])
+	column.add_child(deed["panel"])
 	var box := VBoxContainer.new()
 	box.add_theme_constant_override("separation", 10)
 	deed["body"].add_child(box)
+	_ready_first = Label.new()
+	_ready_first.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_ready_first.add_theme_font_override("font", UiTheme.display_font())
+	_ready_first.add_theme_font_size_override("font_size", 26)
+	box.add_child(_ready_first)
 	var order_title := Label.new()
 	order_title.text = "Turn order"
 	order_title.add_theme_font_size_override("font_size", 19)
@@ -407,14 +427,6 @@ func _build_get_ready() -> void:
 	_ready_seats = Label.new()
 	_ready_seats.add_theme_font_size_override("font_size", 24)
 	box.add_child(_ready_seats)
-	_ready_first = Label.new()
-	_ready_first.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_ready_first.add_theme_font_size_override("font_size", 26)
-	box.add_child(_ready_first)
-	_ready_count = Label.new()
-	_ready_count.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_ready_count.add_theme_font_size_override("font_size", 72)
-	box.add_child(_ready_count)
 	var tip := Label.new()
 	tip.text = "Collect shares, hold the most of a company, and cash in on dividend day."
 	tip.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -802,12 +814,22 @@ func _process(_delta: float) -> void:
 ## (startsInMs > 0), and ends it once play begins.
 func _update_get_ready(starts_in_ms: int) -> void:
 	if starts_in_ms > 0 and view.get("phase") != "ended":
+		var fading_out := _ready_overlay.visible and _ready_ends_msec == 0
 		_ready_ends_msec = Time.get_ticks_msec() + starts_in_ms
 		_fill_get_ready()
-		if _ready_tween != null:
+		if not _ready_overlay.visible:
+			# Fade the shade in; the first number slams in with it.
+			if _ready_tween != null:
+				_ready_tween.kill()
+			_ready_burst.reset()
+			_ready_overlay.modulate.a = 0.0
+			_ready_overlay.visible = true
+			_ready_tween = create_tween()
+			_ready_tween.tween_property(_ready_overlay, "modulate:a", 1.0, 0.18).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+		elif fading_out:
 			_ready_tween.kill()
-		_ready_overlay.modulate.a = 1.0
-		_ready_overlay.visible = true
+			_ready_overlay.modulate.a = 1.0
+		_lift_top_bar(true)
 		_update_countdown()
 	elif _ready_ends_msec > 0:
 		_end_get_ready()
@@ -831,24 +853,36 @@ func _fill_get_ready() -> void:
 func _update_countdown() -> void:
 	var left := _ready_ends_msec - Time.get_ticks_msec()
 	if left > 0:
-		_ready_count.text = str(ceili(left / 1000.0))
+		_ready_burst.show_value(str(ceili(left / 1000.0)))
 	else:
 		_end_get_ready()
 
 
 func _end_get_ready() -> void:
 	_ready_ends_msec = 0
-	_ready_count.text = "Go!"
+	_ready_burst.show_value("GO!")
 	if _ready_tween != null:
 		_ready_tween.kill()
 	_ready_tween = create_tween()
-	_ready_tween.tween_interval(0.35)
-	_ready_tween.tween_property(_ready_overlay, "modulate:a", 0.0, 0.25)
+	_ready_tween.tween_interval(0.45)
+	_ready_tween.tween_property(_ready_overlay, "modulate:a", 0.0, 0.25).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
 	_ready_tween.tween_callback(func() -> void:
 		_ready_overlay.visible = false
-		_ready_overlay.modulate.a = 1.0)
+		_ready_overlay.modulate.a = 1.0
+		_lift_top_bar(false))
 	# The turn chime waited for the countdown.
 	_announce_turn(String(view.get("phase", "")))
+
+
+## Puts the top bar just above the get-ready shade (lift) or back in its
+## place under the felt's overlays (dividend day, flying cards, emotes).
+## WHY: the shade covers the full screen, but Forfeit must stay tappable.
+func _lift_top_bar(lift: bool) -> void:
+	if lift:
+		if _top_bar.get_index() < _ready_overlay.get_index():
+			move_child(_top_bar, _ready_overlay.get_index())
+	elif _top_bar.get_index() != _top_bar_home:
+		move_child(_top_bar, _top_bar_home)
 
 
 ## Under URGENT_SECONDS on your own step: pulse the rim and tick each second.

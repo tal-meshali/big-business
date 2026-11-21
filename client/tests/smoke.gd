@@ -951,7 +951,7 @@ func _draw_landing_checks() -> int:
 	if table._hand_cards.size() != 4 or table._hand_cards[3].card_id != 9 or table._hand_cards[3].position != want["pos"]:
 		push_error("the new hand should show the drawn share in the slot it landed in")
 		failures += 1
-	elif landed.distance_to(table._center_of(table._hand_cards[3])) > 6.0:
+	elif landed.distance_to(table._center_of(table._hand_cards[3])) > 1.5:
 		push_error("the drawn share should land on its slot, off by %s" % [table._center_of(table._hand_cards[3]) - landed])
 		failures += 1
 	table.queue_free()
@@ -967,6 +967,23 @@ func _play_leaves_hand_checks() -> int:
 	var failures := 0
 	failures += await _play_once(2, 2, "market")
 	failures += await _play_once(1, 3, "portfolio")
+	# The bar (and so the felt and hand above it) keeps one height whether
+	# the prompt takes one line or two.
+	var table = load("res://scenes/table.tscn").instantiate()
+	root.add_child(table)
+	await process_frame
+	table._prompt.text = "Bo is thinking…"
+	for i in 3:
+		await process_frame
+	var one_line: float = table._bar.size.y
+	table._prompt.text = "Cogwheel Robotics: keep it in your Portfolio or sell it to the Market? Tap Keep or Sell."
+	for i in 3:
+		await process_frame
+	if table._prompt.get_line_count() < 2 or absf(table._bar.size.y - one_line) > 0.5:
+		push_error("the bar should be as tall with one prompt line as with two (%s vs %s)" % [one_line, table._bar.size.y])
+		failures += 1
+	table.queue_free()
+	await process_frame
 	return failures
 
 

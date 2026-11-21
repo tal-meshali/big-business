@@ -313,8 +313,11 @@ func _build_bottom_bar() -> void:
 	# of this bar, so a bar that grew and shrank with the prompt's lines or
 	# with the buttons shown would shift the table between turns and right
 	# after a card lands.
-	_prompt.custom_minimum_size = Vector2(0, maxf(_px(38), 2.0 * UiTheme.body_font().get_height(_px(14))))
 	column.add_child(_prompt)
+	# Two lines plus the gap between them, and a little headroom for names
+	# drawn from the taller fallback font (Hebrew, Arabic, CJK).
+	var line_h := UiTheme.body_font().get_height(_px(14))
+	_prompt.custom_minimum_size = Vector2(0, maxf(_px(38), 2.0 * line_h + _prompt.get_theme_constant("line_spacing") + _px(4)))
 	var buttons := HBoxContainer.new()
 	buttons.add_theme_constant_override("separation", _px(8))
 	buttons.custom_minimum_size = Vector2(0, _px(BUTTON_H))

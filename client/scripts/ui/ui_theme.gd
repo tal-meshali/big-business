@@ -43,9 +43,19 @@ const BADGE := Color("#FF3B55")
 const LILAC := Color("#B7AEE6")
 const OUTLINE := Color("#1A1238")
 const DISABLED := Color("#8E8AA8")
+## Capital coins (CapitalChip): copper for bronze capital, a deeper gold
+## for the coin's shaded edge, and the dark rims both are minted with.
+const COPPER_PALE := Color("#FFE7C4")
+const COPPER := Color("#C7742E")
+const COPPER_DEEP := Color("#7A3E10")
+const COPPER_RIM := Color("#3A1A00")
+const COIN_GOLD_DEEP := Color("#C77A00")
+const COIN_GOLD_RIM := Color("#6B3A00")
 
 static var _cached: Theme = null
 static var _fonts: Dictionary = {}
+static var _reduce := false
+static var _reduce_checked_ms := -1
 
 
 static func get_theme() -> Theme:
@@ -189,6 +199,19 @@ static func _button_text(t: Theme, type: String, color: Color, outline_color: Co
 	t.set_color("font_disabled_color", type, Color(color, 0.7))
 	t.set_color("font_outline_color", type, outline_color)
 	t.set_constant("outline_size", type, 6)
+
+
+## True when the player asked the system for less motion. Animations then
+## drop movement and scale but keep fades and colour changes.
+## WHY cached for a couple of seconds: seats redraw every frame, and on a
+## phone the query goes through the platform each time.
+static func reduce_motion() -> bool:
+	var now := Time.get_ticks_msec()
+	if _reduce_checked_ms < 0 or now - _reduce_checked_ms > 2000:
+		# WHY == 1: it returns -1 when the platform cannot tell.
+		_reduce = DisplayServer.accessibility_should_reduce_animation() == 1
+		_reduce_checked_ms = now
+	return _reduce
 
 
 ## A squash on press and a springy release, so every tap feels physical.

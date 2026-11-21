@@ -43,6 +43,14 @@ const BADGE := Color("#FF3B55")
 const LILAC := Color("#B7AEE6")
 const OUTLINE := Color("#1A1238")
 const DISABLED := Color("#8E8AA8")
+## Capital coins (CapitalChip): copper for bronze capital, a deeper gold
+## for the coin's shaded edge, and the dark rims both are minted with.
+const COPPER_PALE := Color("#FFE7C4")
+const COPPER := Color("#C7742E")
+const COPPER_DEEP := Color("#7A3E10")
+const COPPER_RIM := Color("#3A1A00")
+const COIN_GOLD_DEEP := Color("#C77A00")
+const COIN_GOLD_RIM := Color("#6B3A00")
 
 static var _cached: Theme = null
 static var _fonts: Dictionary = {}
@@ -192,6 +200,13 @@ static func _button_text(t: Theme, type: String, color: Color, outline_color: Co
 
 
 ## A squash on press and a springy release, so every tap feels physical.
+## True when the player asked the system for less motion. Animations then
+## drop movement and scale but keep fades and colour changes.
+static func reduce_motion() -> bool:
+	# WHY == 1: it returns -1 when the platform cannot tell.
+	return DisplayServer.accessibility_should_reduce_animation() == 1
+
+
 static func juice(b: BaseButton) -> void:
 	var recenter := func() -> void: b.pivot_offset = b.size / 2.0
 	b.resized.connect(recenter)

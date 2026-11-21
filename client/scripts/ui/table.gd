@@ -746,6 +746,9 @@ func _on_play_again() -> void:
 		_restriction = {}
 	_status.text = "Finding a new game..."
 	_result_backdrop.visible = false
+	# The new game's capital is not a change to pop.
+	for sv in _seat_views:
+		sv.reset_capital()
 	var ok: bool = await Net.quick_play()
 	if not ok:
 		get_tree().change_scene_to_file("res://scenes/main.tscn")
@@ -1467,6 +1470,12 @@ func _play_events_then_render() -> void:
 					await _fly_to_hand(from, market_k)
 				else:
 					await _fly_card(from, _seat_anchor(seat), company, true, market_k, small_k)
+				# WHY: the count ticks on the next render; let the last coin
+				# land on the pill first.
+				if coins > 1:
+					var last := COIN_TIME + (mini(coins, 8) - 1) * 0.07
+					if last > FLY_TIME:
+						await get_tree().create_timer(last - FLY_TIME).timeout
 			"played":
 				var card: Dictionary = e.get("card", {})
 				var company := int(card.get("company", 0))

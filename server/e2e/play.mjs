@@ -829,7 +829,44 @@ async function testGiftsAndWatching() {
   for (const p of [a, b, c, stranger]) p.socket.disconnect(true);
 }
 
+/** Names: set_name's rules, a name taken in any casing, the named flag, and the ways round it closed. */
+async function testNames() {
+  const a = await makePlayer('nina');
+  const b = await makePlayer('omar');
+  const before = await rpc(a, 'account_links');
+  if (before.named !== false) fail(`a new account is not named yet: ${JSON.stringify(before)}`);
+  const stamp = Date.now() % 1000000;
+  const name = `Nina ${stamp}`;
+  for (const [bad, why] of [['ab', 'Use at least 3 characters.'], ['x'.repeat(17), 'Use at most 16 characters.'], ['nina@home', 'Use letters, numbers and spaces only.'],
+    ['Adm1n', 'Pick a different name.'], ['Nina\u200b', 'Use letters, numbers and spaces only.']]) {
+    const said = await rpcRejected(a, 'set_name', { name: bad }, `the name ${JSON.stringify(bad)}`);
+    if (!said.includes(why)) fail(`set_name ${JSON.stringify(bad)} should say "${why}", said "${said}"`);
+  }
+  const set = await rpc(a, 'set_name', { name: `  ${name}  ` });
+  const after = await rpc(a, 'account_links');
+  if (set.name !== name || after.named !== true || after.username !== name) fail(`set_name: ${JSON.stringify({ set, after })}`);
+  for (const taken of [name, name.toUpperCase()]) {
+    const said = await rpcRejected(b, 'set_name', { name: taken }, `the taken name ${taken}`);
+    if (!said.includes('That name is taken')) fail(`a taken name should say so, said "${said}"`);
+  }
+  // The holder may change the casing of their own name.
+  if ((await rpc(a, 'set_name', { name: name.toLowerCase() })).name !== name.toLowerCase()) fail('changing the case of your own name');
+  // No way round the rules: not the account update, not a username at sign-up.
+  let updated = false;
+  try { await a.client.updateAccount(a.session, { username: 'Admin' }); updated = true; } catch (e) { /* expected */ }
+  if (updated) fail('a direct account update must be refused');
+  const client = new Client(KEY, HOST, PORT, false);
+  const sneaky = await client.authenticateDevice(`e2e-sneaky-${Date.now()}`, true, name.toUpperCase());
+  if (sneaky.username.toLowerCase() === name.toLowerCase()) fail('signing up with a name someone holds in another casing must not give it');
+  // A fresh token carries the new name into the next room.
+  const fresh = await a.client.sessionRefresh(a.session);
+  if (fresh.username !== name.toLowerCase()) fail(`a refreshed session should carry the new name, got ${fresh.username}`);
+  log('names: rules, taken in any casing, named flag, account update and sign-up closed, refresh carries the name');
+  for (const p of [a, b]) p.socket.disconnect(true);
+}
+
 try {
+  await testNames();
   await testPrivateRoom();
   await testForfeit();
   await testFriendsAndInvites();

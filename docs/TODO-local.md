@@ -43,6 +43,7 @@ Emotes, mute, report and block exist. Tap the smiley in the top bar for the emot
 
 ## B4. Progression and season
 
+- [ ] Profile and name step (decision D17), on a phone: a fresh install asks for a name before play, with the keyboard open the field, the error line and "Let's play" stay in view, a taken or refused name says why, and the name shows at the table. Tap the HUD avatar: the investor card grows out of it and turns over on a tap. Deploy the server before testers get this build (`docs/deploy.md`); an older server never asks for a name.
 - [ ] Play two games on a phone and confirm the profile card updates (level, XP bar, wins) and the daily bonus button behaves across a UTC midnight.
 - [ ] Decide whether season points should also reward last place with 1 point (currently 0) after seeing a few real standings.
 - [ ] Verify the season leaderboard reset on the 1st of a month (Nakama cron `0 0 1 * *`). *(Cloud: the Node e2e now checks that every season record expires at 00:00 UTC on the 1st of next month, which is how Nakama applies the reset. Glance at the standings on the 1st to see it happen.)*

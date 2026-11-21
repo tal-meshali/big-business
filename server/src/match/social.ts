@@ -6,6 +6,7 @@
  * happen client-side through Nakama's own API, so no RPC is needed for them.
  */
 import { isUserId, normalizeCode, parseBody, readString, reject, requireUser, USERNAME_MAX } from './input';
+import { isNamed } from './names';
 import { INVITE_CODE } from './protocol';
 import { checkRate } from './ratelimit';
 import { roomMatchId } from './rooms';
@@ -136,6 +137,8 @@ export interface AccountLinks {
   google: boolean;
   device: boolean;
   username: string;
+  /** True once the player picked the name (set_name); false for Nakama's random one. */
+  named: boolean;
 }
 
 /**
@@ -143,17 +146,18 @@ export interface AccountLinks {
  * WHY: the raw account carries email, wallet, devices and every provider id;
  * the client only needs booleans, and never has to parse the account shape.
  */
-export function accountLinks(account: { user?: { appleId?: string; googleId?: string; username?: string } | null; devices?: { id: string }[] | null }): AccountLinks {
+export function accountLinks(account: { user?: { appleId?: string; googleId?: string; username?: string; metadata?: { [key: string]: unknown } | null } | null; devices?: { id: string }[] | null }): AccountLinks {
   const user = account.user || {};
   return {
     apple: !!user.appleId,
     google: !!user.googleId,
     device: (account.devices || []).length > 0,
     username: user.username || '',
+    named: isNamed(account),
   };
 }
 
-/** RPC account_links: {apple, google, device, username} for the caller. */
+/** RPC account_links: {apple, google, device, username, named} for the caller. */
 export const rpcAccountLinks: nkruntime.RpcFunction = (ctx, logger, nk, payload) => {
   void logger; void payload;
   const userId = requireUser(ctx);

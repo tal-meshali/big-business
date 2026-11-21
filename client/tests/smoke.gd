@@ -125,6 +125,8 @@ func _run() -> void:
 	failures += await _plus_checks()
 	failures += await _club_checks()
 	failures += await _watch_checks()
+	failures += await _profile_checks()
+	failures += await _name_step_checks()
 
 	if failures == 0:
 		print("SMOKE OK")
@@ -1675,4 +1677,277 @@ func _watch_checks() -> int:
 		push_error("a watcher's prompt says they are watching, got '%s'" % table._prompt.text)
 		failures += 1
 	table.queue_free()
+	return failures
+
+
+## Profile: the level maths and number formats, the screen opening from the
+## HUD avatar, each `apply_*` filling its rows, the Plus panel's three
+## states, the card turning over, and rows that lead to other screens.
+func _profile_checks() -> int:
+	var failures := 0
+	if Leveling.span(1) != Vector2i(0, 50) or Leveling.span(3) != Vector2i(200, 450) or Leveling.span(0) != Vector2i(0, 50):
+		push_error("Leveling.span must match the server's 50 * (level - 1)^2")
+		failures += 1
+	var panel_script = load("res://scripts/ui/profile_panel.gd")
+	if panel_script.thousands(1234567) != "1,234,567" or panel_script.thousands(999) != "999" or panel_script.thousands(-1000) != "-1,000":
+		push_error("thousands() groups digits in threes")
+		failures += 1
+	if panel_script.compact(950) != "950" or panel_script.compact(1250) != "1.2k" or panel_script.compact(12999) != "12k" or panel_script.compact(3400000) != "3.4m":
+		push_error("compact() shortens counts for a chip")
+		failures += 1
+	if panel_script.ordinal(1) != "1st" or panel_script.ordinal(2) != "2nd" or panel_script.ordinal(3) != "3rd" or panel_script.ordinal(11) != "11th" or panel_script.ordinal(23) != "23rd":
+		push_error("ordinal() must handle the teens")
+		failures += 1
+	if panel_script._number(26.0) != "26" or panel_script._number(12.5) != "12.5" or panel_script._number(12345.6) != "12,345.6" or panel_script._number(9.96) != "10":
+		push_error("_number() shows one decimal only when there is one, with thousands grouped")
+		failures += 1
+
+	var net: Node = root.get_node("Net")
+	var previous_name: String = net.display_name
+	net.display_name = "Tal"
+	RemoteConfig.reset()
+	Cosmetics.reset()
+	var lobby = load("res://scripts/ui/main.gd").new()
+	root.add_child(lobby)
+	lobby.size = Vector2(720, 1560)
+	await process_frame
+	await process_frame
+	var profile = lobby._profile_panel
+	if profile.visible or lobby._name_label.text != "Tal" or lobby._avatar_label.text != "T":
+		push_error("the lobby starts with the profile closed and the name on the HUD")
+		failures += 1
+	if lobby._profile_button.size.x < 48 or lobby._profile_button.size.y < 48:
+		push_error("the HUD avatar and name must be a full touch target, got %s" % lobby._profile_button.size)
+		failures += 1
+	lobby._profile_button.pressed.emit()
+	await process_frame
+	await process_frame
+	if not profile.visible or profile.card.player_name != "Tal" or not profile.card.face_up:
+		push_error("a tap on the HUD avatar opens the profile on the card's face")
+		failures += 1
+	# Offline: nothing is known yet, and the name cannot be changed.
+	if profile._rows["games"].value != profile.UNKNOWN or not profile._rename_button.disabled or not profile._account_label.text.begins_with("Not connected"):
+		push_error("an offline profile shows dashes, says so and disables Change name")
+		failures += 1
+
+	lobby._apply_progress({"level": 7, "xp": 2000, "gamesPlayed": 1234, "wins": 56, "bestRank": 1, "streak": 1}, false)
+	await process_frame
+	if profile.card.level != 7 or profile._level_label.text != "Level 7" or profile._xp_label.text != "2,000 / 2,450 XP":
+		push_error("the profile shows the level and XP the lobby holds, got '%s' '%s'" % [profile._level_label.text, profile._xp_label.text])
+		failures += 1
+	if profile._xp_bar.min_value != 1800 or profile._xp_bar.max_value != 2450:
+		push_error("the XP bar spans the current level")
+		failures += 1
+	if profile._rows["games"].value != "1,234" or profile._rows["wins"].value != "56" or profile._rows["best"].value != "1st place" or profile._rows["streak"].value != "1 day":
+		push_error("the record rows show the progress, got %s" % [[profile._rows["games"].value, profile._rows["best"].value, profile._rows["streak"].value]])
+		failures += 1
+	profile.apply_progress({"level": 1, "xp": 0, "gamesPlayed": 0, "wins": 0, "bestRank": 0, "streak": 0})
+	if profile._rows["best"].value != "No games yet" or profile._rows["streak"].value != "0 days":
+		push_error("a new player's record reads 'No games yet'")
+		failures += 1
+
+	profile.apply_season([{"rank": 1, "score": 900, "userId": "someone"}, {"rank": 1204, "score": 310, "mine": true}])
+	if profile._rows["season"].value != "#1,204 · 310 pts":
+		push_error("the season row shows the player's own rank and points, got '%s'" % profile._rows["season"].value)
+		failures += 1
+	profile.apply_season([])
+	if profile._rows["season"].value != "No games yet":
+		push_error("the season row says so when the player is not on the board")
+		failures += 1
+	profile.apply_club({"club": {"name": "Golden Brokers"}})
+	if profile._rows["club"].value != "Golden Brokers" or profile.card.tagline != "Golden Brokers":
+		push_error("the club is on its row and on the card")
+		failures += 1
+	profile.apply_club({"club": null})
+	if profile._rows["club"].value != "None yet" or profile.card.tagline != "Independent investor":
+		push_error("without a club the card reads 'Independent investor'")
+		failures += 1
+	if not profile._rows["look"].value.contains(Cosmetics.name_of(Cosmetics.card_back)):
+		push_error("the look row names the equipped card back")
+		failures += 1
+
+	# Plus: hidden while not on offer, a line about it when it is, the
+	# breakdown for a member.
+	profile.apply_stats({"plus": false, "games": 4, "wins": 1})
+	if profile._plus_panel.visible:
+		push_error("the Plus panel stays hidden while Remote Config does not offer Plus")
+		failures += 1
+	RemoteConfig.apply({"plusEnabled": true})
+	profile.apply_stats({"plus": false, "games": 4, "wins": 1})
+	if not profile._plus_panel.visible or not profile._plus_teaser.visible or profile._plus_rows.visible:
+		push_error("offered Plus shows its line and the See Plus button")
+		failures += 1
+	RemoteConfig.reset()
+	profile.apply_stats({"plus": true, "games": 4, "wins": 1, "winRate": 25, "averageScore": 12.5, "bestScore": 20, "podiums": 3, "peopleGames": 2,
+		"majorities": [0, 2, 0, 0, 1, 0], "recent": [{"rank": 2}, {"rank": 1}]})
+	await process_frame
+	if not profile._plus_rows.visible or profile._plus_teaser.visible or profile._rows["win_rate"].value != "25%" or profile._rows["average"].value != "12.5":
+		push_error("a member sees the breakdown, got '%s' '%s'" % [profile._rows["win_rate"].value, profile._rows["average"].value])
+		failures += 1
+	if profile._majority_counts != [0, 2, 0, 0, 1, 0] or profile._recent_ranks != [2, 1]:
+		push_error("majorities and recent finishes are read from get_stats")
+		failures += 1
+
+	# Worst case: nothing may push a row wider than its panel.
+	profile.apply_club({"club": {"name": "The Extraordinarily Long Named Investors Club"}})
+	profile.apply_season([{"rank": 1234567, "score": 98765432, "mine": true}])
+	await process_frame
+	await process_frame
+	for key in ["club", "season", "look", "games"]:
+		var row = profile._rows[key]
+		if row.size.x > profile._content.size.x + 1 or row._value.size.x < 8:
+			push_error("the %s row must fit its panel and keep its value visible (row %s, value %s)" % [key, row.size, row._value.size])
+			failures += 1
+	if profile._content.size.x > profile.size.x - 16:
+		push_error("the profile must not grow wider than the screen (%s in %s, lobby %s)" % [profile._content.size, profile.size, lobby.size])
+		failures += 1
+	for b in profile.find_children("*", "Button", true, false):
+		if b is CardView or not b.is_visible_in_tree() or b.mouse_filter == Control.MOUSE_FILTER_IGNORE:
+			continue
+		if b.size.x < 48 or b.size.y < 48:
+			push_error("profile button '%s' is %s, under the 48 px touch target" % [b.text, b.size])
+			failures += 1
+
+	# The card turns over to the equipped back and comes back on reopen.
+	profile.card.pressed.emit()
+	await create_timer(0.5).timeout
+	if profile.card.face_up or not profile.card._back.visible:
+		push_error("a tap turns the investor card over to the card back")
+		failures += 1
+	profile.close()
+	await create_timer(0.3).timeout
+	if profile.visible:
+		push_error("Close hides the profile")
+		failures += 1
+	lobby._open_profile()
+	await process_frame
+	if not profile.card.face_up:
+		push_error("the profile opens on the card's face every time")
+		failures += 1
+
+	# Rows that belong to other screens close the profile and open them.
+	var went: Array[String] = []
+	profile.navigate.connect(func(to: String) -> void: went.append(to))
+	profile._rows["club"].pressed.emit()
+	await create_timer(0.3).timeout
+	if went != ["clubs"] or profile.visible:
+		push_error("the Club row closes the profile and opens the clubs, got %s" % [went])
+		failures += 1
+	lobby.queue_free()
+	net.display_name = previous_name
+	RemoteConfig.reset()
+	return failures
+
+
+## The name step: the typed-name rules the client checks, first launch
+## (asked only when the server says the account is unnamed, no way out but
+## a name unless saving fails for an outage) and renaming from the profile.
+func _name_step_checks() -> int:
+	var failures := 0
+	# WHY by path: NamesApi uses the Net autoload, which is not there yet when
+	# this script is compiled.
+	var names = load("res://scripts/net/names_api.gd")
+	if names.clean("  Tal \t  M  ") != "Tal M" or names.clean("   ") != "":
+		push_error("names.clean trims and collapses blanks, got '%s'" % names.clean("  Tal \t  M  "))
+		failures += 1
+	if names.problem("ab") != names.TOO_SHORT or names.problem(" a  b ") != "" or names.problem("Tal") != "":
+		push_error("names.problem refuses under three characters only")
+		failures += 1
+	if names._message("Not connected") != names.OFFLINE or names._message("too many requests") != names.BUSY \
+			or names._message("That name is taken. Try another.") != "That name is taken. Try another." or names._message("internal error at line 3") != names.FAILED:
+		push_error("names._message keeps the server's sentences and replaces the rest")
+		failures += 1
+	var short_answer: String = await names.save("ab")
+	var offline_answer: String = await names.save("Tal")
+	if short_answer != names.TOO_SHORT or not offline_answer in [names.OFFLINE, names.FAILED]:
+		push_error("set_name fails cleanly when too short or offline, got '%s' and '%s'" % [short_answer, offline_answer])
+		failures += 1
+
+	var net: Node = root.get_node("Net")
+	var previous_name: String = net.display_name
+	net.display_name = "xQzRandomName"
+	var lobby = load("res://scripts/ui/main.gd").new()
+	root.add_child(lobby)
+	lobby.size = Vector2(720, 1560)
+	await process_frame
+	await process_frame
+	var prompt = lobby._name_prompt
+	if prompt.visible:
+		push_error("the name step is not shown before the server says the account is new")
+		failures += 1
+	# A server from before set_name sends no `named`; a named account sends true.
+	lobby._ask_name_if_new({"username": "xQzRandomName"})
+	lobby._ask_name_if_new({"username": "Tal", "named": true})
+	if prompt.visible:
+		push_error("only an account marked unnamed is asked for a name")
+		failures += 1
+	lobby._ask_name_if_new({"username": "xQzRandomName", "named": false})
+	await process_frame
+	await process_frame
+	if not prompt.visible or not prompt.required or prompt._cancel.visible or prompt._title.text != "What's your name?":
+		push_error("a new account gets the name step with no Cancel")
+		failures += 1
+	if prompt._edit.text != "" or not prompt._save.disabled:
+		push_error("the random name is not offered back, and an empty field cannot be saved (field '%s')" % prompt._edit.text)
+		failures += 1
+	prompt._edit.text = "Ta"
+	prompt._edit.text_changed.emit("Ta")
+	if not prompt._save.disabled or prompt._card.player_name != "Ta":
+		push_error("two characters are shown on the card but cannot be saved")
+		failures += 1
+	prompt._edit.text = "  Tal  "
+	prompt._edit.text_changed.emit("  Tal  ")
+	if prompt._save.disabled or prompt._card.player_name != "Tal":
+		push_error("a name of three characters can be saved, and the card shows it cleaned")
+		failures += 1
+	failures += _check_button_sizes(prompt, "name step")
+	# A refusal about the name keeps the player on the step.
+	prompt._show_error("That name is taken. Try another.")
+	if prompt._error.text != "That name is taken. Try another." or prompt._cancel.visible:
+		push_error("a taken name is said under the field, with still no way round the step")
+		failures += 1
+	prompt._edit.text_changed.emit("Tal M")
+	if prompt._error.text != "":
+		push_error("typing clears the error")
+		failures += 1
+	# Offline: saving fails, and only then the step can be put off.
+	prompt._edit.text = "Tal"
+	prompt._edit.text_changed.emit("Tal")
+	await prompt._on_save()
+	if not prompt.visible or not prompt._error.text in [names.OFFLINE, names.FAILED] or not prompt._cancel.visible or prompt._cancel.text != "Not now" or prompt._save.text != "Let's play":
+		push_error("an outage at first launch offers 'Not now', got error '%s'" % prompt._error.text)
+		failures += 1
+	var events: Array[String] = []
+	prompt.cancelled.connect(func() -> void: events.append("cancelled"))
+	prompt.saved.connect(func(n: String) -> void: events.append("saved " + n))
+	prompt._cancel.pressed.emit()
+	if prompt.visible or events != ["cancelled"]:
+		push_error("'Not now' closes the name step")
+		failures += 1
+
+	# Renaming from the profile: Cancel is there, and the same name saves nothing.
+	net.display_name = "Tal"
+	lobby._open_profile()
+	await process_frame
+	lobby._profile_panel.rename_requested.emit()
+	await process_frame
+	if not prompt.visible or prompt.required or not prompt._cancel.visible or prompt._cancel.text != "Cancel" or prompt._title.text != "Change your name" or prompt._edit.text != "Tal":
+		push_error("Change name opens the step with the current name and Cancel")
+		failures += 1
+	events.clear()
+	await prompt._on_save()
+	if prompt.visible or events != ["cancelled"]:
+		push_error("saving the name the player already has changes nothing, got %s" % [events])
+		failures += 1
+	# A name saved in an earlier build's field is offered at first launch.
+	lobby._profile_panel.close()
+	lobby._saved_name = "Dana"
+	lobby._ask_name_if_new({"username": "xQzRandomName", "named": false})
+	if not prompt.visible or prompt._edit.text != "Dana" or prompt._save.disabled:
+		push_error("a name typed in an earlier build is offered back at first launch")
+		failures += 1
+	lobby.queue_free()
+	net.display_name = previous_name
+	# Leave the settings file as it was found.
+	net.save_settings()
 	return failures

@@ -1,6 +1,6 @@
 /**
  * Nakama runtime entry point. Registers the Big Business match handler, the
- * room-code, profile, moderation, social, account-link, quest, cosmetic,
+ * room-code, profile, player-name, moderation, social, account-link, quest, cosmetic,
  * shop, push-token, Remote Config, analytics and Designer (custom card art)
  * RPCs, and clubs with their weekly league.
  *
@@ -34,6 +34,7 @@ import {
   guardedFindPlayer,
   guardedInviteFriend,
   guardedAccountLinks,
+  guardedSetName,
 } from './match/guarded_core';
 import {
   guardedClearDeckPart,
@@ -53,10 +54,12 @@ import {
 // dependency instead of one per RPC, keeping main.ts under the god-node limit.
 import * as social from './match/guarded_social';
 import { beforeChannelJoin, beforeGroupChange } from './match/rpc_clubs';
+import * as names from './match/rpc_names';
 
 function InitModule(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, initializer: nkruntime.Initializer): void {
   void ctx;
   createLeaderboards(nk, logger);
+  names.prepareNames(nk, logger);
   initializer.registerMatch(MATCH_MODULE, {
     matchInit,
     matchJoinAttempt,
@@ -77,6 +80,7 @@ function InitModule(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkrunt
   initializer.registerRpc('find_player', guardedFindPlayer);
   initializer.registerRpc('invite_friend', guardedInviteFriend);
   initializer.registerRpc('account_links', guardedAccountLinks);
+  initializer.registerRpc('set_name', guardedSetName);
   initializer.registerRpc('store_catalog', guardedStoreCatalog);
   initializer.registerRpc('sync_purchases', guardedSyncPurchases);
   initializer.registerRpc('get_remote_config', guardedGetRemoteConfig);
@@ -109,6 +113,10 @@ function InitModule(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkrunt
   initializer.registerRpc('moderation_queue', guardedModerationQueue);
   initializer.registerRpc('moderate_card_art', guardedModerateCardArt);
   initializer.registerBeforeAddFriends(beforeAddFriends);
+  initializer.registerBeforeAuthenticateDevice(names.beforeAuthenticateDevice);
+  initializer.registerBeforeAuthenticateApple(names.beforeAuthenticateApple);
+  initializer.registerBeforeAuthenticateGoogle(names.beforeAuthenticateGoogle);
+  initializer.registerBeforeUpdateAccount(names.beforeUpdateAccount);
   initializer.registerBeforeWriteStorageObjects(beforeWriteStorageObjects);
   initializer.registerBeforeDeleteStorageObjects(beforeDeleteStorageObjects);
   initializer.registerBeforeCreateGroup(beforeGroupChange);

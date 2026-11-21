@@ -148,7 +148,9 @@ func connect_to_server() -> bool:
 	var device_id := OS.get_unique_id()
 	if device_id.is_empty():
 		device_id = _persistent_device_id()
-	session = await client.authenticate_device_async(device_id, _create_username(), true)
+	# WHY no username: a new account gets a random one from the server and
+	# the player picks theirs in the name step (NamesApi), under its rules.
+	session = await client.authenticate_device_async(device_id, null, true)
 	if session.is_exception():
 		var msg := "auth failed: %s" % session.get_exception().message
 		push_warning(msg)
@@ -165,17 +167,13 @@ func _make_client() -> void:
 	client = Nakama.create_client(key, host, port, scheme, Nakama.DEFAULT_TIMEOUT, NakamaLogger.LOG_LEVEL.WARNING)
 
 
-## The username to create a new account with, or null to let Nakama pick.
-func _create_username():
-	return display_name if not display_name.is_empty() else null
-
-
 ## Adopts `session` and opens the realtime socket on it. Shared by the
 ## device-id and social sign-ins so they behave identically after auth.
 func _open_socket() -> bool:
 	user_id = session.user_id
-	if display_name.is_empty():
-		display_name = session.username
+	# WHY always: an existing account keeps its own name whatever the saved
+	# one says, and this is the name every other player sees.
+	display_name = session.username
 
 	socket = Nakama.create_socket_from(client)
 	var connected_result: NakamaAsyncResult = await socket.connect_async(session)
@@ -530,6 +528,25 @@ func _try_reconnect() -> void:
 	connection_failed.emit("disconnected")
 
 
+## Signs the session in again and reopens the socket, so the name other
+## players see at a table follows a change of name at once (set_name on the
+## server). False, with nothing changed, while seated in a match or offline:
+## the seat is tied to this socket, and the next launch picks the name up.
+## WHY: the session token carries the username it was issued with.
+func refresh_identity() -> bool:
+	if client == null or session == null or not match_id.is_empty():
+		return false
+	var fresh: NakamaSession = await client.session_refresh_async(session)
+	if fresh.is_exception():
+		return false
+	_closing = true
+	if socket != null:
+		socket.close()
+	_closing = false
+	session = fresh
+	return await _open_socket()
+
+
 ## Reopens the socket for the account we were signed in as.
 ## WHY: connect_to_server signs in with the device id, which after an Apple
 ## or Google sign-in is a different account; rejoining as that account would
@@ -697,8 +714,9 @@ func equip_cosmetic(slot: String, id: String) -> Dictionary:
 # account keeps XP, cosmetics and friends; the token itself comes from
 # SocialTokens (native plugins, a local step in docs/TODO-local.md E).
 
-## Which sign-in methods the account has: {apple, google, device, username};
-## {} when offline or on failure.
+## Which sign-in methods the account has, its name and whether the player
+## picked that name: {apple, google, device, username, named}; {} when
+## offline or on failure.
 func get_account_links() -> Dictionary:
 	if client == null or session == null:
 		return {}
@@ -811,8 +829,8 @@ func sign_in_with_google(id_token: String) -> bool:
 func _social_session(name: String, token: String, create: bool) -> NakamaSession:
 	_make_client()
 	if name == "apple":
-		return await client.authenticate_apple_async(token, _create_username(), create)
-	return await client.authenticate_google_async(token, _create_username(), create)
+		return await client.authenticate_apple_async(token, null, create)
+	return await client.authenticate_google_async(token, null, create)
 
 
 func _finish_social_sign_in(name: String, new_session: NakamaSession) -> bool:

@@ -6,11 +6,18 @@ extends Control
 ## room left) under the gold logo; the breathing PLAY button, bots, the
 ## tutorial and private rooms; and a dock along the bottom edge for
 ## friends, quests and card backs, the shop, clubs and More (rules, your
-## account, the server address). Typing happens in sheets or fields that
-## the lobby lifts above the on-screen keyboard.
+## account, the server address). A tap on the avatar or the name opens the
+## profile (ProfilePanel); a new player is asked for a name first
+## (NamePrompt). Typing happens in sheets or fields that the lobby lifts
+## above the on-screen keyboard.
 
 var _host_edit: LineEdit
-var _name_edit: LineEdit
+var _name_label: Label
+## The avatar, name and XP bar: one button that opens the profile.
+var _identity: Control
+var _profile_button: Button
+var _profile_panel: ProfilePanel
+var _name_prompt: NamePrompt
 var _code_edit: LineEdit
 var _status: Label
 var _lobby_label: Label
@@ -50,6 +57,10 @@ var _more_sheet: Control
 var _insets := Vector2.ZERO
 ## Games on the profile; -1 until the profile has loaded.
 var _games_played := -1
+var _level := 1
+## The name in the settings file at launch, before the account's own
+## replaces it: what the player typed into an earlier build's name field.
+var _saved_name := ""
 ## The little table on top; its `color` is the picked felt.
 var _felt: StartFan
 var _room: LobbyBackdrop
@@ -65,6 +76,7 @@ var _s := 1.85
 
 
 func _ready() -> void:
+	_saved_name = Net.display_name
 	_build()
 	Net.connected.connect(_on_connected)
 	Net.connection_failed.connect(_on_failed)
@@ -191,6 +203,24 @@ func _build() -> void:
 	_clubs_panel.visible = false
 	add_child(_clubs_panel)
 
+	_profile_panel = ProfilePanel.new()
+	_profile_panel.s = _s
+	_profile_panel.insets = _insets
+	_profile_panel.navigate.connect(_on_profile_navigate)
+	_profile_panel.rename_requested.connect(func() -> void: _name_prompt.open(Net.display_name, false, _level))
+	_profile_panel.link_requested.connect(func(provider_name: String) -> void:
+		if provider_name == "apple":
+			_on_link_apple()
+		else:
+			_on_link_google())
+	add_child(_profile_panel)
+
+	_name_prompt = NamePrompt.new()
+	_name_prompt.s = _s
+	_name_prompt.bottom_inset = _insets.y
+	_name_prompt.saved.connect(_on_name_saved)
+	add_child(_name_prompt)
+
 
 ## The gold wordmark and the red ribbon under it, tilted together.
 func _logo() -> Control:
@@ -243,10 +273,20 @@ func _hud() -> Control:
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", _px(8))
 
+	# Avatar, name and XP bar are one button: the way into the profile.
+	_identity = MarginContainer.new()
+	_identity.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_identity.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	row.add_child(_identity)
+	var who := HBoxContainer.new()
+	who.add_theme_constant_override("separation", _px(8))
+	who.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_identity.add_child(who)
+
 	var avatar := Control.new()
 	avatar.custom_minimum_size = Vector2(_px(48), _px(48))
 	avatar.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	row.add_child(avatar)
+	who.add_child(avatar)
 	_avatar_label = UiTheme.label("?", _px(19), UiTheme.OUTLINE, true)
 	_avatar_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_avatar_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
@@ -288,32 +328,16 @@ func _hud() -> Control:
 	col.add_theme_constant_override("separation", _px(1))
 	col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	col.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	row.add_child(col)
-	_name_edit = LineEdit.new()
-	_name_edit.placeholder_text = "Pick a name"
-	_name_edit.text = Net.display_name
-	_name_edit.max_length = 16
-	_name_edit.tooltip_text = "Your name: tap to change it"
-	_name_edit.custom_minimum_size = Vector2(0, _px(26))
-	_name_edit.add_theme_font_override("font", UiTheme.display_font())
-	_name_edit.add_theme_font_size_override("font_size", _px(15))
-	_name_edit.add_theme_color_override("font_color", Color.WHITE)
-	_name_edit.add_theme_color_override("font_placeholder_color", UiTheme.LILAC)
-	_name_edit.add_theme_color_override("caret_color", UiTheme.GOLD)
-	_name_edit.add_theme_color_override("font_outline_color", UiTheme.OUTLINE)
-	_name_edit.add_theme_constant_override("outline_size", _px(3))
-	var flat := StyleBoxFlat.new()
-	flat.bg_color = Color(0, 0, 0, 0)
-	flat.content_margin_left = 2
-	var flat_focus := StyleBoxFlat.new()
-	flat_focus.bg_color = Color(UiTheme.OUTLINE, 0.5)
-	flat_focus.set_corner_radius_all(_px(6))
-	flat_focus.content_margin_left = 2
-	_name_edit.add_theme_stylebox_override("normal", flat)
-	_name_edit.add_theme_stylebox_override("focus", flat_focus)
-	_name_edit.text_changed.connect(_on_name_changed)
-	_name_edit.focus_exited.connect(func() -> void: Net.save_settings())
-	col.add_child(_name_edit)
+	who.add_child(col)
+	_name_label = UiTheme.label("", _px(15), Color.WHITE, true)
+	_name_label.custom_minimum_size = Vector2(0, _px(24))
+	_name_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_name_label.add_theme_color_override("font_outline_color", UiTheme.OUTLINE)
+	_name_label.add_theme_constant_override("outline_size", _px(3))
+	# A long name ends in an ellipsis instead of pushing the HUD apart.
+	_name_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	_name_label.clip_text = true
+	col.add_child(_name_label)
 
 	var xp_row := HBoxContainer.new()
 	xp_row.add_theme_constant_override("separation", _px(6))
@@ -337,6 +361,23 @@ func _hud() -> Control:
 	_xp_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	_xp_label.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_xp_bar.add_child(_xp_label)
+	_xp_bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
+
+	_profile_button = Button.new()
+	_profile_button.flat = true
+	_profile_button.focus_mode = Control.FOCUS_NONE
+	_profile_button.tooltip_text = "Your profile"
+	for state in ["normal", "hover", "pressed", "hover_pressed", "focus", "disabled"]:
+		_profile_button.add_theme_stylebox_override(state, StyleBoxEmpty.new())
+	_profile_button.pressed.connect(_open_profile)
+	_identity.add_child(_profile_button)
+	# The whole cluster gives under the finger, not just the invisible button.
+	_identity.resized.connect(func() -> void: _identity.pivot_offset = Vector2(_px(24), _identity.size.y / 2.0))
+	_profile_button.button_down.connect(func() -> void:
+		_identity.create_tween().tween_property(_identity, "scale", Vector2(0.96, 0.96), 0.08).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT))
+	_profile_button.button_up.connect(func() -> void:
+		_identity.create_tween().tween_property(_identity, "scale", Vector2.ONE, 0.18).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT))
+	_show_name()
 
 	# Streak: a flame and the day count in a dark pill.
 	var streak := PanelContainer.new()
@@ -695,7 +736,10 @@ func _process(_delta: float) -> void:
 	if kb > 0 and focus is LineEdit and is_ancestor_of(focus) and get_window().size.y > 0:
 		var screen_h := get_viewport_rect().size.y
 		var keyboard_top := screen_h - kb * screen_h / float(get_window().size.y)
-		var field_bottom := focus.get_global_rect().end.y - position.y + _px(12)
+		# A field may name a control under it that must stay in view with it
+		# (the name step's error line and its Save button).
+		var keep: Control = focus.get_meta(NamePrompt.KEEP_IN_VIEW, focus)
+		var field_bottom := keep.get_global_rect().end.y - position.y + _px(12)
 		lift = maxf(0.0, field_bottom - keyboard_top)
 	if absf(position.y + lift) > 0.5:
 		position.y = -lift
@@ -763,10 +807,39 @@ func _add_button(parent: Control, text: String, handler: Callable, enabled := fa
 		_buttons.append(b)
 
 
-func _on_name_changed(text: String) -> void:
-	var who := text.strip_edges()
-	Net.display_name = who
+## The HUD name and the avatar's initial follow the account's name.
+func _show_name() -> void:
+	var who := Net.display_name.strip_edges()
+	_name_label.text = who if not who.is_empty() else "New investor"
 	_avatar_label.text = who.substr(0, 1).to_upper() if not who.is_empty() else "?"
+
+
+## The profile grows out of the avatar it was opened from.
+func _open_profile() -> void:
+	_quests_panel.visible = false
+	_profile_panel.open(_avatar_label.get_global_rect())
+
+
+## A row of the profile that belongs to another screen: close the profile
+## and open that one.
+func _on_profile_navigate(to: String) -> void:
+	_profile_panel.close()
+	match to:
+		"season":
+			_on_show_board()
+		"clubs":
+			_on_open_clubs()
+		"look":
+			_quests_panel.visible = true
+		"plus":
+			_on_open_shop()
+
+
+## The name step saved a name; Net has already signed in again with it.
+func _on_name_saved(_player_name: String) -> void:
+	_show_name()
+	_profile_panel.refresh_name()
+	_status.text = "Connected as %s" % Net.display_name
 
 
 func _set_online_buttons(enabled: bool) -> void:
@@ -788,7 +861,6 @@ func _on_start_now_pressed() -> void:
 func _on_connect_pressed() -> void:
 	Net.set_server_address(_host_edit.text)
 	_host_edit.text = Net.server_address()
-	Net.display_name = _name_edit.text.strip_edges()
 	Net.save_settings()
 	_status.text = "Connecting to %s..." % Net.server_address()
 	await Net.connect_preferred()
@@ -797,10 +869,14 @@ func _on_connect_pressed() -> void:
 func _on_connected() -> void:
 	_connected = true
 	_status.text = "Connected as %s" % Net.display_name
-	_set_online_buttons(true)
+	_show_name()
 	_board_button.disabled = false
 	_refresh_profile()
-	_refresh_account_row()
+	# WHY the wait: a new player is asked for a name before they can start
+	# a game, and the account answer says whether this one is new.
+	await _refresh_account_row()
+	if _connected:
+		_set_online_buttons(true)
 
 
 func _refresh_profile() -> void:
@@ -817,11 +893,14 @@ func _apply_progress(p: Dictionary, daily_available: bool) -> void:
 	_games_played = int(p.get("gamesPlayed", 0))
 	var level := int(p.get("level", 1))
 	var xp := int(p.get("xp", 0))
-	var floor_xp := 50 * (level - 1) * (level - 1)
-	var next_xp := 50 * level * level
+	var floor_xp := Leveling.span(level).x
+	var next_xp := Leveling.span(level).y
+	_level = level
+	_profile_panel.apply_progress(p)
 	_profile_label.text = "Level %d" % level
 	_profile_label.tooltip_text = "%d games, %d wins" % [int(p.get("gamesPlayed", 0)), int(p.get("wins", 0))]
-	_xp_label.text = "%d / %d" % [xp, next_xp]
+	# WHY: past six digits the full numbers no longer fit the small bar.
+	_xp_label.text = "%d / %d" % [xp, next_xp] if next_xp < 100000 else "%s / %s" % [ProfilePanel.compact(xp), ProfilePanel.compact(next_xp)]
 	_xp_label.tooltip_text = "%d / %d XP to level %d" % [xp, next_xp, level + 1]
 	_streak_label.text = str(int(p.get("streak", 0)))
 	_xp_bar.min_value = floor_xp
@@ -895,6 +974,7 @@ func _apply_remote_config() -> void:
 func _on_cosmetic_changed(_slot: String, _id: String) -> void:
 	_felt.color = Cosmetics.table_bg_color()
 	_felt.edge_color = Cosmetics.table_edge_color()
+	_profile_panel.apply_look()
 
 
 func _on_show_board() -> void:
@@ -927,6 +1007,20 @@ func _refresh_account_row() -> void:
 	_link_google_button.visible = bool(avail.get("google", false)) and not links.get("google", false)
 	_link_apple_button.disabled = not Net.is_connected_to_server()
 	_link_google_button.disabled = not Net.is_connected_to_server()
+	_profile_panel.apply_account(links)
+	_ask_name_if_new(links)
+
+
+## First launch: the account still has the random name the server made, so
+## ask for one before anything else. `named` is missing from a server that
+## predates set_name; then nobody is asked.
+func _ask_name_if_new(links: Dictionary) -> void:
+	if links.get("named") != false or _name_prompt.visible or _in_lobby or not Net.match_id.is_empty():
+		return
+	# A name typed into an earlier build's name field is offered back; the
+	# random one the settings file may hold instead is not.
+	var saved := _saved_name if NamesApi.problem(_saved_name).is_empty() and _saved_name != String(links.get("username", "")) else ""
+	_name_prompt.open(saved, true, _level)
 
 
 func _on_link_apple() -> void:

@@ -12,7 +12,6 @@ func _init() -> void:
 func _run() -> void:
 	var net: Node = root.get_node("Net")
 	net.host = "127.0.0.1"
-	net.display_name = "GodotBot"
 	var ok: bool = await net.connect_to_server()
 	if not ok:
 		print("E2E CLIENT FAILED: could not connect")
@@ -20,10 +19,32 @@ func _run() -> void:
 		return
 	print("connected as ", net.display_name, " user ", net.user_id)
 
+	# The name step's path: a refused name says why, a good one is saved,
+	# the account is marked named, and the socket is reopened under it.
+	# WHY by path: NamesApi uses the Net autoload, which is not there yet
+	# when this script is compiled.
+	var names = load("res://scripts/net/names_api.gd")
+	var refused: String = await names.save("admin")
+	if refused != "Pick a different name.":
+		print("E2E CLIENT FAILED: a reserved name should be refused with its sentence, got '%s'" % refused)
+		quit(1)
+		return
+	var wanted := "Godot %d" % (Time.get_ticks_usec() % 1000000)
+	var problem: String = await names.save(wanted)
+	var links: Dictionary = await net.get_account_links()
+	if not problem.is_empty() or net.display_name != wanted or net.session.username != wanted \
+			or links.get("named") != true or links.get("username") != wanted or not net.is_connected_to_server():
+		print("E2E CLIENT FAILED: saving a name ('%s', display '%s', links %s)" % [problem, net.display_name, links])
+		quit(1)
+		return
+	print("named ", wanted)
+
 	# Private room through the real client: creating joins with the room code
 	# (the server refuses a private join without it); leave and come back by code.
-	var lobby_seen := {"code": ""}
-	var on_lobby := func(l: Dictionary) -> void: lobby_seen["code"] = String(l.get("roomCode", ""))
+	var lobby_seen := {"code": "", "names": []}
+	var on_lobby := func(l: Dictionary) -> void:
+		lobby_seen["code"] = String(l.get("roomCode", ""))
+		lobby_seen["names"] = l.get("seats", []).map(func(seat: Dictionary) -> String: return String(seat.get("name", "")))
 	net.lobby_updated.connect(on_lobby)
 	var code: String = await net.create_room()
 	if code.is_empty() or net.room_code != code:
@@ -36,6 +57,10 @@ func _run() -> void:
 		waited += 1
 	if lobby_seen["code"] != code:
 		print("E2E CLIENT FAILED: no lobby for room ", code)
+		quit(1)
+		return
+	if not lobby_seen["names"].has(wanted):
+		print("E2E CLIENT FAILED: the room should seat the player under the new name, got ", lobby_seen["names"])
 		quit(1)
 		return
 	await net.leave_match()

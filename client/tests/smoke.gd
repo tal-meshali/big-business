@@ -983,6 +983,7 @@ func _play_once(select_id: int, play_id: int, to: String) -> int:
 	v["phase"] = "play"
 	v["tookCompany"] = 4
 	v["seats"][1]["hand"] = hand.duplicate(true)
+	v["seats"][1]["portfolio"] = [{"id": 30, "company": 1}, {"id": 31, "company": 2}]
 	v["legal"] = [{"type": "play_portfolio", "cardId": 1}, {"type": "play_portfolio", "cardId": 2}, {"type": "play_portfolio", "cardId": 3}, {"type": "play_market", "cardId": 2}]
 	table._on_view(v.duplicate(true))
 	await process_frame
@@ -1007,6 +1008,10 @@ func _play_once(select_id: int, play_id: int, to: String) -> int:
 	v["turn"] = 3
 	v["tookCompany"] = null
 	v["seats"][1]["hand"] = hand.filter(func(c: Dictionary) -> bool: return c["id"] != play_id)
+	if to == "portfolio":
+		v["seats"][1]["portfolio"].append(played)
+	else:
+		v["market"] = [{"card": played, "coins": 0}]
 	v["legal"] = []
 	table._on_view(v.duplicate(true))
 	# WHY no frame wait: everything checked here is set before the flight's
@@ -1033,15 +1038,27 @@ func _play_once(select_id: int, play_id: int, to: String) -> int:
 	if table._hand_cards.any(func(cv: CardView) -> bool: return cv.selectable or cv.selected):
 		push_error("the cards left in hand should not be selected or tappable during the flight")
 		failures += 1
+	var landed := Vector2.ZERO
+	var card_in_flight: CardView = flying[0] if flying.size() == 1 else null
 	await process_frame
 	if table._animating and absf(table._hand_layer.global_position.y - hand_y) > 0.5:
 		push_error("the hand should not shift while the played card flies")
 		failures += 1
-	for i in 40:
-		await create_timer(0.05).timeout
+	for i in 200:
+		if card_in_flight != null and is_instance_valid(card_in_flight) and not card_in_flight.is_queued_for_deletion():
+			landed = table._center_of(card_in_flight)
+		await process_frame
 		if not table._animating:
 			break
 	await process_frame
+	if to == "portfolio":
+		var kept: CardView = null
+		for c in table._portfolio_layer.get_children():
+			if c is CardView and c.card_id == play_id:
+				kept = c
+		if kept == null or landed.distance_to(table._center_of(kept)) > 6.0:
+			push_error("a kept share should land on its own spot in the Portfolio, off by %s" % [table._center_of(kept) - landed if kept != null else "(not drawn)"])
+			failures += 1
 	ids = table._hand_cards.map(func(cv: CardView) -> int: return cv.card_id)
 	if ids != want:
 		push_error("the hand after the play should be %s, got %s" % [want, ids])

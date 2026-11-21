@@ -1078,6 +1078,39 @@ static func _stacks_of(seat: Dictionary) -> Array:
 	return out
 
 
+## Your Portfolio as stacks, one per company you hold, in company order:
+## [[company, [card ids]], ...].
+static func _portfolio_groups(seat: Dictionary) -> Array:
+	var groups := []
+	for company in 6:
+		var ids := []
+		for card in seat.get("portfolio", []):
+			if int(card.get("company", -1)) == company:
+				ids.append(int(card.get("id", -1)))
+		if not ids.is_empty():
+			groups.append([company, ids])
+	return groups
+
+
+## Share j of stack gi of `count` stacks in your Portfolio (dp from the
+## felt's centre).
+static func _portfolio_pos(gi: int, count: int, j: int) -> Vector2:
+	return Vector2((gi - (count - 1) / 2.0) * 46.0, 92.0 + j * 10.0)
+
+
+## Where share `card_id` sits in your Portfolio in the current view
+## (dp from the felt's centre), or the Portfolio's centre if it is not there.
+func _portfolio_spot(card_id: int) -> Vector2:
+	var seats: Array = view.get("seats", [])
+	if _my_seat >= 0 and _my_seat < seats.size():
+		var groups := _portfolio_groups(seats[_my_seat])
+		for gi in groups.size():
+			var j: int = groups[gi][1].find(card_id)
+			if j >= 0:
+				return _portfolio_pos(gi, groups.size(), j)
+	return TableBoard.zone_center(TableBoard.ZONE_PORTFOLIO)
+
+
 ## Market slot k of m on the felt: rows of at least five, two rows at most,
 ## squeezed together as the Market grows (dp from the felt's centre).
 static func _market_pos(k: int, m: int) -> Vector2:
@@ -1140,14 +1173,7 @@ func _render_portfolio(seats: Array) -> void:
 		child.queue_free()
 	if _my_seat < 0 or _my_seat >= seats.size():
 		return
-	var groups := []
-	for company in 6:
-		var ids := []
-		for card in seats[_my_seat].get("portfolio", []):
-			if int(card.get("company", -1)) == company:
-				ids.append(int(card.get("id", -1)))
-		if not ids.is_empty():
-			groups.append([company, ids])
+	var groups := _portfolio_groups(seats[_my_seat])
 	for gi in groups.size():
 		var company: int = groups[gi][0]
 		var ids: Array = groups[gi][1]
@@ -1158,7 +1184,7 @@ func _render_portfolio(seats: Array) -> void:
 			cv.card_held.connect(_on_card_held)
 			cv.card_released.connect(_on_card_released)
 			_portfolio_layer.add_child(cv)
-			_place_on_felt(cv, Vector2((gi - (groups.size() - 1) / 2.0) * 46.0, 92.0 + j * 10.0), PORTFOLIO_CARD)
+			_place_on_felt(cv, _portfolio_pos(gi, groups.size(), j), PORTFOLIO_CARD)
 		if Companies.tokens_of(seats[_my_seat]).has(company):
 			# On the top-right corner of the nearest share in the stack.
 			var p := Vector2((gi - (groups.size() - 1) / 2.0) * 46.0 + 16.0, 92.0 + (ids.size() - 1) * 10.0 - 22.0)
@@ -1482,7 +1508,9 @@ func _play_events_then_render() -> void:
 					to = _board.get_global_transform() * _board.project(p)
 					to_k = _felt_scale(p, MARKET_CARD)
 				elif mine:
-					var p := TableBoard.zone_center(TableBoard.ZONE_PORTFOLIO)
+					# WHY its own spot, not the zone's centre: the card then
+					# lands where the next render draws it, with no jump.
+					var p := _portfolio_spot(int(card.get("id", -1)))
 					to = _board.get_global_transform() * _board.project(p)
 					to_k = _felt_scale(p, PORTFOLIO_CARD)
 				elif _portfolio_spots.has(seat):

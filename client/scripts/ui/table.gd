@@ -1262,6 +1262,7 @@ func _update_prompt() -> void:
 	_cancel_button.visible = false
 	_set_buttons_enabled(true)
 	_board.glow = {}
+	_bar.custom_minimum_size.y = 0.0
 	if phase == "ended":
 		_prompt.text = "The supply is empty. Dividends are paid."
 		return
@@ -1600,19 +1601,23 @@ func _fly_card(from: Vector2, to: Vector2, company: int, face_up: bool, from_k: 
 	ghost.pivot_offset = Vector2(CardView.W, CardView.H) / 2.0
 	_fx_layer.add_child(ghost)
 	ghost.scale = Vector2(from_k, from_k)
-	ghost.global_position = from - ghost.pivot_offset
+	ghost.position = _fx_point(from) - ghost.pivot_offset
 	await _fly_view(ghost, to, to_k)
 
 
 ## Hops `card` (already in the effects layer, pivot at its centre) to
-## centre `to`, scaling to `to_k` and levelling out, then frees it.
+## centre `to` on screen, scaling to `to_k` and levelling out, then frees it.
 func _fly_view(card: CardView, to: Vector2, to_k: float) -> void:
-	var a := card.global_position
-	var b := to - card.pivot_offset
+	# WHY position, not global_position: on a scaled or tilted Control the
+	# global_position getter is the transformed corner, not what the setter
+	# takes, so mixing them makes the card jump. With the pivot at the
+	# centre, position + pivot is the centre whatever the scale and tilt.
+	var a := card.position
+	var b := _fx_point(to) - card.pivot_offset
 	var hop := 40.0 * _s
 	var tw := create_tween().set_parallel().set_ease(Tween.EASE_IN_OUT).set_trans(Tween.TRANS_CUBIC)
 	tw.tween_method(func(t: float) -> void:
-		card.global_position = a.lerp(b, t) + Vector2(0, -sin(t * PI) * hop), 0.0, 1.0, FLY_TIME)
+		card.position = a.lerp(b, t) + Vector2(0, -sin(t * PI) * hop), 0.0, 1.0, FLY_TIME)
 	tw.tween_property(card, "scale", Vector2(to_k, to_k), FLY_TIME)
 	tw.tween_property(card, "rotation", 0.0, FLY_TIME)
 	await tw.finished
@@ -1634,10 +1639,10 @@ func _take_from_hand(card_id: int) -> CardView:
 	played.leave_hand()
 	# WHY: re-pivot about the centre without moving it on screen, so the
 	# flight can level it out and shrink it into place like a ghost card.
-	var center: Vector2 = played.get_global_transform() * (Vector2(CardView.W, CardView.H) / 2.0)
+	var center := _center_of(played)
 	played.reparent(_fx_layer, false)
 	played.pivot_offset = Vector2(CardView.W, CardView.H) / 2.0
-	played.global_position = center - played.pivot_offset
+	played.position = _fx_point(center) - played.pivot_offset
 	var count := _hand_cards.size()
 	for i in count:
 		var slot := _hand_slot(i, count)
@@ -1645,12 +1650,24 @@ func _take_from_hand(card_id: int) -> CardView:
 	return played
 
 
-## The play is made: the Keep / Sell choice goes and `note` says what you did.
+## Screen point `p` in the effects layer's own coordinates.
+func _fx_point(p: Vector2) -> Vector2:
+	return _fx_layer.get_global_transform().affine_inverse() * p
+
+
+## The play is made: the Keep / Sell choice and the zone glow go, and
+## `note` says what you did until the next player acts.
 func _end_play_choice(note: String) -> void:
 	_selected_card = -1
 	for b in [_keep_button, _sell_button, _cancel_button]:
 		b.visible = false
+	_board.glow = {}
+	# WHY: the bar grows and shrinks with the prompt's lines and buttons,
+	# and the felt and hand move with it; hold its height until the next
+	# render so nothing shifts under the card in flight.
+	_bar.custom_minimum_size.y = _bar.size.y
 	_prompt.text = note
+	_action_note = note
 
 
 ## A bronze (or gold) coin hops from one point to another after `delay`.

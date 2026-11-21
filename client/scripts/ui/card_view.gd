@@ -149,6 +149,12 @@ func set_rest_position(pos: Vector2) -> void:
 ## hand closes up after a card is played. It can no longer be tapped.
 func slide_to(pos: Vector2, rot: float, seconds: float) -> void:
 	_rest_y = pos.y
+	selected = false
+	# WHY: the setter starts a lift tween on position:y; the slide owns
+	# the position now, and two tweens on it can strand the card.
+	if _lift_tween != null:
+		_lift_tween.kill()
+		_lift_tween = null
 	selectable = false
 	highlight = false
 	if _slide_tween != null:

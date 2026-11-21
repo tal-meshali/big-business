@@ -102,3 +102,33 @@ Decisions made by the project owner on 2026-09-27, after the research in `docs/r
 - **Decision:** the lobby offers "Play vs bots now" (a one-player game with two bots and the normal timer that starts as soon as you join) and, while waiting in a lobby, "Start now with bots" (bots fill the empty seats at once). In a public lobby anyone waiting may start it; in a private room only the host may. These are real games: they count for XP, quests and stats like a quick play game that bots filled.
 - **Why:** waiting 20 seconds for players who are not there is the worst part of a quiet server. The rules engine runs only on the server (TypeScript in `server/src/engine`), so a truly offline game would need a second engine in GDScript; the bot game reuses the server's bots and anti-cheat for free.
 - **Implies:** a bot game is labelled `solo`, so quick play never lists it, and only its creator may join it. Playing with no network at all still needs a client-side engine; the browser table (web/) is that for now.
+
+## D17. One reward, XP, and it follows capital (2026-11-21)
+
+- **Decision:** players earn XP only; there is no spendable game currency. XP after a game is linear in the capital the player ends with (proposed: 20 for finishing plus 2 per coin of final score). Quests, gifts and the daily reward pay XP, and the cosmetic track reads XP; track points are retired.
+- **Why:** the owner wants the coins a player ends with to matter beyond the result. One number keeps D5 (no virtual currency) and needs no economy to balance.
+- **Implies:** season points stay based on finishing place. D14's gift becomes XP with the same caps. The full plan is `docs/design/engagement-plan.md`.
+
+## D18. Retention is kind, not aggressive (2026-11-21)
+
+- **Decision:** nothing a player earned is taken away, nothing is "last chance", a day's goals fit in 15 to 20 minutes, reminders are opt-in and rare, and nobody is shamed. The streak is forgiving: rewards sit on a calendar that never moves back.
+- **Why:** the owner asked for it in those words, and D4 (every age) already rules out pressure tactics.
+- **Implies:** no streak reminders, no rank demotion, no expiring rewards, no countdown offers. A feature that breaks one of the seven rules in the plan is redesigned or dropped.
+
+## D19. A monthly season with ranks (2026-11-21)
+
+- **Decision:** the cosmetic track restarts each month with about 6 free rewards, on the existing season reset. Season points also give a rank, Bronze to Blue Chip, that only goes up within a season.
+- **Why:** the leaderboard already resets monthly and Plus already promises a monthly skin (D12); the owner asked for ranks.
+- **Implies:** about 6 new cosmetics a month. A missed season's rewards return later. Thresholds are fixed numbers, not percentiles, while the player base is small.
+
+## D20. Tags, special roles and swag (2026-11-21)
+
+- **Decision:** the server grants tags shown beside a player's name: Owner (the owner's account only), Team, Founding Investor (every account created before the public launch, plus anyone the owner adds), and earned ones such as Top Recruiter and Season Champion. "Swag" is what shows on a player at the table to display prestige: frame, rank emblem, tag, nameplate, card back, win effect. The store sorts cosmetics into categories.
+- **Why:** the owner asked for ranks, special roles for himself and for veterans, store categories and swag.
+- **Implies:** tags, titles, rank emblems and rank frames are never sold. Tags live in server-only storage and are set by operator RPC. Swag never covers game information.
+
+## D21. Growth inside the app, with an invite tournament (2026-11-21)
+
+- **Decision:** this plan covers invite rewards, a shareable result card and an invite tournament the owner can start by operator command; the top inviter earns a tag after the owner approves the board. Store page and soft-launch planning are separate.
+- **Why:** the owner chose in-app growth and asked for the tournament.
+- **Implies:** an invite counts only when a new account on a new device reaches level 3. The tournament is hidden from players under 13.

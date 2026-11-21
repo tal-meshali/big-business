@@ -183,8 +183,7 @@ func _run() -> void:
 	tall._apply_progress({"xp": 120, "level": 2, "gamesPlayed": 3, "wins": 1, "streak": 4}, true)
 	tall._status.text = "Connected as Tal"
 	net.display_name = "Tal"
-	net.named = true
-	tall._show_name()
+	tall._set_named(true)
 	await _settle()
 	for b in tall._buttons:
 		b.disabled = false

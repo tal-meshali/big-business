@@ -526,6 +526,26 @@ func _help_checks() -> int:
 		if help.current != step[2]:
 			push_error("a %+.0f px swipe should land on page %d, at %d" % [step[1], step[2], help.current])
 			failures += 1
+	# A second drag while the first page turn is still sliding: only the
+	# page under the finger is on screen.
+	help.select_tab(0, false)
+	_swipe(help, mid, -200.0)
+	var again := InputEventMouseButton.new()
+	again.button_index = MOUSE_BUTTON_LEFT
+	again.pressed = true
+	again.position = mid
+	help._input(again)
+	var pull := InputEventMouseMotion.new()
+	pull.position = mid + Vector2(-60, 0)
+	help._input(pull)
+	if help.pages.filter(func(p: Control) -> bool: return p.visible).size() != 1:
+		push_error("a drag during a page slide should leave only the current page showing")
+		failures += 1
+	var let_go := InputEventMouseButton.new()
+	let_go.button_index = MOUSE_BUTTON_LEFT
+	let_go.pressed = false
+	let_go.position = mid + Vector2(-60, 0)
+	help._input(let_go)
 	help.select_tab(help.tab_count() - 1, false)
 	_swipe(help, mid, -200.0)
 	await create_timer(HelpScreen.SLIDE + 0.05).timeout

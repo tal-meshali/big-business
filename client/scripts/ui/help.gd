@@ -108,6 +108,10 @@ func _ready() -> void:
 	_build()
 	select_tab(_start_tab, false)
 	_play_open()
+	# WHY: on Android, back would otherwise also quit the app; here it
+	# closes the sheet. Put back when the sheet goes.
+	get_tree().quit_on_go_back = false
+	tree_exiting.connect(func() -> void: get_tree().quit_on_go_back = true)
 
 
 func _px(dp: float) -> int:
@@ -298,10 +302,11 @@ func _art(kind: String) -> Control:
 		"companies":
 			# The six companies as a hand, smallest to largest, overlapping
 			# like cards held in a fan: the count and colour stay in view.
-			# Six cards each 76% visible, inside the sheet's width (screen
-			# less the sheet's margins and padding, 48 dp, and room to tilt).
-			var room := get_viewport_rect().size.x - _px(48 + 20)
-			var k := minf(0.58, room / (CardView.W * _s * (1.0 + 5.0 * 0.76)))
+			# Six cards each 76% visible inside the page (screen less the
+			# sheet's margins and padding, 48 dp), plus what the outer cards'
+			# 10 degree tilt adds on each side (sin 10 deg of their height).
+			var room := get_viewport_rect().size.x - _px(48 + 8)
+			var k := minf(0.58, room / (_s * (CardView.W * (1.0 + 5.0 * 0.76) + 2.0 * 0.18 * CardView.H)))
 			row.add_theme_constant_override("separation", -int(CardView.W * k * _s * 0.24))
 			for c in Companies.DATA:
 				var i := int(c["id"])
@@ -557,6 +562,14 @@ func _input(event: InputEvent) -> void:
 		var d: Vector2 = event.position - _swipe_from
 		if not _dragging and absf(d.x) > _px(10) and absf(d.x) > absf(d.y) * 1.5:
 			_dragging = true
+			# A new drag during a page slide: settle the slide first, so the
+			# page leaving does not freeze half on screen.
+			if _page_tween != null:
+				_page_tween.kill()
+			for p in pages.size():
+				pages[p].visible = p == current
+				pages[p].modulate.a = 1.0
+				_shift(pages[p], 0.0)
 		if _dragging:
 			var target := current + _swipe_step(d.x)
 			# Past the first or last page the page only gives a little.

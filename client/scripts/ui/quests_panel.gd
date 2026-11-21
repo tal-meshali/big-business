@@ -115,8 +115,13 @@ func _init() -> void:
 	_show_hint()
 	# Opening from the dock always starts on the quests, where the badge
 	# points; the pill is already there when the sheet appears.
+	# A message from last time (an unlock) gives way to the hint again.
 	visibility_changed.connect(func() -> void:
+		if is_inside_tree():
+			# WHY: Android back closes the sheet instead of quitting the app.
+			get_tree().quit_on_go_back = not visible
 		if visible:
+			_status_is_hint = true
 			select_tab(0, false))
 
 	var close := Button.new()
@@ -164,6 +169,13 @@ func _make_pick_button(parent: Control, slot: String, id: String) -> Button:
 	b.pressed.connect(func() -> void: _on_pick(slot, id))
 	parent.add_child(b)
 	return b
+
+
+## The phone's back gesture or button closes the sheet.
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_WM_GO_BACK_REQUEST and is_visible_in_tree():
+		visible = false
+		closed.emit()
 
 
 ## Shows the Quests (0) or Looks (1) page and moves the tab pill there.
@@ -231,7 +243,8 @@ func _add_row(parent: Control, q: Dictionary) -> void:
 	count.add_theme_color_override("font_color", UiTheme.LILAC)
 	col.add_child(count)
 	var button := Button.new()
-	button.custom_minimum_size = Vector2(104, ROW_HEIGHT)
+	# Wide enough for "Claimed", so every row's bar is the same length.
+	button.custom_minimum_size = Vector2(136, ROW_HEIGHT)
 	button.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	var id := String(q.get("id", ""))
 	button.pressed.connect(func() -> void: _on_claim(id))
@@ -337,6 +350,8 @@ func _refresh_pick_button(b: Button, id: String, current: String) -> void:
 	var is_unlocked := unlocked.has(id)
 	b.disabled = not is_unlocked
 	b.set_pressed_no_signal(id == current)
+	# The look in use is gold, so it stands apart from the other unlocked ones.
+	b.theme_type_variation = "PrimaryButton" if id == current else ""
 	var pts := _unlock_points(id)
 	if is_unlocked or (pts == 0 and not Cosmetics.is_paid(id) and not Cosmetics.is_plus(id)):
 		b.text = Cosmetics.name_of(id)

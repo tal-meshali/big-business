@@ -1200,6 +1200,17 @@ func _play_leaves_hand_checks() -> int:
 	if table._prompt.get_line_count() < 2 or absf(table._bar.size.y - one_line) > 0.5:
 		push_error("the bar should be as tall with one prompt line as with two (%s vs %s)" % [one_line, table._bar.size.y])
 		failures += 1
+	# A longer prompt (a tutorial hint) may raise the bar, but it then stays.
+	table._prompt.text = "Tutorial: keep a share this time. Tap a card, then Keep.\nCogwheel Robotics: keep it in your Portfolio or sell it to the Market? Tap Keep or Sell."
+	for i in 3:
+		await process_frame
+	var tall: float = table._bar.size.y
+	table._prompt.text = "Bo is thinking…"
+	for i in 3:
+		await process_frame
+	if absf(table._bar.size.y - tall) > 0.5:
+		push_error("the bar should not shrink back after a long prompt (%s vs %s)" % [tall, table._bar.size.y])
+		failures += 1
 	table.queue_free()
 	await process_frame
 	return failures
@@ -1279,13 +1290,33 @@ func _play_once(select_id: int, play_id: int, to: String) -> int:
 	if table._animating and absf(table._hand_layer.global_position.y - hand_y) > 0.5:
 		push_error("the hand should not shift while the played card flies")
 		failures += 1
+	# A resize mid-flight must not draw the played share on the table while
+	# it is still in the air.
+	table._on_resized()
+	await process_frame
+	if table._animating:
+		for layer in [table._portfolio_layer, table._market_row]:
+			for c in layer.get_children():
+				if c is CardView and c.card_id == play_id and not c.is_queued_for_deletion():
+					push_error("a resize mid-flight should not show the played share twice")
+					failures += 1
+	# Where your other Portfolio shares are on the last frame before the
+	# render, by card id, to check the render does not move them.
+	var held_at := {}
 	for i in 200:
 		if card_in_flight != null and is_instance_valid(card_in_flight) and not card_in_flight.is_queued_for_deletion():
 			landed = table._center_of(card_in_flight)
+		for c in table._portfolio_layer.get_children():
+			if c is CardView and not c.is_queued_for_deletion():
+				held_at[c.card_id] = table._center_of(c)
 		await process_frame
 		if not table._animating:
 			break
 	await process_frame
+	for c in table._portfolio_layer.get_children():
+		if c is CardView and held_at.has(c.card_id) and held_at[c.card_id].distance_to(table._center_of(c)) > 1.5:
+			push_error("Portfolio share %d should already be in place when the render lands, moved %s" % [c.card_id, table._center_of(c) - held_at[c.card_id]])
+			failures += 1
 	if to == "portfolio":
 		var kept: CardView = null
 		for c in table._portfolio_layer.get_children():

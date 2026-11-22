@@ -325,10 +325,8 @@ func _build_bottom_bar() -> void:
 	# with the buttons shown would shift the table between turns and right
 	# after a card lands.
 	column.add_child(_prompt)
-	# Two lines plus the gap between them, and a little headroom for names
-	# drawn from the taller fallback font (Hebrew, Arabic, CJK).
-	var line_h := UiTheme.body_font().get_height(_px(14))
-	_prompt.custom_minimum_size = Vector2(0, maxf(_px(38), 2.0 * line_h + _prompt.get_theme_constant("line_spacing") + _px(4)))
+	_prompt.custom_minimum_size = Vector2(0, maxf(_px(38), _prompt_height(2)))
+	_prompt.resized.connect(_hold_prompt_height)
 	var buttons := HBoxContainer.new()
 	buttons.add_theme_constant_override("separation", _px(8))
 	buttons.custom_minimum_size = Vector2(0, _px(BUTTON_H))
@@ -676,6 +674,9 @@ func _make_button(parent: Control, text: String, handler: Callable, kind := "") 
 func enable_coach() -> void:
 	if coach != null:
 		return
+	# Tutorial hints go above the prompt, so leave room for a third line
+	# from the start rather than growing the bar on the first hint.
+	_prompt.custom_minimum_size.y = maxf(_prompt.custom_minimum_size.y, _prompt_height(3))
 	coach = Coach.new()
 	coach.spot_provider = coach_spot
 	add_child(coach)
@@ -1009,7 +1010,10 @@ func _card_playable(card_id: int) -> bool:
 # ---------------------------------------------------------------------------
 
 func _render() -> void:
-	if view.is_empty():
+	# WHY: a render mid-animation (a resize, the coach closing, a view with
+	# no events) would draw the new table under the cards still in flight,
+	# so a played share shows twice. The animation renders when it ends.
+	if view.is_empty() or _animating:
 		return
 	var phase := String(view.get("phase", ""))
 	var seats: Array = view.get("seats", [])
@@ -1185,6 +1189,37 @@ static func _portfolio_pos(gi: int, count: int, j: int) -> Vector2:
 	return Vector2((gi - (count - 1) / 2.0) * 46.0, 92.0 + j * 10.0)
 
 
+## Glides the shares (and token chips) already in your Portfolio to where
+## the current view puts them, as when a new stack makes room in the row,
+## so the render after the flight draws them where they already are.
+func _slide_portfolio() -> void:
+	var seats: Array = view.get("seats", [])
+	if _my_seat < 0 or _my_seat >= seats.size():
+		return
+	var groups := _portfolio_groups(seats[_my_seat])
+	for child in _portfolio_layer.get_children():
+		var p := Vector2.INF
+		if child is CardView:
+			for gi in groups.size():
+				var j: int = groups[gi][1].find(child.card_id)
+				if j >= 0:
+					p = _portfolio_pos(gi, groups.size(), j)
+		elif child.has_meta("company"):
+			for gi in groups.size():
+				if groups[gi][0] == child.get_meta("company"):
+					p = _portfolio_pos(gi, groups.size(), groups[gi][1].size() - 1) + Vector2(16.0, -22.0)
+		if p == Vector2.INF:
+			continue
+		var to_pos: Vector2 = _board.project(p)
+		var tw := child.create_tween().set_parallel().set_ease(Tween.EASE_IN_OUT).set_trans(Tween.TRANS_CUBIC)
+		if child is CardView:
+			var k := _felt_scale(p, PORTFOLIO_CARD)
+			tw.tween_property(child, "position", to_pos - child.pivot_offset, FLY_TIME)
+			tw.tween_property(child, "scale", Vector2(k, k), FLY_TIME)
+		else:
+			tw.tween_property(child, "position", to_pos, FLY_TIME)
+
+
 ## Where share `card_id` sits in your Portfolio in the current view
 ## (dp from the felt's centre), or the Portfolio's centre if it is not there.
 func _portfolio_spot(card_id: int) -> Vector2:
@@ -1274,12 +1309,13 @@ func _render_portfolio(seats: Array) -> void:
 			_place_on_felt(cv, _portfolio_pos(gi, groups.size(), j), PORTFOLIO_CARD)
 		if Companies.tokens_of(seats[_my_seat]).has(company):
 			# On the top-right corner of the nearest share in the stack.
-			var p := Vector2((gi - (groups.size() - 1) / 2.0) * 46.0 + 16.0, 92.0 + (ids.size() - 1) * 10.0 - 22.0)
+			var p := _portfolio_pos(gi, groups.size(), ids.size() - 1) + Vector2(16.0, -22.0)
 			var chip := Control.new()
 			chip.mouse_filter = Control.MOUSE_FILTER_IGNORE
 			chip.position = _board.project(p)
 			var r := 11.0 * _board.depth(p) * _s
 			chip.draw.connect(func() -> void: TableBoard.draw_chip(chip, Vector2.ZERO, r, company))
+			chip.set_meta("company", company)
 			_portfolio_layer.add_child(chip)
 
 
@@ -1600,6 +1636,7 @@ func _play_events_then_render() -> void:
 					var p := _portfolio_spot(int(card.get("id", -1)))
 					to = _board.get_global_transform() * _board.project(p)
 					to_k = _felt_scale(p, PORTFOLIO_CARD)
+					_slide_portfolio()
 				elif _portfolio_spots.has(seat):
 					var p: Vector2 = _portfolio_spots[seat]
 					to = _board.get_global_transform() * _board.project(p)
@@ -1771,6 +1808,22 @@ func _take_from_hand(card_id: int) -> CardView:
 		var slot := _hand_slot(i, count)
 		_hand_cards[i].slide_to(slot["pos"], slot["rot"], CLOSE_UP_TIME)
 	return played
+
+
+## Height of `lines` lines of prompt text, with the gaps between them and
+## a little headroom for names drawn from the taller fallback font
+## (Hebrew, Arabic, CJK).
+func _prompt_height(lines: int) -> float:
+	var line_h := UiTheme.body_font().get_height(_px(14))
+	return lines * line_h + (lines - 1) * _prompt.get_theme_constant("line_spacing") + _px(4)
+
+
+## The prompt only ever grows within a game: a prompt longer than any so
+## far raises the bar once and it stays, so the felt and hand above it do
+## not move back and forth as the prompt changes.
+func _hold_prompt_height() -> void:
+	if _prompt.size.y > _prompt.custom_minimum_size.y:
+		_prompt.custom_minimum_size.y = _prompt.size.y
 
 
 ## Screen point `p` in the effects layer's own coordinates.

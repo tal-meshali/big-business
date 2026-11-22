@@ -118,6 +118,7 @@ func _run() -> void:
 	failures += await _peek_checks()
 	failures += await _draw_landing_checks()
 	failures += await _play_leaves_hand_checks()
+	failures += await _market_take_checks()
 	failures += await _friends_checks()
 	failures += await _quests_checks()
 	failures += await _account_checks()
@@ -1176,6 +1177,56 @@ func _draw_landing_checks() -> int:
 	return failures
 
 
+## Taking a share from the Market: it leaves the row as it flies (no copy
+## left behind) and the shares beside it close up before the render.
+func _market_take_checks() -> int:
+	var failures := 0
+	var table = load("res://scenes/table.tscn").instantiate()
+	root.add_child(table)
+	await process_frame
+	var v := _live_view()
+	v["startsInMs"] = 0
+	v["active"] = 1
+	v["turn"] = 2
+	v["market"] = [{"card": {"id": 40, "company": 0}, "coins": 0}, {"card": {"id": 41, "company": 2}, "coins": 1}, {"card": {"id": 42, "company": 4}, "coins": 0}]
+	v["legal"] = [{"type": "take_market", "cardId": 41}]
+	table._on_view(v.duplicate(true))
+	await process_frame
+	table._on_events(3, [{"type": "took_market", "seat": 1, "card": {"id": 41, "company": 2}, "coins": 1}])
+	v["phase"] = "play"
+	v["tookCompany"] = 2
+	v["market"] = [{"card": {"id": 40, "company": 0}, "coins": 0}, {"card": {"id": 42, "company": 4}, "coins": 0}]
+	v["seats"][1]["hand"].append({"id": 41, "company": 2})
+	v["legal"] = []
+	table._on_view(v.duplicate(true))
+	for c in table._market_row.get_children():
+		if c is CardView and c.card_id == 41 and c.visible:
+			push_error("the taken share should leave the Market as it flies")
+			failures += 1
+	var held_at := {}
+	for i in 200:
+		for c in table._market_row.get_children():
+			if c is CardView and c.visible and not c.is_queued_for_deletion():
+				held_at[c.card_id] = table._center_of(c)
+		await process_frame
+		if not table._animating:
+			break
+	await process_frame
+	var ids := []
+	for c in table._market_row.get_children():
+		if c is CardView and not c.is_queued_for_deletion():
+			ids.append(c.card_id)
+			if held_at.has(c.card_id) and held_at[c.card_id].distance_to(table._center_of(c)) > 1.5:
+				push_error("Market share %d should close up before the render, moved %s" % [c.card_id, table._center_of(c) - held_at[c.card_id]])
+				failures += 1
+	if ids != [40, 42]:
+		push_error("the Market after the take should be 40, 42, got %s" % [ids])
+		failures += 1
+	table.queue_free()
+	await process_frame
+	return failures
+
+
 ## Playing a card: the card itself leaves your hand the moment the play
 ## animates (no copy left behind), without a jump, the hand closes up
 ## behind it, the Keep / Sell choice goes away, the bar and felt hold
@@ -1230,6 +1281,7 @@ func _play_once(select_id: int, play_id: int, to: String) -> int:
 	v["tookCompany"] = 4
 	v["seats"][1]["hand"] = hand.duplicate(true)
 	v["seats"][1]["portfolio"] = [{"id": 30, "company": 1}, {"id": 31, "company": 2}]
+	v["market"] = [{"card": {"id": 40, "company": 0}, "coins": 1}]
 	v["legal"] = [{"type": "play_portfolio", "cardId": 1}, {"type": "play_portfolio", "cardId": 2}, {"type": "play_portfolio", "cardId": 3}, {"type": "play_market", "cardId": 2}]
 	table._on_view(v.duplicate(true))
 	await process_frame
@@ -1257,7 +1309,7 @@ func _play_once(select_id: int, play_id: int, to: String) -> int:
 	if to == "portfolio":
 		v["seats"][1]["portfolio"].append(played)
 	else:
-		v["market"] = [{"card": played, "coins": 0}]
+		v["market"] = [{"card": {"id": 40, "company": 0}, "coins": 1}, {"card": played, "coins": 0}]
 	v["legal"] = []
 	table._on_view(v.duplicate(true))
 	# WHY no frame wait: everything checked here is set before the flight's
@@ -1306,16 +1358,24 @@ func _play_once(select_id: int, play_id: int, to: String) -> int:
 	for i in 200:
 		if card_in_flight != null and is_instance_valid(card_in_flight) and not card_in_flight.is_queued_for_deletion():
 			landed = table._center_of(card_in_flight)
-		for c in table._portfolio_layer.get_children():
-			if c is CardView and not c.is_queued_for_deletion():
+		for c in table._portfolio_layer.get_children() + table._market_row.get_children():
+			if c is CardView and c.visible and not c.is_queued_for_deletion():
 				held_at[c.card_id] = table._center_of(c)
 		await process_frame
 		if not table._animating:
 			break
 	await process_frame
-	for c in table._portfolio_layer.get_children():
-		if c is CardView and held_at.has(c.card_id) and held_at[c.card_id].distance_to(table._center_of(c)) > 1.5:
-			push_error("Portfolio share %d should already be in place when the render lands, moved %s" % [c.card_id, table._center_of(c) - held_at[c.card_id]])
+	for c in table._portfolio_layer.get_children() + table._market_row.get_children():
+		if c is CardView and c.card_id != play_id and held_at.has(c.card_id) and held_at[c.card_id].distance_to(table._center_of(c)) > 1.5:
+			push_error("share %d on the felt should already be in place when the render lands, moved %s" % [c.card_id, table._center_of(c) - held_at[c.card_id]])
+			failures += 1
+	if to == "market":
+		var sold: CardView = null
+		for c in table._market_row.get_children():
+			if c is CardView and c.card_id == play_id:
+				sold = c
+		if sold == null or landed.distance_to(table._center_of(sold)) > 1.5:
+			push_error("a sold share should land on its own Market slot")
 			failures += 1
 	if to == "portfolio":
 		var kept: CardView = null

@@ -793,6 +793,8 @@ func _on_play_again() -> void:
 		coach.queue_free()
 		coach = null
 		_restriction = {}
+	# A new game starts with the usual two-line prompt again.
+	_prompt.custom_minimum_size.y = maxf(_px(38), _prompt_height(2))
 	_status.text = "Finding a new game..."
 	_result_backdrop.visible = false
 	var ok: bool = await Net.quick_play()
@@ -1189,6 +1191,33 @@ static func _portfolio_pos(gi: int, count: int, j: int) -> Vector2:
 	return Vector2((gi - (count - 1) / 2.0) * 46.0, 92.0 + j * 10.0)
 
 
+## Where share `card_id` sits in the Market in the current view (dp from
+## the felt's centre), or the next free slot if it is not there.
+func _market_spot(card_id: int) -> Vector2:
+	var market: Array = view.get("market", [])
+	for k in market.size():
+		if int(market[k].get("card", {}).get("id", -1)) == card_id:
+			return _market_pos(k, market.size())
+	return _market_pos(market.size(), market.size() + 1)
+
+
+## Glides the shares on the Market to their slots in the current view, as
+## when a share joins or leaves the row, so the render after the flight
+## draws them where they already are.
+func _slide_market() -> void:
+	var market: Array = view.get("market", [])
+	for cv in _market_row.get_children():
+		if not cv is CardView:
+			continue
+		for k in market.size():
+			if int(market[k].get("card", {}).get("id", -1)) == cv.card_id:
+				var p := _market_pos(k, market.size())
+				var kk := _felt_scale(p, MARKET_CARD)
+				var tw := cv.create_tween().set_parallel().set_ease(Tween.EASE_IN_OUT).set_trans(Tween.TRANS_CUBIC)
+				tw.tween_property(cv, "position", _board.project(p) - cv.pivot_offset, FLY_TIME)
+				tw.tween_property(cv, "scale", Vector2(kk, kk), FLY_TIME)
+
+
 ## Glides the shares (and token chips) already in your Portfolio to where
 ## the current view puts them, as when a new stack makes room in the row,
 ## so the render after the flight draws them where they already are.
@@ -1417,7 +1446,6 @@ func _update_prompt() -> void:
 	_cancel_button.visible = false
 	_set_buttons_enabled(true)
 	_board.glow = {}
-	_bar.custom_minimum_size.y = 0.0
 	if phase == "ended":
 		_prompt.text = "The supply is empty. Dividends are paid."
 		return
@@ -1593,7 +1621,7 @@ func _play_events_then_render() -> void:
 					sfx.play("coin")
 					var d := 0.0
 					for cv in _market_row.get_children():
-						if cv is CardView and not cv.blocked:
+						if cv is CardView and cv.visible and not cv.blocked:
 							_fly_coin(_seat_anchor(seat), _center_of(cv), false, d)
 							d = minf(d + 0.04, 0.12)
 					await get_tree().create_timer(COIN_TIME + d).timeout
@@ -1609,6 +1637,11 @@ func _play_events_then_render() -> void:
 				var company := int(card.get("company", 0))
 				sfx.play("coin" if coins > 0 else "deal")
 				var from := _market_card_anchor(int(card.get("id", -1)))
+				# The share leaves the Market as it flies, and the rest close up.
+				for cv in _market_row.get_children():
+					if cv is CardView and cv.card_id == int(card.get("id", -1)):
+						cv.visible = false
+				_slide_market()
 				_action_note = "" if mine else "%s takes a %s share from the Market%s." % [_seat_name(seat), Companies.name_of(company), " with %d capital on it" % coins if coins > 0 else ""]
 				for i in mini(coins, 8):
 					_fly_coin(from, _seat_anchor(seat), false, i * 0.07)
@@ -1626,10 +1659,12 @@ func _play_events_then_render() -> void:
 				var to := _seat_anchor(seat)
 				var to_k := small_k
 				if to_market:
-					var m: int = _market_row.get_child_count()
-					var p := _market_pos(m, m + 1)
+					# WHY its own slot in the view: the card lands where the
+					# render draws it, and the shares already there make room.
+					var p := _market_spot(int(card.get("id", -1)))
 					to = _board.get_global_transform() * _board.project(p)
 					to_k = _felt_scale(p, MARKET_CARD)
+					_slide_market()
 				elif mine:
 					# WHY its own spot, not the zone's centre: the card then
 					# lands where the next render draws it, with no jump.
@@ -1818,7 +1853,7 @@ func _prompt_height(lines: int) -> float:
 	return lines * line_h + (lines - 1) * _prompt.get_theme_constant("line_spacing") + _px(4)
 
 
-## The prompt only ever grows within a game: a prompt longer than any so
+## The prompt only ever grows within a game (Play again resets it): a prompt longer than any so
 ## far raises the bar once and it stays, so the felt and hand above it do
 ## not move back and forth as the prompt changes.
 func _hold_prompt_height() -> void:
@@ -1838,10 +1873,6 @@ func _end_play_choice(note: String) -> void:
 	for b in [_keep_button, _sell_button, _cancel_button]:
 		b.visible = false
 	_board.glow = {}
-	# WHY: the bar grows and shrinks with the prompt's lines and buttons,
-	# and the felt and hand move with it; hold its height until the next
-	# render so nothing shifts under the card in flight.
-	_bar.custom_minimum_size.y = _bar.size.y
 	_prompt.text = note
 	_action_note = note
 

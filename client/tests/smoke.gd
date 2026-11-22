@@ -995,8 +995,8 @@ func _get_ready_checks() -> int:
 	# lobby path), when the prompt had no width and wrapped every word.
 	for i in 3:
 		await process_frame
-	if table._bar.size.y > table.get_viewport_rect().size.y * 0.4:
-		push_error("the bottom bar should stay a bar when the table opens on a view, got %s px" % table._bar.size.y)
+	if table._prompt.custom_minimum_size.y > maxf(table._px(38), table._prompt_height(2)) + 1.0:
+		push_error("the prompt should keep its two-line height when the table opens on a view, got %s px" % table._prompt.custom_minimum_size.y)
 		failures += 1
 	table.queue_free()
 	return failures
@@ -1228,6 +1228,19 @@ func _market_take_checks() -> int:
 				failures += 1
 	if ids != [40, 42]:
 		push_error("the Market after the take should be 40, 42, got %s" % [ids])
+		failures += 1
+	# Two takes arriving together: during the first flight the row makes
+	# room only for that take, not for the newest view's Market yet.
+	v["market"] = [{"card": {"id": 40, "company": 0}, "coins": 0}, {"card": {"id": 42, "company": 4}, "coins": 0}, {"card": {"id": 43, "company": 1}, "coins": 0}, {"card": {"id": 44, "company": 3}, "coins": 0}]
+	v["active"] = 2
+	v["phase"] = "take"
+	table._on_view(v.duplicate(true))
+	await process_frame
+	table._on_events(4, [{"type": "took_market", "seat": 2, "card": {"id": 42, "company": 4}, "coins": 0}, {"type": "took_market", "seat": 0, "card": {"id": 44, "company": 3}, "coins": 0}])
+	v["market"] = [{"card": {"id": 40, "company": 0}, "coins": 0}, {"card": {"id": 43, "company": 1}, "coins": 0}]
+	table._on_view(v.duplicate(true))
+	if table._market_ids != [40, 43, 44]:
+		push_error("during the first take the Market should be 40, 43, 44, got %s" % [table._market_ids])
 		failures += 1
 	table.queue_free()
 	await process_frame

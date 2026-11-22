@@ -112,6 +112,8 @@ var _ready_ends_msec: int = 0
 var _ready_tween: Tween
 var _peek_layer: Control
 var _peek: CardView = null
+## The Market's share ids, in order, as the animation reaches each event.
+var _market_ids: Array = []
 ## What the other players did last, shown in the prompt while you wait.
 var _action_note := ""
 ## Where each opponent's kept shares lie on the felt (dp), by seat.
@@ -1191,31 +1193,21 @@ static func _portfolio_pos(gi: int, count: int, j: int) -> Vector2:
 	return Vector2((gi - (count - 1) / 2.0) * 46.0, 92.0 + j * 10.0)
 
 
-## Where share `card_id` sits in the Market in the current view (dp from
-## the felt's centre), or the next free slot if it is not there.
-func _market_spot(card_id: int) -> Vector2:
-	var market: Array = view.get("market", [])
-	for k in market.size():
-		if int(market[k].get("card", {}).get("id", -1)) == card_id:
-			return _market_pos(k, market.size())
-	return _market_pos(market.size(), market.size() + 1)
-
-
-## Glides the shares on the Market to their slots in the current view, as
-## when a share joins or leaves the row, so the render after the flight
-## draws them where they already are.
+## Glides the shares on the Market to their slots for the row as it now
+## stands (`_market_ids`, in order), as when a share joins or leaves it, so
+## the render after the flight draws them where they already are.
 func _slide_market() -> void:
-	var market: Array = view.get("market", [])
 	for cv in _market_row.get_children():
 		if not cv is CardView:
 			continue
-		for k in market.size():
-			if int(market[k].get("card", {}).get("id", -1)) == cv.card_id:
-				var p := _market_pos(k, market.size())
-				var kk := _felt_scale(p, MARKET_CARD)
-				var tw := cv.create_tween().set_parallel().set_ease(Tween.EASE_IN_OUT).set_trans(Tween.TRANS_CUBIC)
-				tw.tween_property(cv, "position", _board.project(p) - cv.pivot_offset, FLY_TIME)
-				tw.tween_property(cv, "scale", Vector2(kk, kk), FLY_TIME)
+		var k := _market_ids.find(cv.card_id)
+		if k < 0:
+			continue
+		var p := _market_pos(k, _market_ids.size())
+		var kk := _felt_scale(p, MARKET_CARD)
+		var tw := cv.create_tween().set_parallel().set_ease(Tween.EASE_IN_OUT).set_trans(Tween.TRANS_CUBIC)
+		tw.tween_property(cv, "position", _board.project(p) - cv.pivot_offset, FLY_TIME)
+		tw.tween_property(cv, "scale", Vector2(kk, kk), FLY_TIME)
 
 
 ## Glides the shares (and token chips) already in your Portfolio to where
@@ -1607,6 +1599,13 @@ func _play_events_then_render() -> void:
 		return
 	_animating = true
 	var events := _pending_events.duplicate()
+	# WHY not the view's Market: `view` is already the newest one, which may
+	# be several actions ahead; follow the row event by event instead (the
+	# server appends sold shares and takes shares out where they are).
+	_market_ids.clear()
+	for cv in _market_row.get_children():
+		if cv is CardView and cv.visible:
+			_market_ids.append(cv.card_id)
 	_pending_events.clear()
 	var supply_c := _center_of(_supply_pile)
 	var supply_k := _felt_scale(TableBoard.SUPPLY_AT, SUPPLY_CARD)
@@ -1641,6 +1640,7 @@ func _play_events_then_render() -> void:
 				for cv in _market_row.get_children():
 					if cv is CardView and cv.card_id == int(card.get("id", -1)):
 						cv.visible = false
+				_market_ids.erase(int(card.get("id", -1)))
 				_slide_market()
 				_action_note = "" if mine else "%s takes a %s share from the Market%s." % [_seat_name(seat), Companies.name_of(company), " with %d capital on it" % coins if coins > 0 else ""]
 				for i in mini(coins, 8):
@@ -1661,7 +1661,8 @@ func _play_events_then_render() -> void:
 				if to_market:
 					# WHY its own slot in the view: the card lands where the
 					# render draws it, and the shares already there make room.
-					var p := _market_spot(int(card.get("id", -1)))
+					_market_ids.append(int(card.get("id", -1)))
+					var p := _market_pos(_market_ids.size() - 1, _market_ids.size())
 					to = _board.get_global_transform() * _board.project(p)
 					to_k = _felt_scale(p, MARKET_CARD)
 					_slide_market()
@@ -1862,8 +1863,9 @@ func _hold_prompt_height() -> void:
 	# screen with the bar (the table opens on the lobby's view that early).
 	if _prompt.size.x < maxf(_bar.size.x * 0.5, _px(160)):
 		return
-	var tallest := _prompt_height(4)
-	var h := minf(_prompt.size.y, tallest)
+	# WHY lines, not size.y: when the label first gets its width it still
+	# reports the height it measured while narrow.
+	var h := _prompt_height(clampi(_prompt.get_line_count(), 1, 4))
 	if h > _prompt.custom_minimum_size.y:
 		_prompt.custom_minimum_size.y = h
 

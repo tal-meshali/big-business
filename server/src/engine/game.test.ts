@@ -130,7 +130,7 @@ describe('take step', () => {
     expect(r.state.seats[0]!.hand.length).toBe(4);
     expect(r.state.supply.length).toBe(2);
     expect(r.state.phase).toBe('play');
-    expect(r.state.tookCompany).toBe(5);
+    expect(r.state.tookCompany).toBe(null); // a drawn share may be sold
     expect(r.events[0]).toEqual({ type: 'took_supply', seat: 0, cost: 2 });
   });
 
@@ -217,13 +217,35 @@ describe('play step', () => {
     expect(r.state.tookCompany).toBe(null);
   });
 
-  it('cannot play to the market a card of the company just taken', () => {
+  it('can sell to the market the share just drawn from the supply', () => {
     const s = afterTake();
-    expect(isLegal(s, 0, { type: 'play_market', cardId: 42 })).toBe(false);
-    expect(isLegal(s, 0, { type: 'play_market', cardId: 12 })).toBe(false); // same company 5
+    expect(isLegal(s, 0, { type: 'play_market', cardId: 42 })).toBe(true);
+    expect(isLegal(s, 0, { type: 'play_market', cardId: 12 })).toBe(true); // same company 5
     expect(isLegal(s, 0, { type: 'play_market', cardId: 10 })).toBe(true);
-    const r = applyAction(s, 0, { type: 'play_market', cardId: 10 });
-    expect(r.state.market).toEqual([{ card: card(10, 1), coins: 0 }]);
+    const r = applyAction(s, 0, { type: 'play_market', cardId: 42 });
+    expect(r.state.market).toEqual([{ card: card(42, 5), coins: 0 }]);
+    expect(r.state.seats[0]!.hand).toEqual([card(10, 1), card(11, 2), card(12, 5)]);
+  });
+
+  it('cannot sell to the market a company just taken from the market', () => {
+    const s = fixture();
+    s.market = [
+      { card: card(30, 4), coins: 2 },
+      { card: card(31, 1), coins: 0 },
+    ];
+    s.seats[0]!.hand = [card(10, 1), card(11, 2), card(12, 4)];
+    const t = applyAction(s, 0, { type: 'take_market', cardId: 30 }).state;
+    expect(t.tookCompany).toBe(4);
+    expect(isLegal(t, 0, { type: 'play_market', cardId: 30 })).toBe(false);
+    expect(isLegal(t, 0, { type: 'play_market', cardId: 12 })).toBe(false); // same company 4
+    expect(isLegal(t, 0, { type: 'play_portfolio', cardId: 30 })).toBe(true);
+    expect(isLegal(t, 0, { type: 'play_market', cardId: 10 })).toBe(true);
+    const r = applyAction(t, 0, { type: 'play_market', cardId: 10 });
+    expect(r.state.market).toEqual([
+      { card: card(31, 1), coins: 0 },
+      { card: card(10, 1), coins: 0 },
+    ]);
+    expect(r.state.tookCompany).toBe(null);
   });
 
   it('cannot play a card that is not in hand', () => {
@@ -428,7 +450,7 @@ describe('full games with auto-moves', () => {
     const s = fixture();
     s.seats[0]!.hand = [card(10, 1), card(11, 1), card(12, 3)];
     s.seats[0]!.portfolio = [card(13, 1)];
-    let r = applyAction(s, 0, { type: 'take_supply' }); // takes company 5 (lone, but just taken)
+    let r = applyAction(s, 0, { type: 'take_supply' }); // takes company 5 (lone; sellable, but 3 is lower)
     const a = autoAction(r.state);
     expect(a).toEqual({ type: 'play_market', cardId: 12 }); // company 3 is the lone sellable share
     r = applyAction(r.state, 0, a);

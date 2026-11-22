@@ -50,7 +50,7 @@ const PAGES := [
 		"sections": [
 			{"title": "Drawing costs coins", "body": "Before you draw, put **1 coin** on every share in the Market, except companies whose regulator token you hold. If you can't pay, you can't draw."},
 			{"title": "Taking is free", "body": "Taking a share from the Market costs nothing, and you collect **every coin** on it."},
-			{"title": "Selling to the Market", "body": "A share you sell goes into the Market with no coins on it. You can't sell a share of the company you took this turn."},
+			{"title": "Selling to the Market", "body": "A share you sell goes into the Market with no coins on it. If you took a share from the Market this turn, you can't sell a share of that company back. A share drawn from the supply can be sold right away."},
 		],
 	},
 	{

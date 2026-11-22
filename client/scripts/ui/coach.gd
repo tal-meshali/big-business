@@ -30,7 +30,7 @@ const STEPS := [
 		"id": "first_play",
 		"spot": "hand",
 		"title": "Now play a share",
-		"body": "Tap a card in your hand. You can keep it in your portfolio (face up, it counts toward majorities) or sell it to the Market (anyone can take it later).\n\nOne rule: you can't sell the company you just took.",
+		"body": "Tap a card in your hand. You can keep it in your portfolio (face up, it counts toward majorities) or sell it to the Market (anyone can take it later).\n\nOne rule: if you took a share from the Market, you can't sell that company back this turn.",
 	},
 	{
 		"id": "first_sell",

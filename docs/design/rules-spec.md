@@ -50,7 +50,7 @@ The player must play exactly one share from their 4-card hand to one of:
 **(a) Their Portfolio**, face up in front of them.
 **(b) The Market**, face up with no coins on it.
 
-Restriction: the player may not play to the Market a share of the same company as the share they took this turn (from either the Supply or the Market). **Verify** against the rulebook; most summaries state the restriction by company.
+Restriction: if the player took a share from the Market this turn, they may not play to the Market a share of that company. A share drawn from the Supply carries no restriction: it, or any other share in hand, may be sold to the Market the same turn. **Ruling** (Tal, 2026-11-22): the restriction applies only to a Market take, and by company, as most rules summaries state it.
 
 After the Play step, regulator tokens are re-evaluated (section 4), the turn ends and the next seat in order becomes active.
 
@@ -110,7 +110,7 @@ An action is legal only if all of the following hold. The server rejects anythin
 | `take_supply` | phase is Take, seat is active, Supply non-empty, player can pay coins onto all non-exempt Market shares |
 | `take_market(card)` | phase is Take, seat is active, card is in Market, player does not hold that company's token |
 | `play_portfolio(card)` | phase is Play, seat is active, card is in hand |
-| `play_market(card)` | phase is Play, seat is active, card is in hand, card's company differs from the company taken this turn |
+| `play_market(card)` | phase is Play, seat is active, card is in hand, card's company differs from the company taken from the Market this turn (no restriction after a Supply draw) |
 
 ## 8. Auto-move and bots
 
@@ -128,7 +128,7 @@ Take step:
 
 Play step:
 1. If the Market holds at least 1 share and the player holds a pair or more of a company (Portfolio + hand), play to Portfolio a share of the company held most (tie: highest share-count company).
-2. Else if the Market holds fewer than 4 shares, sell to the Market a lone share (the only one of its company in Portfolio + hand, and not of the company taken this turn), lowest company first.
+2. Else if the Market holds fewer than 4 shares, sell to the Market a lone share (the only one of its company in Portfolio + hand, and not of the company taken from the Market this turn), lowest company first.
 3. Otherwise play to Portfolio the share of the company the player holds most of in Portfolio + hand (tie: highest share-count company).
 
 Rule 1 exists because tutorial bots that sold every lone share first sold on each of their first three turns, which learners read as bots never keeping. It waits for a non-empty Market so the tutorial opening is unchanged: the first bot sells into the empty Market, the second pays onto that share, and the learner takes it with its coins.

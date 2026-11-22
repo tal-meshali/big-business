@@ -461,7 +461,7 @@ function holdingsValue(model: Model, counts: number[]): number {
 
 /**
  * Best play-step value for a 4-card hand. `counts` are my holdings with that
- * hand; `took` is the company taken this turn (it may not go to the Market).
+ * hand; `took` is the company taken from the Market this turn (it may not go back to the Market).
  * Pushes every candidate into `collect` when given. `noSell` forbids Market
  * plays. `commit` is added to keeping a share of the focus company.
  */

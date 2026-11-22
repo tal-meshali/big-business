@@ -66,7 +66,7 @@ Fixed in the cloud; each needs a check on a phone.
 
 ## D. Rules verification against the physical game
 
-- [ ] Get a copy of the source game (or its rulebook) and check every **verify** item in `docs/design/rules-spec.md`: token behaviour on ties, the same-company restriction when selling to the Market, and payment exemptions. Update the spec and `server/src/engine/game.ts` plus tests if anything differs.
+- [ ] Get a copy of the source game (or its rulebook) and check every **verify** item in `docs/design/rules-spec.md`: token behaviour on ties and payment exemptions. (The same-company restriction when selling to the Market was decided by the owner on 2026-11-22: D22.) Update the spec and `server/src/engine/game.ts` plus tests if anything differs.
 
 ## E. Accounts and stores (needed before any public build)
 

@@ -457,6 +457,14 @@ describe('full games with auto-moves', () => {
     expect(r.state.market.length).toBe(1);
   });
 
+  it('autoAction sells the share it just drew when it is the only lone company', () => {
+    const s = fixture();
+    s.seats[0]!.hand = [card(10, 1), card(11, 1), card(12, 3)];
+    s.seats[0]!.portfolio = [card(13, 1), card(14, 3)];
+    const r = applyAction(s, 0, { type: 'take_supply' }); // draws card 42 (company 5)
+    expect(autoAction(r.state)).toEqual({ type: 'play_market', cardId: 42 });
+  });
+
   it('autoAction keeps a pair once the Market has a share, and sells a lone share into an empty Market', () => {
     const s = fixture();
     s.seats[0]!.hand = [card(10, 1), card(11, 1), card(12, 3)];

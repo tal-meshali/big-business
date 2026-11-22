@@ -991,6 +991,13 @@ func _get_ready_checks() -> int:
 	if table._ready_burst.text == "GO!":
 		push_error("no GO! when the game ended during the countdown")
 		failures += 1
+	# WHY here: this table got its first view before its first layout (the
+	# lobby path), when the prompt had no width and wrapped every word.
+	for i in 3:
+		await process_frame
+	if table._bar.size.y > table.get_viewport_rect().size.y * 0.4:
+		push_error("the bottom bar should stay a bar when the table opens on a view, got %s px" % table._bar.size.y)
+		failures += 1
 	table.queue_free()
 	return failures
 

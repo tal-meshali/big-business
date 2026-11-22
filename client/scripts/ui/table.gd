@@ -1857,8 +1857,15 @@ func _prompt_height(lines: int) -> float:
 ## far raises the bar once and it stays, so the felt and hand above it do
 ## not move back and forth as the prompt changes.
 func _hold_prompt_height() -> void:
-	if _prompt.size.y > _prompt.custom_minimum_size.y:
-		_prompt.custom_minimum_size.y = _prompt.size.y
+	# WHY: before the first layout the label has next to no width and wraps
+	# every word onto its own line; holding that height would fill the
+	# screen with the bar (the table opens on the lobby's view that early).
+	if _prompt.size.x < maxf(_bar.size.x * 0.5, _px(160)):
+		return
+	var tallest := _prompt_height(4)
+	var h := minf(_prompt.size.y, tallest)
+	if h > _prompt.custom_minimum_size.y:
+		_prompt.custom_minimum_size.y = h
 
 
 ## Screen point `p` in the effects layer's own coordinates.

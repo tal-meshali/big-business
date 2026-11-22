@@ -160,7 +160,7 @@ Measured against the simple policy with one heuristic bot and the other seats si
 | 6 | 17.9 | 13.2 | 24% | 17% |
 | 7 | 15.6 | 12.8 | 16% | 14% |
 
-With several heuristic bots at a 5-seat table, each still averages 18.2 (2 heuristic vs 3 simple, 27% win rate each) or 16.9 (3 vs 2, 25% each), against 12.4 and 11.2 for the simple bots. Every decision takes well under a millisecond in Node.
+With several heuristic bots at a 5-seat table (measured before the 2026-11-22 ruling, which barely moved it), each still averages 18.2 (2 heuristic vs 3 simple, 27% win rate each) or 16.9 (3 vs 2, 25% each), against 12.4 and 11.2 for the simple bots. Every decision takes well under a millisecond in Node.
 
 ## 9. Known exploit: hand/Market cycling
 

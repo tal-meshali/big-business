@@ -3,6 +3,8 @@ build/
 graphify-out/
 .env
 .env.fly
+.env.home
+home/backups/
 
 # Impeccable design skill: engine binary is downloaded on first run, never tracked.
 .claude/skills/impeccable/scripts/bin/

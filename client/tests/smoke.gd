@@ -731,8 +731,16 @@ func _get_ready_checks() -> int:
 	if table.view.is_empty() or table._hand_cards.size() != 3:
 		push_error("the table should render the view the lobby already received")
 		failures += 1
-	if not table._ready_overlay.visible or table._ready_count.text != "2":
-		push_error("get-ready should count down from the first view, got visible=%s count=%s" % [table._ready_overlay.visible, table._ready_count.text])
+	if not table._ready_overlay.visible or table._ready_burst.text != "2":
+		push_error("get-ready should count down from the first view, got visible=%s count=%s" % [table._ready_overlay.visible, table._ready_burst.text])
+		failures += 1
+	# The shade covers the whole screen (notch and home indicator too), and
+	# the top bar sits above it so Forfeit stays tappable.
+	if table._ready_overlay.get_global_rect() != table.get_viewport_rect():
+		push_error("the get-ready shade should cover the whole screen, got %s" % [table._ready_overlay.get_global_rect()])
+		failures += 1
+	if table._top_bar.get_index() != table._ready_overlay.get_index() + 1:
+		push_error("the top bar should sit just above the get-ready shade")
 		failures += 1
 	if not table._ready_seats.text.begins_with("1.  Ivy  • bot\n2.  You") or table._ready_first.text != "Ivy goes first":
 		push_error("get-ready should list the turn order, got %s / %s" % [table._ready_seats.text, table._ready_first.text])
@@ -740,6 +748,28 @@ func _get_ready_checks() -> int:
 	if table._timer_label.text != "":
 		push_error("the step timer should stay hidden during the countdown")
 		failures += 1
+	# Nothing on the shade but the shade itself takes taps, so that it can
+	# let them through during GO!.
+	for c in table._ready_overlay.find_children("*", "Control", true, false):
+		if c.mouse_filter != Control.MOUSE_FILTER_IGNORE:
+			push_error("%s on the get-ready shade should ignore the mouse" % c)
+			failures += 1
+			break
+	# A view whose countdown end moved by a few ms (latency) keeps the end.
+	var ends: int = table._ready_ends_msec
+	var jitter := v.duplicate(true)
+	jitter["startsInMs"] = int(v["startsInMs"]) - 120
+	await create_timer(0.05).timeout
+	table._on_view(jitter)
+	if table._ready_ends_msec != ends:
+		push_error("latency jitter should not move the countdown's end")
+		failures += 1
+	# Reconnecting shows above the shade.
+	table._on_reconnecting(1)
+	if table._reconnect_overlay.get_index() < table._ready_overlay.get_index():
+		push_error("Reconnecting should show above the get-ready shade")
+		failures += 1
+	table._on_reconnected()
 	# My turn comes first in this deal: no chime until the countdown ends.
 	v["active"] = 1
 	table._on_view(v.duplicate(true))
@@ -751,12 +781,26 @@ func _get_ready_checks() -> int:
 	v["legal"] = [{"type": "take_supply"}]
 	v["drawCost"] = 0
 	table._on_view(v.duplicate(true))
+	# While GO! holds and fades, play has begun: taps pass through the shade
+	# and YOUR TURN waits for it to clear.
+	if table._ready_burst.text != "GO!":
+		push_error("the countdown should end with GO! when play begins, got %s" % table._ready_burst.text)
+		failures += 1
+	if table._ready_overlay.mouse_filter != Control.MOUSE_FILTER_IGNORE or table.sfx.history.has("turn"):
+		push_error("after GO! the shade should let taps through, and the chime should wait for it to clear")
+		failures += 1
 	for i in 40:
 		await create_timer(0.05).timeout
 		if not table._ready_overlay.visible:
 			break
-	if table._ready_overlay.visible or table._ready_count.text != "Go!" or table._ready_ends_msec != 0:
-		push_error("the countdown should end with Go! when play begins")
+	if table._ready_overlay.visible or table._ready_burst.text != "" or table._ready_ends_msec != 0:
+		push_error("the countdown should clear once play begins")
+		failures += 1
+	if table._top_bar.get_index() != table._top_bar_home:
+		push_error("the top bar should go back under the table's overlays after the countdown")
+		failures += 1
+	if table._ready_burst.get_child_count() != 0 and not table._ready_burst.get_children().all(func(c: Node) -> bool: return c.is_queued_for_deletion()):
+		push_error("the countdown numerals should be freed once the shade is gone")
 		failures += 1
 	if table.sfx.history.count("turn") != 1:
 		push_error("the turn chime should play once the countdown ends, history %s" % [table.sfx.history])
@@ -770,6 +814,16 @@ func _get_ready_checks() -> int:
 			break
 	if table._ready_overlay.visible:
 		push_error("the countdown should end on its own when time is up")
+		failures += 1
+	# A game that ends during the countdown goes to dividend day without GO!.
+	v["startsInMs"] = 1200
+	table._on_view(v.duplicate(true))
+	var ended := v.duplicate(true)
+	ended["startsInMs"] = 0
+	ended["phase"] = "ended"
+	table._on_view(ended)
+	if table._ready_burst.text == "GO!":
+		push_error("no GO! when the game ended during the countdown")
 		failures += 1
 	table.queue_free()
 	return failures

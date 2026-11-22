@@ -2,13 +2,19 @@ class_name QuestsPanel
 extends PanelContainer
 ## Quests overlay for the lobby: today's and this week's quests with progress
 ## bars and Claim buttons, the free cosmetic track, and a picker for the card
-## back and table felt (only unlocked ones enabled). Built in code on a night
-## panel; fed by the `get_profile` dictionary through `apply_profile`.
+## back and table felt (only unlocked ones enabled), on two tabs (Quests,
+## Looks) so neither needs scrolling on a phone. Built in code on a royal
+## sheet with the night scheme's text roles, wells and meters; fed by the
+## `get_profile` dictionary through `apply_profile`.
 
 signal closed
 ## Emitted after a cosmetic is picked, once `Cosmetics` already reflects it.
 signal cosmetic_changed(slot: String, id: String)
 
+const HINTS := [
+	"Quests reset at midnight UTC; weekly ones on Monday.",
+	"Points from quests unlock new looks along the track.",
+]
 ## One entry per quest row: {id, claimable, claimed, label, bar, count, button}.
 var rows: Array[Dictionary] = []
 var track_points := 0
@@ -21,61 +27,94 @@ var _track_bar: ProgressBar
 var _back_buttons: Dictionary = {}
 var _table_buttons: Dictionary = {}
 var _status: Label
-const RESET_NOTE := "Quests reset at midnight UTC; weekly ones on Monday."
+## Quests / Looks tabs and their two pages.
+var tabs: TabStrip
+var quests_page: VBoxContainer
+var looks_page: VBoxContainer
+var _scroll: ScrollContainer
+var _status_is_hint := true
 
 
 func _init() -> void:
-	add_theme_stylebox_override("panel", StyleBoxEmpty.new())
-	var deed := UiTheme.panel(UiTheme.VIOLET, "Quests")
-	deed["panel"].size_flags_vertical = Control.SIZE_EXPAND_FILL
-	add_child(deed["panel"])
+	# The same royal sheet as the rules, so the overlays read as one family;
+	# sheet, tabs and text all follow the screen's design-point scale.
+	var k := UiTheme.dp_scale()
+	add_theme_stylebox_override("panel", UiTheme.royal_sheet_style(k))
+	theme = UiTheme.night_theme()
 	var column := VBoxContainer.new()
 	column.add_theme_constant_override("separation", UiTheme.dp(8))
-	deed["body"].add_child(column)
-
+	column.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	add_child(column)
+	# No title: the dock button and the tabs already say Quests; the
+	# track line leads.
 	# Track summary stays visible above the scrolling list.
 	_track_label = UiTheme.body("", UiTheme.dp(UiTheme.TYPE_BODY))
 	column.add_child(_track_label)
 	_track_bar = UiTheme.meter(UiTheme.GOLD, UiTheme.dp(10))
 	column.add_child(_track_bar)
-	# WHY above the list and not at its end: this line also answers a tap on
-	# Claim, and at the end of a long list nobody saw it.
-	_status = UiTheme.body(RESET_NOTE, UiTheme.dp(UiTheme.TYPE_LABEL), UiTheme.TEXT_SOFT)
-	column.add_child(_status)
+
+	# Two pages instead of one long list: the quests, and the looks the
+	# track unlocks. The status line stays under both.
+	tabs = TabStrip.new()
+	tabs.setup([{"label": "Quests"}, {"label": "Looks"}], k)
+	tabs.tab_selected.connect(func(i: int) -> void: select_tab(i))
+	column.add_child(tabs)
 
 	var scroll := ScrollContainer.new()
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	column.add_child(scroll)
-	var content := VBoxContainer.new()
-	content.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	content.add_theme_constant_override("separation", UiTheme.dp(6))
-	scroll.add_child(content)
+	var pages := VBoxContainer.new()
+	pages.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.add_child(pages)
+	quests_page = VBoxContainer.new()
+	quests_page.add_theme_constant_override("separation", UiTheme.dp(6))
+	pages.add_child(quests_page)
+	looks_page = VBoxContainer.new()
+	looks_page.add_theme_constant_override("separation", UiTheme.dp(6))
+	looks_page.visible = false
+	pages.add_child(looks_page)
+	_scroll = scroll
 
-	content.add_child(_heading("Today"))
+	quests_page.add_child(_heading("Today"))
 	_daily_box = VBoxContainer.new()
 	_daily_box.add_theme_constant_override("separation", UiTheme.dp(6))
-	content.add_child(_daily_box)
-	content.add_child(_heading("This week"))
+	quests_page.add_child(_daily_box)
+	quests_page.add_child(_heading("This week"))
 	_weekly_box = VBoxContainer.new()
 	_weekly_box.add_theme_constant_override("separation", UiTheme.dp(6))
-	content.add_child(_weekly_box)
+	quests_page.add_child(_weekly_box)
 
-	content.add_child(_heading("Card back"))
+	looks_page.add_child(_heading("Card back"))
 	var backs := HFlowContainer.new()
 	backs.add_theme_constant_override("h_separation", UiTheme.dp(6))
 	backs.add_theme_constant_override("v_separation", UiTheme.dp(6))
-	content.add_child(backs)
+	looks_page.add_child(backs)
 	for e in Cosmetics.CARD_BACKS:
 		_back_buttons[e["id"]] = _make_pick_button(backs, "cardBack", e["id"])
-	content.add_child(_heading("Table felt"))
+	looks_page.add_child(_heading("Table felt"))
 	var felts := HFlowContainer.new()
 	felts.add_theme_constant_override("h_separation", UiTheme.dp(6))
 	felts.add_theme_constant_override("v_separation", UiTheme.dp(6))
-	content.add_child(felts)
+	looks_page.add_child(felts)
 	for e in Cosmetics.TABLES:
 		_table_buttons[e["id"]] = _make_pick_button(felts, "table", e["id"])
 
+	# WHY outside the pages: this line also answers a tap on Claim, and at
+	# the end of a scrolling list nobody saw it.
+	_status = UiTheme.body("", UiTheme.dp(UiTheme.TYPE_LABEL), UiTheme.TEXT_SOFT)
+	column.add_child(_status)
+	_show_hint()
+	# Opening from the dock always starts on the quests, where the badge
+	# points; the pill is already there when the sheet appears.
+	# A message from last time (an unlock) gives way to the hint again.
+	visibility_changed.connect(func() -> void:
+		if is_inside_tree():
+			# WHY: Android back closes the sheet instead of quitting the app.
+			get_tree().quit_on_go_back = not visible
+		if visible:
+			_status_is_hint = true
+			select_tab(0, false))
 
 	var close := UiTheme.button("Close", UiTheme.dp(14), UiTheme.dp(44), "ghost")
 	close.pressed.connect(func() -> void:
@@ -103,6 +142,31 @@ func _make_pick_button(parent: Control, slot: String, id: String) -> Button:
 	return b
 
 
+## The phone's back gesture or button closes the sheet.
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_WM_GO_BACK_REQUEST and is_visible_in_tree():
+		visible = false
+		closed.emit()
+
+
+## Shows the Quests (0) or Looks (1) page and moves the tab pill there.
+func select_tab(i: int, animate := true) -> void:
+	if tabs.current != i or not animate:
+		tabs.select(i, animate and is_inside_tree())
+	quests_page.visible = i == 0
+	looks_page.visible = i == 1
+	_scroll.scroll_vertical = 0
+	if _status_is_hint:
+		_show_hint()
+
+
+## The status line's resting text, for the page on show. Messages (an
+## unlock, an error) replace it until the next profile load.
+func _show_hint() -> void:
+	_status.text = HINTS[1 if looks_page.visible else 0]
+	_status_is_hint = true
+
+
 ## Feeds the whole `get_profile` result (or any dictionary with the same keys).
 func apply_profile(data: Dictionary) -> void:
 	track_points = int(data.get("trackPoints", 0))
@@ -117,8 +181,11 @@ func apply_profile(data: Dictionary) -> void:
 		_add_row(_daily_box, q)
 	for q in quests.get("weekly", []):
 		_add_row(_weekly_box, q)
-	# Fresh data clears an old "could not claim" or "no quests" line.
-	_status.text = "No quests loaded yet. Connect to see today's quests." if rows.is_empty() else RESET_NOTE
+	if rows.is_empty():
+		_status.text = "No quests loaded yet. Connect to see today's quests."
+		_status_is_hint = false
+	else:
+		_show_hint()
 	_refresh_track()
 	_refresh_picker()
 
@@ -181,6 +248,7 @@ func _on_claim(id: String) -> void:
 	if res.is_empty() or not res.get("ok", false):
 		entry["button"].disabled = false
 		_status.text = "Could not claim right now. Try again in a moment."
+		_status_is_hint = false
 		return
 	_apply_claim(id, int(res.get("trackPoints", track_points)), res.get("unlocked", unlocked))
 
@@ -199,6 +267,7 @@ func _apply_claim(id: String, new_points: int, new_unlocked: Array) -> void:
 	_refresh_picker()
 	if unlocked.size() > before:
 		_status.text = "Unlocked: %s" % Cosmetics.name_of(String(unlocked.back()))
+		_status_is_hint = false
 
 
 func _row_by_id(id: String) -> Dictionary:

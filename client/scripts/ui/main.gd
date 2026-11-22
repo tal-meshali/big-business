@@ -162,13 +162,20 @@ func _build() -> void:
 	_build_season_sheet()
 
 	# Quests overlay above the lobby, toggled by its button.
+	# A full-height royal sheet over a dimmed lobby, like the rules.
+	var quests_shade := ColorRect.new()
+	quests_shade.color = Color(UiTheme.NIGHT, 0.78)
+	quests_shade.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	quests_shade.visible = false
+	add_child(quests_shade)
 	_quests_panel = QuestsPanel.new()
 	_quests_panel.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	_quests_panel.offset_left = 24
-	_quests_panel.offset_right = -24
-	_quests_panel.offset_top = 60
-	_quests_panel.offset_bottom = -40
+	_quests_panel.offset_left = _px(10)
+	_quests_panel.offset_right = -_px(10)
+	_quests_panel.offset_top = _insets.x + _px(10)
+	_quests_panel.offset_bottom = -_insets.y - _px(10)
 	_quests_panel.visible = false
+	_quests_panel.visibility_changed.connect(func() -> void: quests_shade.visible = _quests_panel.visible)
 	_quests_panel.cosmetic_changed.connect(_on_cosmetic_changed)
 	add_child(_quests_panel)
 
@@ -1053,7 +1060,9 @@ func _on_play_bots() -> void:
 
 
 func _on_help() -> void:
-	HelpScreen.open_over(self)
+	# One rules sheet at a time (one fading out does not count).
+	if find_children("*", "HelpScreen", false, false).all(func(h: Node) -> bool: return h._closing):
+		HelpScreen.open_over(self)
 
 
 func _on_tutorial() -> void:

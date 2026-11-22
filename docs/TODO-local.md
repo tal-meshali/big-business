@@ -80,7 +80,7 @@ Fixed in the cloud; each needs a check on a phone.
 ## F. Art and sound (can be commissioned in parallel)
 
 - [ ] Six company illustrations for the card art window (see `docs/design/theme.md`), a card back with the BB monogram, table background, coin sprites (bronze and gold), regulator token icon.
-- [ ] App icon and store screenshots (the cloud session's placeholder renders are in `docs/screenshots/`).
+- [ ] Store screenshots (the cloud session's placeholder renders are in `docs/screenshots/`). The app icon and splash are done: `tools/logo_art.py` + `tools/make_icons.gd`.
 - [ ] Sound set: card deal, card place, coin slide, coin flip to gold, turn chime, timer tick, dividend fanfare. Placeholders are synthesised in `client/scripts/ui/sfx.gd` and already wired to the table; replace them one name at a time. Haptics on card place, on your turn and in the last two seconds are done (sound and vibration toggles are on the help screen).
 
 ## G. Deferred engineering (Phase 2, listed so nothing is lost)

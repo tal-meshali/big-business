@@ -3,7 +3,7 @@ extends SceneTree
 ## data and saves PNGs, to check text and layout by eye.
 ## Needs a display (use xvfb-run on Linux):
 ##   xvfb-run -a godot --rendering-driver opengl3 --path client --script res://tests/screenshot_panels.gd -- out_dir
-## Output: quests.png, shop.png, clubs_start.png, clubs_member.png,
+## Output: quests.png, quests_looks.png, shop.png, clubs_start.png, clubs_member.png,
 ## friends.png, friend_menu.png, designer.png, designer_editor.png,
 ## stats.png, season.png, season_full.png, join.png, more.png, room.png,
 ## waiting.png, notice.png, emotes.png, reconnect.png, seat_menu.png,
@@ -43,6 +43,8 @@ func _run() -> void:
 	main._quests_panel.apply_profile(_profile())
 	main._quests_panel.visible = true
 	await _shot(out_dir, "quests")
+	main._quests_panel.select_tab(1, false)
+	await _shot(out_dir, "quests_looks")
 	main._quests_panel.visible = false
 
 	var shop = main._shop_panel

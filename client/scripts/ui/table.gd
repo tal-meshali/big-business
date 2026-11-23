@@ -302,6 +302,8 @@ func _build_bottom_bar() -> void:
 	_me_view = SeatView.new()
 	_me_view.s = _s
 	_me_view.strip = true
+	# WHY: the strip draws its capital ink or cream to suit the bar.
+	_me_view.bar_color = style.bg_color
 	_me_view.avatar_color = SeatView.AVATARS[0]
 	_me_view.custom_minimum_size = Vector2(0, _px(36))
 	_me_view.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -1578,7 +1580,7 @@ func _seat_anchor(seat_idx: int) -> Vector2:
 	return get_viewport_rect().size / 2.0
 
 
-## The coin on a seat's capital pill, where coins leave and land.
+## The coin on a seat's capital chip, where coins leave and land.
 func _capital_anchor(seat_idx: int, gold := false) -> Vector2:
 	for sv in _seat_views:
 		if sv.visible and sv.seat_index == seat_idx:
@@ -1671,7 +1673,7 @@ func _play_events_then_render() -> void:
 				else:
 					await _fly_card(from, _seat_anchor(seat), company, true, market_k, small_k)
 				# WHY: the count ticks on the next render; let the last coin
-				# land on the pill first.
+				# land on the coin first.
 				if coins > 1:
 					var last := COIN_TIME + (mini(coins, 8) - 1) * 0.07
 					if last > FLY_TIME:

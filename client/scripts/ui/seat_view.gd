@@ -11,8 +11,8 @@ signal seat_pressed(seat_index: int, at: Vector2)
 ## Fallback size in px, before the table sizes the seat.
 const W := 220.0
 const H := 104.0
-## Design points between the capital and gold pills.
-const PILL_GAP := 6.0
+## Design points between the capital and gold chips.
+const CHIP_GAP := 6.0
 ## Avatar fills, by seat order from the local player.
 const AVATARS := [Color("#FFD98A"), Color("#9ED9B5"), Color("#A9C5F5"), Color("#F5B8A0"), Color("#D9C2F0"), Color("#F7C6D9"), Color("#BFE3F0")]
 
@@ -31,7 +31,7 @@ var wide := false
 var avatar_color := AVATARS[1]
 ## Capital pop: 0 to 1 per coin kind while a count that just changed
 ## ticks (swells and flashes gold). One "+3"/"-2" per kind shows right
-## after its pill where there is room, holds, then fades.
+## after its count where there is room, holds, then fades.
 var _pop := {"bronze": 0.0, "gold": 0.0}
 var _pop_tweens := {}
 ## kind -> {"delta": int, "t": 0 to 1 (linear), "tween": Tween}
@@ -39,11 +39,14 @@ var _deltas := {}
 ## Counts last seen, and for which seat.
 var _shown := {}
 var _shown_seat := -1
-## Where each pill was drawn last, for flying coins and the deltas.
-var _pill_rects := {}
+## Where each chip was drawn last, for flying coins and the deltas.
+var _chip_rects := {}
 ## What the capital is drawn on (plate or bottom bar), so its count
 ## picks ink or outlined cream.
 var _surface := Color.WHITE
+## The bottom bar's colour behind the strip; the table sets it from the
+## bar's own style.
+var bar_color := UiTheme.CREAM
 
 ## The tick, within the 0.06 to 0.3 s budget each way (docs/design/theme.md).
 const POP_UP := 0.08
@@ -150,16 +153,16 @@ func avatar_center() -> Vector2:
 	return get_global_transform() * _avatar_local()
 
 
-## Where coins leave from and land: the coin on the capital pill (or, for
-## gold before there is any, where its pill will appear).
+## Where coins leave from and land: the coin of the capital chip (or, for
+## gold before there is any, where its chip will appear).
 func capital_center(kind := "bronze") -> Vector2:
-	if not _pill_rects.has("bronze"):
+	if not _chip_rects.has("bronze"):
 		return avatar_center()
-	var rect: Rect2 = _pill_rects.get(kind, _pill_rects["bronze"])
+	var rect: Rect2 = _chip_rects.get(kind, _chip_rects["bronze"])
 	var r := rect.size.y * CapitalChip.COIN_R
 	var local := Vector2(rect.position.x + r, rect.get_center().y)
-	if not _pill_rects.has(kind):
-		local = Vector2(rect.end.x + PILL_GAP * s + r, rect.get_center().y)
+	if not _chip_rects.has(kind):
+		local = Vector2(rect.end.x + CHIP_GAP * s + r, rect.get_center().y)
 	return get_global_transform() * local
 
 
@@ -187,7 +190,7 @@ func _draw() -> void:
 		draw_style_box(plate, box)
 	else:
 		# The strip sits on the bottom bar.
-		_surface = UiTheme.CREAM
+		_surface = bar_color
 
 	var text := UiTheme.ui_font()
 	var display := UiTheme.display_font()
@@ -266,65 +269,65 @@ func _draw_strip(text: Font, c: Vector2, r: float, name_text: String, bronze: in
 	_draw_pips(text, Vector2(maxf(x, pips_x), size.y / 2.0 - 9 * s), size.x)
 
 
-## Capital pills (bronze, then gold once there is any); returns the x
+## Capital chips (bronze, then gold once there is any); returns the x
 ## after them. To fit `right` it drops the words, then shrinks. Deltas
 ## may use the room up to `delta_right` (default: `right`).
 func _draw_coins(at: Vector2, bronze: int, gold: int, spell: bool, right: float = INF, delta_right: float = NAN) -> float:
 	var h := (15.0 if strip else 14.0) * s
-	var pills := [["bronze", bronze, "capital" if spell else ""]]
+	var chips := [["bronze", bronze, "capital" if spell else ""]]
 	if gold > 0:
-		pills.append(["gold", gold, "gold" if spell else ""])
-	var gap := PILL_GAP * s
-	var total := _pills_width(pills, h, gap)
+		chips.append(["gold", gold, "gold" if spell else ""])
+	var gap := CHIP_GAP * s
+	var total := _chips_width(chips, h, gap)
 	if at.x + total > right and spell:
-		for p in pills:
+		for p in chips:
 			p[2] = ""
-		total = _pills_width(pills, h, gap)
+		total = _chips_width(chips, h, gap)
 	if at.x + total > right:
 		# WHY a 0.6 floor: smaller counts stop being readable on a phone.
 		var k := maxf(0.6, (right - at.x) / total)
 		h *= k
 		gap *= k
 	var x := at.x
-	_pill_rects.clear()
-	for p in pills:
+	_chip_rects.clear()
+	for p in chips:
 		var kind: String = p[0]
-		var rect := CapitalChip.pill(self, Vector2(x, at.y), int(p[1]), p[2], h, kind == "gold", float(_pop[kind]), _surface)
-		_pill_rects[kind] = rect
+		var rect := CapitalChip.draw(self, Vector2(x, at.y), int(p[1]), p[2], h, kind == "gold", float(_pop[kind]), _surface)
+		_chip_rects[kind] = rect
 		x = rect.end.x + gap
 	_draw_deltas(h, delta_right if not is_nan(delta_right) else right)
 	return x - gap + 8.0 * s
 
 
-func _pills_width(pills: Array, h: float, gap: float) -> float:
+func _chips_width(chips: Array, h: float, gap: float) -> float:
 	var total := -gap
-	for p in pills:
-		total += CapitalChip.pill_width(int(p[1]), p[2], h) + gap
+	for p in chips:
+		total += CapitalChip.width(int(p[1]), p[2], h) + gap
 	return total
 
 
-## "+3" or "-2" right after the pill whose count just changed, drifting up
-## a little. Where there is no room before the next pill or the edge, it is
+## "+3" or "-2" right after the count that just changed, drifting up
+## a little. Where there is no room before the next chip or the edge, it is
 ## left out: the gold flash and the flying coins already say it.
-## WHY not above the pill: that is the name row.
+## WHY not above the count: that is the name row.
 func _draw_deltas(h: float, right: float) -> void:
 	var font := UiTheme.display_font()
 	var px := int(h * 0.9)
 	var limit := minf(right, size.x - 4.0 * s)
 	var reduce := UiTheme.reduce_motion()
 	for kind in ["bronze", "gold"]:
-		if not _deltas.has(kind) or not _pill_rects.has(kind):
+		if not _deltas.has(kind) or not _chip_rects.has(kind):
 			continue
 		var d: Dictionary = _deltas[kind]
 		var t: float = d["t"]
 		var delta: int = d["delta"]
 		var txt := ("+%d" if delta > 0 else "%d") % delta
 		var w := font.get_string_size(txt, HORIZONTAL_ALIGNMENT_LEFT, -1, px).x
-		var rect: Rect2 = _pill_rects[kind]
+		var rect: Rect2 = _chip_rects[kind]
 		var x := rect.end.x + 3.0 * s
 		var stop := limit
-		if kind == "bronze" and _pill_rects.has("gold"):
-			stop = minf(stop, _pill_rects["gold"].position.x - 2.0 * s)
+		if kind == "bronze" and _chip_rects.has("gold"):
+			stop = minf(stop, _chip_rects["gold"].position.x - 2.0 * s)
 		if x + w > stop:
 			continue
 		var rise := 0.0 if reduce else ease(t, 0.3) * 3.0 * s

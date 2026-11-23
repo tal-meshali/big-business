@@ -33,7 +33,6 @@ func _http(url: String, method: HTTPClient.Method, body: String, headers: Packed
 func _run() -> void:
 	var net: Node = root.get_node("Net")
 	net.host = "127.0.0.1"
-	net.display_name = "GodotDesigner"
 	if not await net.connect_to_server():
 		_fail("could not connect")
 		return

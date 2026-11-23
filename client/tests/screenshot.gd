@@ -25,6 +25,10 @@ func _run() -> void:
 	DirAccess.make_dir_recursive_absolute(out_dir)
 	root.get_window().size = Vector2i(720, 1280)
 	await process_frame
+	# The name shots change what the settings file holds; put it back after.
+	var settings: Node = root.get_node("Net")
+	var previous_name: String = settings.display_name
+	var previous_named: bool = settings.named
 
 	var main = load("res://scenes/main.tscn").instantiate()
 	root.add_child(main)
@@ -185,8 +189,8 @@ func _run() -> void:
 	root.add_child(tall)
 	tall._apply_progress({"xp": 120, "level": 2, "gamesPlayed": 3, "wins": 1, "streak": 4}, true)
 	tall._status.text = "Connected as Tal"
-	tall._name_edit.text = "Tal"
-	tall._on_name_changed("Tal")
+	net.display_name = "Tal"
+	tall._set_named(true)
 	await _settle()
 	for b in tall._buttons:
 		b.disabled = false
@@ -197,7 +201,22 @@ func _run() -> void:
 	await _settle()
 	await _save(out_dir + "/lobby_more.png")
 	tall._more_sheet.visible = false
+	await _profile_shots(tall, out_dir, "_tall")
 	tall.queue_free()
+	await process_frame
+	# The same screens on a 16:9 phone, where the record scrolls under the card.
+	root.get_window().size = Vector2i(720, 1280)
+	root.size = Vector2i(720, 1280)
+	await process_frame
+	var short = load("res://scenes/main.tscn").instantiate()
+	root.add_child(short)
+	short._show_name()
+	await _settle()
+	await _profile_shots(short, out_dir, "")
+	short.queue_free()
+	root.get_window().size = Vector2i(720, 1560)
+	root.size = Vector2i(720, 1560)
+	await process_frame
 	var big = load("res://scenes/table.tscn").instantiate()
 	root.add_child(big)
 	await process_frame
@@ -219,8 +238,108 @@ func _run() -> void:
 	await _save(out_dir + "/coach_tall.png")
 	coached.queue_free()
 	net.tutorial_mode = false
+	net.display_name = previous_name
+	net.named = previous_named
+	net.save_settings()
 	print("SCREENSHOTS OK")
 	quit(0)
+
+
+## The profile (a regular player, a Plus member, a brand-new player and
+## worst-case data) and the name step (first launch, and a refused name).
+func _profile_shots(lobby, out_dir: String, suffix: String) -> void:
+	var net: Node = root.get_node("Net")
+	var panel = lobby._profile_panel
+	var regular := {"xp": 1240, "level": 5, "gamesPlayed": 42, "wins": 11, "streak": 4, "bestRank": 1}
+	lobby._apply_progress(regular, false)
+	lobby._open_profile()
+	panel.apply_season([{"userId": "me", "name": "Tal", "score": 84, "rank": 12, "wins": 6, "mine": true}])
+	panel.apply_club({"club": {"name": "Golden Partners 412"}})
+	panel.apply_account({"device": true, "username": "Tal", "named": true})
+	panel._account_label.text = "Guest account (device)"
+	panel._rename_button.disabled = false
+	await create_timer(1.3).timeout
+	await _save(out_dir + "/profile%s.png" % suffix)
+	panel.card.flip()
+	await create_timer(0.6).timeout
+	await _save(out_dir + "/profile_back%s.png" % suffix)
+	panel.card.flip()
+	await create_timer(0.5).timeout
+
+	panel.apply_stats({"plus": true, "games": 40, "wins": 11, "podiums": 27, "bestScore": 31, "peopleGames": 30, "averageScore": 14.2, "winRate": 27.5,
+		"majorities": [9, 4, 12, 7, 0, 15], "recent": [{"rank": 1}, {"rank": 3}, {"rank": 2}, {"rank": 2}, {"rank": 5}, {"rank": 1}, {"rank": 4}, {"rank": 3}, {"rank": 1}, {"rank": 2}]})
+	await _settle()
+	await _save(out_dir + "/profile_plus%s.png" % suffix)
+	panel._scroll.scroll_vertical = 100000
+	await _settle()
+	await _save(out_dir + "/profile_plus_end%s.png" % suffix)
+	panel._scroll.scroll_vertical = 0
+
+	# Worst case: the longest name, a long club, huge counts, level 120.
+	net.display_name = "WWWWWWWWWWWWWWWW"
+	lobby._show_name()
+	lobby._apply_progress({"xp": 720000, "level": 121, "gamesPlayed": 1234567, "wins": 987654, "streak": 3650, "bestRank": 1}, true)
+	panel.refresh_name()
+	panel.apply_stats({"plus": true, "games": 1234567, "wins": 987654, "podiums": 1111111, "bestScore": 99999, "peopleGames": 1000000, "averageScore": 12345.6, "winRate": 100,
+		"majorities": [123456, 99999, 1234, 12, 0, 7654321], "recent": [{"rank": 7}, {"rank": 7}, {"rank": 7}, {"rank": 7}, {"rank": 7}, {"rank": 7}, {"rank": 7}, {"rank": 7}, {"rank": 7}, {"rank": 7}]})
+	panel.apply_season([{"userId": "me", "score": 9999999, "rank": 1234567, "mine": true}])
+	panel.apply_club({"club": {"name": "Northern Collective 99999"}})
+	await _settle()
+	await _save(out_dir + "/profile_worst%s.png" % suffix)
+	lobby._profile_panel.close()
+	await create_timer(0.3).timeout
+	await _save(out_dir + "/lobby_worst%s.png" % suffix)
+
+	# A brand-new player, and a name in Hebrew.
+	net.display_name = "טל"
+	lobby._show_name()
+	lobby._apply_progress({"xp": 0, "level": 1, "gamesPlayed": 0, "wins": 0, "streak": 0, "bestRank": 0}, true)
+	lobby._open_profile()
+	panel.apply_stats({"plus": false, "games": 0, "wins": 0})
+	panel.apply_season([])
+	panel.apply_club({"club": null, "league": []})
+	await create_timer(1.3).timeout
+	await _save(out_dir + "/profile_new%s.png" % suffix)
+	lobby._profile_panel.close()
+	await create_timer(0.3).timeout
+
+	# The name step at first launch, empty, typed, and refused.
+	net.display_name = "NmnqzZdeZg"
+	lobby._show_name()
+	lobby._saved_name = ""
+	lobby._ask_name_if_new({"named": false, "username": "NmnqzZdeZg"})
+	await create_timer(1.0).timeout
+	await _save(out_dir + "/name_first%s.png" % suffix)
+	lobby._name_prompt._edit.text = "Tal"
+	lobby._name_prompt._on_typed("Tal")
+	await _settle()
+	await _save(out_dir + "/name_typed%s.png" % suffix)
+	lobby._name_prompt._show_error("That name is taken. Try another.")
+	await create_timer(0.4).timeout
+	await _save(out_dir + "/name_taken%s.png" % suffix)
+	# The same step with a keyboard up (a grey block stands in for it).
+	var keyboard := ColorRect.new()
+	keyboard.color = Color("#2B2B33")
+	keyboard.size = Vector2(root.size.x, roundf(root.size.y * 0.4))
+	keyboard.position = Vector2(0, root.size.y - keyboard.size.y)
+	root.add_child(keyboard)
+	lobby._name_prompt._on_typed("Tal")
+	lobby.keyboard_override = keyboard.size.y
+	await create_timer(0.4).timeout
+	await _save(out_dir + "/name_keyboard%s.png" % suffix)
+	lobby.keyboard_override = -1.0
+	keyboard.queue_free()
+	await create_timer(0.2).timeout
+	lobby._name_prompt._on_cancel()
+	await create_timer(0.2).timeout
+	lobby._set_named(true)
+	lobby._name_prompt.open("Tal", false, 5)
+	await create_timer(1.0).timeout
+	await _save(out_dir + "/name_change%s.png" % suffix)
+	lobby._name_prompt._on_cancel()
+	await create_timer(0.2).timeout
+	net.display_name = "Tal"
+	lobby._show_name()
 
 
 func _settle() -> void:

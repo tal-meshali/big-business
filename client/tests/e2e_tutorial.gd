@@ -13,7 +13,6 @@ func _init() -> void:
 func _run() -> void:
 	var net: Node = root.get_node("Net")
 	net.host = "127.0.0.1"
-	net.display_name = "Learner"
 	if not await net.connect_to_server():
 		print("E2E TUTORIAL FAILED: could not connect")
 		quit(1)

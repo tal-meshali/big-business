@@ -54,8 +54,11 @@ var selected: bool = false:
 		# position:y finish in either order and can strand the card.
 		if _lift_tween != null:
 			_lift_tween.kill()
-		_lift_tween = create_tween().set_ease(Tween.EASE_OUT).set_trans(Tween.TRANS_BACK)
-		_lift_tween.tween_property(self, "position:y", _rest_y - (LIFT if value else 0.0), 0.18)
+			_lift_tween = null
+		# A card on its way out of the hand keeps where it is.
+		if not _leaving:
+			_lift_tween = create_tween().set_ease(Tween.EASE_OUT).set_trans(Tween.TRANS_BACK)
+			_lift_tween.tween_property(self, "position:y", _rest_y - (LIFT if value else 0.0), 0.18)
 		# Drawn above its neighbours in the fan while selected.
 		z_index = 1 if value else 0
 		queue_redraw()
@@ -63,6 +66,10 @@ var selected: bool = false:
 var held: bool = false
 var _rest_y: float = 0.0
 var _lift_tween: Tween
+## Set once the card has been played and is flying off the hand.
+var _leaving: bool = false
+## Moves the card to a new resting place in the hand (see slide_to).
+var _slide_tween: Tween
 var _press_down: bool = false
 var _press_pos := Vector2.ZERO
 ## Bumped on every press and release so a stale hold timer does nothing.
@@ -136,6 +143,46 @@ func setup(p_card_id: int, p_company: int, p_coins: int = 0, p_face_up: bool = t
 func set_rest_position(pos: Vector2) -> void:
 	position = pos
 	_rest_y = pos.y
+
+
+## Glides the card to a new resting place and tilt in the hand, as when the
+## hand closes up after a card is played. It can no longer be tapped.
+func slide_to(pos: Vector2, rot: float, seconds: float) -> void:
+	_rest_y = pos.y
+	selected = false
+	# WHY: the setter starts a lift tween on position:y; the slide owns
+	# the position now, and two tweens on it can strand the card.
+	if _lift_tween != null:
+		_lift_tween.kill()
+		_lift_tween = null
+	selectable = false
+	highlight = false
+	if _slide_tween != null:
+		_slide_tween.kill()
+	_slide_tween = create_tween().set_parallel().set_ease(Tween.EASE_OUT).set_trans(Tween.TRANS_CUBIC)
+	_slide_tween.tween_property(self, "position", pos, seconds)
+	_slide_tween.tween_property(self, "rotation", rot, seconds)
+
+
+## Turns a hand card into a card in flight: no lift, no rings, no taps.
+## The table then moves it to where it was played.
+func leave_hand() -> void:
+	_leaving = true
+	if _lift_tween != null:
+		_lift_tween.kill()
+		_lift_tween = null
+	if _slide_tween != null:
+		_slide_tween.kill()
+		_slide_tween = null
+	selected = false
+	highlight = false
+	selectable = false
+	mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_press_down = false
+	_press_serial += 1
+	if held:
+		held = false
+		card_released.emit(self)
 
 
 func _draw() -> void:

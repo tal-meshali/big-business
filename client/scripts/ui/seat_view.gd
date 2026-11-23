@@ -41,6 +41,9 @@ var _shown := {}
 var _shown_seat := -1
 ## Where each pill was drawn last, for flying coins and the deltas.
 var _pill_rects := {}
+## What the capital is drawn on (plate or bottom bar), so its count
+## picks ink or outlined cream.
+var _surface := Color.WHITE
 
 ## The tick, within the 0.06 to 0.3 s budget each way (docs/design/theme.md).
 const POP_UP := 0.08
@@ -179,8 +182,12 @@ func _draw() -> void:
 			ring.bg_color = UiTheme.PRIMARY
 			ring.set_corner_radius_all(int(16 * s))
 			draw_style_box(ring, box.grow(4 * s))
-		var plate := UiTheme.card_box(UiTheme.PLATE_ON if is_active else Companies.PANEL, 12 * s, 3 * s, 2)
+		_surface = UiTheme.PLATE_ON if is_active else Companies.PANEL
+		var plate := UiTheme.card_box(_surface, 12 * s, 3 * s, 2)
 		draw_style_box(plate, box)
+	else:
+		# The strip sits on the bottom bar.
+		_surface = UiTheme.CREAM
 
 	var text := UiTheme.ui_font()
 	var display := UiTheme.display_font()
@@ -282,7 +289,7 @@ func _draw_coins(at: Vector2, bronze: int, gold: int, spell: bool, right: float 
 	_pill_rects.clear()
 	for p in pills:
 		var kind: String = p[0]
-		var rect := CapitalChip.pill(self, Vector2(x, at.y), int(p[1]), p[2], h, kind == "gold", float(_pop[kind]))
+		var rect := CapitalChip.pill(self, Vector2(x, at.y), int(p[1]), p[2], h, kind == "gold", float(_pop[kind]), _surface)
 		_pill_rects[kind] = rect
 		x = rect.end.x + gap
 	_draw_deltas(h, delta_right if not is_nan(delta_right) else right)

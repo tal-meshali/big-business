@@ -376,3 +376,44 @@ static func deed_panel(band_color: Color, title: String, band_text: Color = Colo
 	body.add_theme_constant_override("margin_bottom", 18)
 	column.add_child(body)
 	return {"panel": panel, "title": title_label, "body": body, "band": band}
+
+
+## The royal sheet that full-screen overlays sit on (rules, quests): royal
+## face, ink outline with a thicker foot, a soft drop. `k` is px per dp.
+static func royal_sheet_style(k: float) -> StyleBoxFlat:
+	var face := StyleBoxFlat.new()
+	face.bg_color = ROYAL
+	face.border_color = OUTLINE
+	face.set_border_width_all(int(round(2.5 * k)))
+	face.border_width_bottom = int(round(6 * k))
+	face.set_corner_radius_all(int(round(22 * k)))
+	face.shadow_color = Color(0, 0, 0, 0.4)
+	face.shadow_size = int(round(14 * k))
+	face.shadow_offset = Vector2(0, round(6 * k))
+	face.content_margin_left = round(14 * k)
+	face.content_margin_right = round(14 * k)
+	face.content_margin_top = round(14 * k)
+	face.content_margin_bottom = round(12 * k)
+	face.anti_aliasing = true
+	return face
+
+
+## A darker plate sunk into a royal sheet, for one group (a step, a row).
+static func plate_style(k: float, left := 12.0, right := 14.0, top := 12.0, bottom := 14.0) -> StyleBoxFlat:
+	var tint := StyleBoxFlat.new()
+	tint.bg_color = Color(NIGHT, 0.45)
+	tint.set_corner_radius_all(int(round(16 * k)))
+	tint.content_margin_left = round(left * k)
+	tint.content_margin_right = round(right * k)
+	tint.content_margin_top = round(top * k)
+	tint.content_margin_bottom = round(bottom * k)
+	tint.anti_aliasing = true
+	return tint
+
+
+## A display-font label with the game's ink outline, for text on colour.
+static func outlined(text: String, px: int, color: Color = Color.WHITE) -> Label:
+	var l := label(text, px, color, true)
+	l.add_theme_color_override("font_outline_color", OUTLINE)
+	l.add_theme_constant_override("outline_size", maxi(3, int(round(px * 0.24))))
+	return l

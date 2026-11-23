@@ -228,7 +228,7 @@ describe('botAction decisions', () => {
     expect(a).toEqual({ type: 'take_market', cardId: 20 });
   });
 
-  it('never sells the company it took this turn', () => {
+  it('never sells back the company it took from the Market this turn', () => {
     for (let seed = 1; seed <= 20; seed++) {
       let state = createGame(seats(4), seed, { stepSeconds: 0 });
       const rng = makeRng(seed).next;

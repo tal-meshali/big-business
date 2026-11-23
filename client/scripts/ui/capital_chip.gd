@@ -1,19 +1,23 @@
 class_name CapitalChip
 ## Capital, drawn the way the visual direction draws it: a glossy minted
 ## coin (copper for capital, gold for dividends) with a dark rim and a lip
-## underneath, and the count in Archivo Black on a dark pill the coin sits
-## on. Seats, Market shares and flying coins all paint coins through here,
+## underneath, and the count beside it in cream Archivo Black with a thick
+## ink outline. Seats, Market shares and flying coins all paint coins through here,
 ## so every coin on the table is the same object.
 ##
 ## A count that changes "ticks" like the design's .cap: the number swells
-## and flashes gold while the pill stays put, so nothing around it moves.
+## and flashes gold while the coin and word stay put, so nothing around it
+## moves.
 
 ## The design's tick: the count grows to 1.35x; the coin nudges a little.
 const NUMBER_POP := 0.35
 const COIN_POP := 0.12
-## Coin radius and gap before the count, as parts of the pill's height.
+## Coin radius and gap before the count, as parts of the chip's height.
 const COIN_R := 0.56
 const PAD := 0.2
+## Count and word sizes, as parts of the height.
+const NUMBER_PX := 0.95
+const WORD_PX := 0.55
 ## Gap between the count and its word; room for the count's swell.
 const WORD_GAP := 0.3
 ## Side of the baked face texture in px.
@@ -21,7 +25,6 @@ const FACE_PX := 96
 
 ## Baked coin faces, one per metal.
 static var _faces: Dictionary = {}
-static var _pill_box: StyleBoxFlat = null
 
 
 ## A coin of radius `r` centred on `c`. `lip` draws the dark drop below it.
@@ -63,51 +66,54 @@ static func _face(gold: bool) -> ImageTexture:
 	return tex
 
 
-## Width of a pill for `count` (and an optional `word`) at height `h`.
+## Width of a coin and its count (and an optional `word`) at height `h`.
 static func pill_width(count: int, word: String, h: float) -> float:
-	var w := h * COIN_R * 2.0 + h * PAD + _text_width(str(count), int(h * 0.8))
+	var w := h * COIN_R * 2.0 + h * PAD + _text_width(str(count), int(h * NUMBER_PX))
 	if word != "":
-		w += WORD_GAP * h + _text_width(word, int(h * 0.5))
-	return w + h * 0.42
+		w += WORD_GAP * h + _text_width(word, int(h * WORD_PX))
+	return w + h * 0.1
 
 
-## A pill whose coin's left edge is at `at`.x, centred on `at`.y. `pop`
+## A coin whose left edge is at `at`.x, centred on `at`.y, with the count
+## beside it in Archivo Black, straight on the surface `on` (no backing).
+## On a light surface the count is solid ink; on a dark one it is cream
+## with a thick ink outline, like the design's labels on colour. `pop`
 ## (0 to 1) swells the count and the coin and flashes the count gold.
-## Returns the pill's rect.
+## Returns the rect it covers.
 ## Assumes the canvas item draws with no transform of its own set.
-static func pill(ci: CanvasItem, at: Vector2, count: int, word: String, h: float, gold := false, pop := 0.0) -> Rect2:
+static func pill(ci: CanvasItem, at: Vector2, count: int, word: String, h: float, gold := false, pop := 0.0, on: Color = UiTheme.CREAM) -> Rect2:
+	var light := on.get_luminance() > 0.5
 	var w := pill_width(count, word, h)
 	var r := h * COIN_R
-	var box := Rect2(at.x + r * 0.6, at.y - h / 2.0, w - r * 0.6, h)
-	if _pill_box == null:
-		_pill_box = StyleBoxFlat.new()
-		_pill_box.bg_color = UiTheme.OUTLINE
-		_pill_box.anti_aliasing = true
-	_pill_box.set_corner_radius_all(int(h / 2.0))
-	ci.draw_style_box(_pill_box, box)
-	# A faint top highlight, like the glossy buttons.
-	ci.draw_line(Vector2(box.position.x + r * 1.2, box.position.y + h * 0.16), Vector2(box.end.x - h * 0.4, box.position.y + h * 0.16), Color(1, 1, 1, 0.14), maxf(1.0, h * 0.08), true)
 	# Reduced motion keeps the gold flash and drops the swell.
 	var swell := 0.0 if UiTheme.reduce_motion() else pop
 	var cc := Vector2(at.x + r, at.y)
 	coin(ci, cc, r * (1.0 + COIN_POP * swell), gold)
 	var font := UiTheme.display_font()
-	var npx := int(h * 0.8)
+	var npx := int(h * NUMBER_PX)
 	var x := cc.x + r + h * PAD
 	var base := at.y + npx * 0.36
 	var num := str(count)
 	var nw := _text_width(num, npx)
 	if word != "":
-		var wpx := int(h * 0.5)
-		ci.draw_string(font, Vector2(x + nw + WORD_GAP * h, base), word, HORIZONTAL_ALIGNMENT_LEFT, -1, wpx, Color(UiTheme.CREAM, 0.72))
+		var wpx := int(h * WORD_PX)
+		var wat := Vector2(x + nw + WORD_GAP * h, base)
+		if light:
+			ci.draw_string(font, wat, word, HORIZONTAL_ALIGNMENT_LEFT, -1, wpx, Color(UiTheme.OUTLINE, 0.65))
+		else:
+			ci.draw_string_outline(font, wat, word, HORIZONTAL_ALIGNMENT_LEFT, -1, wpx, maxi(3, int(wpx * 0.4)), UiTheme.OUTLINE)
+			ci.draw_string(font, wat, word, HORIZONTAL_ALIGNMENT_LEFT, -1, wpx, UiTheme.CREAM)
 	# The count swells around its own centre and turns gold at the peak.
 	var k := 1.0 + NUMBER_POP * swell
 	var mid := Vector2(x + nw / 2.0, at.y)
 	if swell > 0.0:
 		ci.draw_set_transform(mid * (1.0 - k), 0.0, Vector2(k, k))
-	var col := UiTheme.CREAM.lerp(UiTheme.GOLD, clampf(pop * 1.6, 0.0, 1.0))
-	if pop > 0.0:
-		ci.draw_string_outline(font, Vector2(x, base), num, HORIZONTAL_ALIGNMENT_LEFT, -1, npx, maxi(2, int(npx * 0.25)), UiTheme.OUTLINE)
+	var flash := clampf(pop * 1.6, 0.0, 1.0)
+	var col := (UiTheme.OUTLINE if light else UiTheme.CREAM).lerp(UiTheme.GOLD, flash)
+	# On light, the outline fades in with the flash so gold stays readable.
+	var edge := Color(UiTheme.OUTLINE, flash if light else 1.0)
+	if edge.a > 0.0:
+		ci.draw_string_outline(font, Vector2(x, base), num, HORIZONTAL_ALIGNMENT_LEFT, -1, npx, maxi(3, int(npx * 0.32)), edge)
 	ci.draw_string(font, Vector2(x, base), num, HORIZONTAL_ALIGNMENT_LEFT, -1, npx, col)
 	if swell > 0.0:
 		ci.draw_set_transform(Vector2.ZERO)

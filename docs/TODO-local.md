@@ -66,7 +66,7 @@ Fixed in the cloud; each needs a check on a phone.
 
 ## D. Rules verification against the physical game
 
-- [ ] Get a copy of the source game (or its rulebook) and check every **verify** item in `docs/design/rules-spec.md`: token behaviour on ties, the same-company restriction when selling to the Market, and payment exemptions. Update the spec and `server/src/engine/game.ts` plus tests if anything differs.
+- [ ] Get a copy of the source game (or its rulebook) and check every **verify** item in `docs/design/rules-spec.md`: token behaviour on ties and payment exemptions. (The same-company restriction when selling to the Market was decided by the owner on 2026-11-22: D22.) Update the spec and `server/src/engine/game.ts` plus tests if anything differs.
 
 ## E. Accounts and stores (needed before any public build)
 
@@ -80,7 +80,7 @@ Fixed in the cloud; each needs a check on a phone.
 ## F. Art and sound (can be commissioned in parallel)
 
 - [ ] Six company illustrations for the card art window (see `docs/design/theme.md`), a card back with the BB monogram, table background, coin sprites (bronze and gold), regulator token icon.
-- [ ] App icon and store screenshots (the cloud session's placeholder renders are in `docs/screenshots/`).
+- [ ] Store screenshots (the cloud session's placeholder renders are in `docs/screenshots/`). The app icon and splash are done: `tools/logo_art.py` + `tools/make_icons.gd`.
 - [ ] Sound set: card deal, card place, coin slide, coin flip to gold, turn chime, timer tick, dividend fanfare. Placeholders are synthesised in `client/scripts/ui/sfx.gd` and already wired to the table; replace them one name at a time. Haptics on card place, on your turn and in the last two seconds are done (sound and vibration toggles are on the help screen).
 
 ## G. Deferred engineering (Phase 2, listed so nothing is lost)

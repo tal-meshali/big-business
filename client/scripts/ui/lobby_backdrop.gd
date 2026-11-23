@@ -68,16 +68,19 @@ func _process(delta: float) -> void:
 		c.queue_redraw()
 
 
+## Gold rays from `c`, `n` thin wedges out to radius `r` turned by `turn`
+## radians, fading from `alpha` at the centre to nothing. Also used behind
+## the table's get-ready countdown.
+static func draw_rays(on: CanvasItem, c: Vector2, r: float, turn: float, n: int, alpha: float) -> void:
+	var w := TAU / n * 0.32
+	var cols := PackedColorArray([Color(1, 0.84, 0.43, alpha), Color(1, 0.84, 0.43, 0.0), Color(1, 0.84, 0.43, 0.0)])
+	for i in n:
+		var a := turn + TAU * i / n
+		on.draw_polygon(PackedVector2Array([c, c + Vector2.from_angle(a - w) * r, c + Vector2.from_angle(a + w) * r]), cols)
+
+
 func _draw_rays(on: Control) -> void:
-	var c := size * center
-	var r := size.length()
-	var turn := _t / RAY_SECONDS * TAU
-	for i in RAYS:
-		var a := turn + TAU * i / RAYS
-		var w := TAU / RAYS * 0.32
-		var pts := PackedVector2Array([c, c + Vector2.from_angle(a - w) * r, c + Vector2.from_angle(a + w) * r])
-		var cols := PackedColorArray([Color(1, 0.84, 0.43, 0.22), Color(1, 0.84, 0.43, 0.0), Color(1, 0.84, 0.43, 0.0)])
-		on.draw_polygon(pts, cols)
+	draw_rays(on, size * center, size.length(), _t / RAY_SECONDS * TAU, RAYS, 0.22)
 	# Sparkles: four-pointed stars that rise, twinkle and fade.
 	for sp in _sparks:
 		var life := fposmod(_t * 0.06 * sp.z + sp.y, 1.0)

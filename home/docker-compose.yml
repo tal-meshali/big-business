@@ -1,0 +1,43 @@
+# Game server on a home PC (docs/home-server.md): Postgres + Nakama, both
+# restarted by Docker whenever Docker Desktop starts. Nothing is published to
+# the network: the API listens on 127.0.0.1:7350 and Tailscale Funnel gives it
+# a public https address. The console is on 127.0.0.1:7351, for this PC only.
+# Secrets come from ../.env.home (git-ignored), written by home/setup.ps1.
+name: big-business-home
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    env_file: ../.env.home
+    environment:
+      POSTGRES_DB: nakama
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "postgres", "-d", "nakama"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  nakama:
+    build:
+      context: ..
+      dockerfile: home/Dockerfile
+    restart: unless-stopped
+    # Same variables as Fly's secrets, plus DATABASE_URL pointing at postgres.
+    env_file: ../.env.home
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:7350:7350"
+      - "127.0.0.1:7351:7351"
+    healthcheck:
+      test: ["CMD", "/nakama/nakama", "healthcheck"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  pgdata:

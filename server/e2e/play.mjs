@@ -34,6 +34,7 @@ const HTTP_KEY = process.env.NAKAMA_HTTP_KEY || 'defaulthttpkey';
 const CONSOLE_PORT = process.env.NAKAMA_CONSOLE_PORT || '7351';
 const CONSOLE_USER = process.env.NAKAMA_CONSOLE_USER || 'admin';
 const CONSOLE_PASSWORD = process.env.NAKAMA_CONSOLE_PASSWORD || 'password';
+const WEBHOOK_AUTH = process.env.REVENUECAT_WEBHOOK_AUTH || 'local-webhook-secret';
 
 const OP_ACTION = 1, OP_READY = 2, OP_EMOTE = 3, OP_FORFEIT = 4, OP_START_NOW = 5, OP_VIEW = 10, OP_EVENTS = 11, OP_LOBBY = 12, OP_ERROR = 13, OP_EMOTE_SHOWN = 14, OP_FORFEITED = 15, OP_DECK = 16;
 const INVITE_CODE = 100; // notification code, see src/match/protocol.ts
@@ -571,7 +572,7 @@ async function testServices() {
   // Webhook: refused without the shared secret; with it, a sync per named user.
   const noAuth = await serverRpc('revenuecat_webhook', { event: { app_user_id: p.userId } });
   if (noAuth.status === 200) fail('webhook without Authorization must be refused');
-  const hook = await serverRpc('revenuecat_webhook', { event: { type: 'CANCELLATION', app_user_id: p.userId } }, { Authorization: 'local-webhook-secret' });
+  const hook = await serverRpc('revenuecat_webhook', { event: { type: 'CANCELLATION', app_user_id: p.userId } }, { Authorization: WEBHOOK_AUTH });
   if (hook.status !== 200 || !hook.body || hook.body.synced !== 1) fail(`webhook with the secret: ${JSON.stringify(hook)}`);
   log('webhook: refused without the secret, synced with it');
 

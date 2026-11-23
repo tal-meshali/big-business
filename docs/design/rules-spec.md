@@ -50,7 +50,7 @@ The player must play exactly one share from their 4-card hand to one of:
 **(a) Their Portfolio**, face up in front of them.
 **(b) The Market**, face up with no coins on it.
 
-Restriction: the player may not play to the Market a share of the same company as the share they took this turn (from either the Supply or the Market). **Verify** against the rulebook; most summaries state the restriction by company.
+Restriction: if the player took a share from the Market this turn, they may not play to the Market a share of that company. A share drawn from the Supply carries no restriction: it, or any other share in hand, may be sold to the Market the same turn. **Ruling** (owner, 2026-11-22, D22): the restriction applies only after a Market take, by company. This departs from most rules summaries, which apply it after a Supply draw too.
 
 After the Play step, regulator tokens are re-evaluated (section 4), the turn ends and the next seat in order becomes active.
 
@@ -110,7 +110,7 @@ An action is legal only if all of the following hold. The server rejects anythin
 | `take_supply` | phase is Take, seat is active, Supply non-empty, player can pay coins onto all non-exempt Market shares |
 | `take_market(card)` | phase is Take, seat is active, card is in Market, player does not hold that company's token |
 | `play_portfolio(card)` | phase is Play, seat is active, card is in hand |
-| `play_market(card)` | phase is Play, seat is active, card is in hand, card's company differs from the company taken this turn |
+| `play_market(card)` | phase is Play, seat is active, card is in hand, card's company differs from the company taken from the Market this turn (no restriction after a Supply draw) |
 
 ## 8. Auto-move and bots
 
@@ -128,7 +128,7 @@ Take step:
 
 Play step:
 1. If the Market holds at least 1 share and the player holds a pair or more of a company (Portfolio + hand), play to Portfolio a share of the company held most (tie: highest share-count company).
-2. Else if the Market holds fewer than 4 shares, sell to the Market a lone share (the only one of its company in Portfolio + hand, and not of the company taken this turn), lowest company first.
+2. Else if the Market holds fewer than 4 shares, sell to the Market a lone share (the only one of its company in Portfolio + hand, and not of the company taken from the Market this turn), lowest company first.
 3. Otherwise play to Portfolio the share of the company the player holds most of in Portfolio + hand (tie: highest share-count company).
 
 Rule 1 exists because tutorial bots that sold every lone share first sold on each of their first three turns, which learners read as bots never keeping. It waits for a non-empty Market so the tutorial opening is unchanged: the first bot sells into the empty Market, the second pays onto that share, and the learner takes it with its coins.
@@ -150,21 +150,21 @@ How it decides:
 
 - **Small tables.** At 3 and 4 seats the bot expects fewer shares to change hands in the rest of the game (0.8 rather than 1.2 times a company's expected Supply draws plus its Market shares) and an opponent's future gains to be more uneven (negative-binomial dispersion 0.25 rather than 0.5). The large-table model overrated what opponents would still pick up there, so bots sold shares they could have won with. It was tuned in simulation on the tables where bots actually play (one or two people at 3 seats, one person at 4), with two stand-ins for a person: the simple policy, and the previous heuristic bot with heavy score noise (a decent player who errs). It was then checked on fresh deals. With one simple seat and two bots at 3 seats, over 150 deals with every seat rotation, the simple seat's win rate fell from 28% to 19%. The bots keep 56% of their plays (was 47%) and first keep on their 1.7th turn (was 2.0th). Head to head at 3 seats, one bot with the small-table model wins 42% against two bots without it (fair 33%, +1.9 points a game); at 4 seats, 28% against three (fair 25%). At 5 or more seats it measured slightly worse and is not used. A Monte Carlo bot that scores every move by determinized playouts of the heuristic bot was about 1 point a game stronger at 3 seats, at over 100 ms a decision in Node, so this bot stays heuristic.
 
-Measured against the simple policy with one heuristic bot and the other seats simple, over 150 fixed deals with every seat rotation of each deal (`bot.test.ts` runs a smaller version on every check). The 3- and 4-seat rows were re-measured with the small-table model on a new deal set, where the version without it measured 21.6, 13.2 and 61% at 3 seats and 22.3, 12.9 and 52% at 4:
+Measured against the simple policy with one heuristic bot and the other seats simple, over 150 fixed deals with every seat rotation of each deal (`bot.test.ts` runs a smaller version on every check). The 3- and 4-seat rows were re-measured with the small-table model on a new deal set, where the version without it measured 21.6, 13.2 and 61% at 3 seats and 22.3, 12.9 and 52% at 4. All rows were re-measured on 2026-11-22 after the drawn-share ruling (3.2), on 150 fresh deals with every rotation; under the old rule the same deals gave 22.0, 17.4 and 15.8 heuristic averages at 3, 6 and 7 seats, other rows within 0.1:
 
 | Seats | Heuristic bot avg score | Simple bots avg score | Heuristic bot win rate | Fair win rate |
 |---|---|---|---|---|
-| 3 | 22.0 | 13.4 | 60% | 33% |
-| 4 | 22.6 | 12.9 | 55% | 25% |
-| 5 | 19.7 | 13.7 | 32% | 20% |
-| 6 | 17.7 | 13.3 | 26% | 17% |
-| 7 | 16.2 | 12.7 | 17% | 14% |
+| 3 | 23.0 | 13.0 | 63% | 33% |
+| 4 | 23.3 | 12.8 | 56% | 25% |
+| 5 | 19.1 | 13.6 | 28% | 20% |
+| 6 | 17.9 | 13.2 | 24% | 17% |
+| 7 | 15.6 | 12.8 | 16% | 14% |
 
-With several heuristic bots at a 5-seat table, each still averages 18.2 (2 heuristic vs 3 simple, 27% win rate each) or 16.9 (3 vs 2, 25% each), against 12.4 and 11.2 for the simple bots. Every decision takes well under a millisecond in Node.
+With several heuristic bots at a 5-seat table (measured before the 2026-11-22 ruling, which barely moved it), each still averages 18.2 (2 heuristic vs 3 simple, 27% win rate each) or 16.9 (3 vs 2, 25% each), against 12.4 and 11.2 for the simple bots. Every decision takes well under a millisecond in Node.
 
 ## 9. Known exploit: hand/Market cycling
 
-Discussed on BoardGameGeek: a player can draw, then play a share to the Market, then later retrieve it. The same-company restriction in 3.2 and the fact that every Supply draw costs coins already limit this. **Ruling:** no extra rule. Turn timers and the finite Supply bound the loop. Revisit after playtesting.
+Discussed on BoardGameGeek: a player can draw, then play a share to the Market, then later retrieve it. Since the 2026-11-22 ruling in 3.2 a drawn share may be sold the same turn, so the restriction no longer limits this; the draw cost (a coin onto each Market share) does, and a share taken from the Market still cannot go straight back. **Ruling:** no extra rule. Turn timers and the finite Supply bound the loop. Revisit after playtesting.
 
 ## 10. Visibility (per-player view)
 

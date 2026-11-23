@@ -10,6 +10,10 @@ One small VPS runs everything until well past 10k monthly players. Steps:
 6. **Verify**: `curl https://play.example.com/` returns Nakama's status. The console is not published; open it through an SSH tunnel (`ssh -N -L 7351:127.0.0.1:7351 user@play.example.com`, then `http://127.0.0.1:7351`).
 7. **Update**: `git pull`, `cd server && npm ci && npm run build`, then from the repo root `docker compose -f docker-compose.prod.yml up -d --build nakama`. Matches in progress are terminated on restart; deploy during quiet hours until rolling restarts are set up.
 
+## Home Windows PC
+
+The server can also run on a Windows PC with Docker Desktop, published through Tailscale Funnel: see `docs/home-server.md` (`home/setup.ps1` does the whole setup).
+
 ## Fly.io (current deployment)
 
 The server runs on Fly.io at https://big-business-server.fly.dev (free TLS on the fly.dev name; a custom domain can be added later with `fly certs add`). Files: `fly.toml`, `fly/Dockerfile`, `fly/start.sh` (the same Nakama flags as `docker-compose.prod.yml`).

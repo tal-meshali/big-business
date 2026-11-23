@@ -47,6 +47,7 @@ All three run without any account: the shop says it "opens soon", no push is sen
   ```
 
   Unknown keys are dropped and numbers clamped; the answer is the whole config. Players read it with `get_remote_config` on every sign-in.
+- **XP and the cosmetic track (decision D23)**: the server that introduced `trackXp` rewrites each profile on its first save (old track points count 12 XP each) and drops `trackPoints`. That is one-way: a server from before the change would read those profiles as an empty track. Do not roll the server back past it, and ship the server before the client build that reads `trackXp` (an older client against the new server shows zeros in Quests, a newer client against an older server shows no earnings report).
 - **Analytics (D1 / D7 and the funnel)**: counted per install day, nothing personal and nothing sent to a third party (decision D4). Read the last two weeks with:
 
   ```

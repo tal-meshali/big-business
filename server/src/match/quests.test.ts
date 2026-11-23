@@ -17,6 +17,7 @@ import {
   weeklyQuests,
   type GameStats,
   type LogEntry,
+  type QuestDef,
 } from './quests';
 
 const day = 86_400_000;
@@ -280,6 +281,16 @@ describe('collecting at the end of a game', () => {
     expect(openQuests(before, after, t0).length).toBeLessThanOrEqual(2);
     expect(openQuests(before, after, t0, 0)).toEqual([]);
     for (const q of open) expect(q.weekly).toBe(q.id.startsWith('w_'));
+  });
+
+  it('lists a quest the game moved before one that is merely close to done', () => {
+    const base = rolloverQuests(undefined, t0);
+    const [close, far] = weeklyQuests(base.week) as [QuestDef, QuestDef];
+    const before = { ...base, weekly: { [close.id]: { progress: close.target - 1, claimed: false }, [far.id]: { progress: 0, claimed: false } } };
+    const after = { ...before, weekly: { ...before.weekly, [far.id]: { progress: 1, claimed: false } } };
+    expect(openQuests(before, after, t0, 10).filter((q) => q.weekly).map((q) => q.id)).toEqual([far.id, close.id]);
+    // With nothing moved, the nearest to done leads.
+    expect(openQuests(after, after, t0, 10).filter((q) => q.weekly).map((q) => q.id)).toEqual([close.id, far.id]);
   });
 
   it('treats quest progress from an earlier day as no progress', () => {

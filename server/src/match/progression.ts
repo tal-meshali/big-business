@@ -42,7 +42,8 @@ export interface Progress {
   bestRank: number;
   /**
    * XP counted toward the free cosmetic track (cosmetics.ts TRACK). Every XP
-   * award adds here too; decision D23 retired the separate track points.
+   * award adds here too (addXp), so the track reads the one XP number of
+   * decision D23 while a profile keeps the place it had on the track.
    */
   trackXp: number;
   quests: QuestState;

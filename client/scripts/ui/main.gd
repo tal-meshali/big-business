@@ -173,6 +173,10 @@ func _build() -> void:
 	_quests_panel.visible = false
 	_quests_panel.visibility_changed.connect(func() -> void: quests_shade.visible = _quests_panel.visible)
 	_quests_panel.cosmetic_changed.connect(_on_cosmetic_changed)
+	# A quest collected by hand pays XP: the HUD's level and bar follow.
+	_quests_panel.progress_changed.connect(func(p: Dictionary) -> void:
+		_apply_progress(p, not _daily_button.disabled)
+		_refresh_quest_badge())
 	add_child(_quests_panel)
 
 	_shop_panel = ShopPanel.new()
@@ -824,8 +828,8 @@ func _apply_progress(p: Dictionary, daily_available: bool) -> void:
 	_games_played = int(p.get("gamesPlayed", 0))
 	var level := int(p.get("level", 1))
 	var xp := int(p.get("xp", 0))
-	var floor_xp := 50 * (level - 1) * (level - 1)
-	var next_xp := 50 * level * level
+	var floor_xp := EarningsReport.level_floor(level)
+	var next_xp := EarningsReport.level_floor(level + 1)
 	_profile_label.text = "Level %d" % level
 	_profile_label.tooltip_text = "%d games, %d wins" % [int(p.get("gamesPlayed", 0)), int(p.get("wins", 0))]
 	_xp_label.text = "%d / %d" % [xp, next_xp]

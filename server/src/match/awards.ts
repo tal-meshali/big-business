@@ -7,8 +7,8 @@ import { unlockedCosmetics } from './cosmetics';
 import { trackActive, trackMilestone } from './metrics';
 import { loadProfile, saveProfile } from './profile';
 import { applyForfeit, applyGameResult, DEFAULT_XP_RATES, SEASON_LEADERBOARD, seasonPointsForGame, xpForGame, type Progress, type XpRates } from './progression';
-import type { EarningsLine, EarningsMessage } from './protocol';
-import { applyGameToQuests, collectQuests, gameStats, openQuests, type GameStats, type OpenQuest } from './quests';
+import type { EarningsLine, EarningsMessage, EarningsQuest } from './protocol';
+import { applyGameToQuests, collectQuests, gameStats, openQuests, type GameStats } from './quests';
 import { readRemoteConfig } from './rpc_config';
 import { creditClub } from './rpc_clubs';
 import { recordStats } from './rpc_stats';
@@ -22,6 +22,41 @@ function xpRates(nk: nkruntime.Nakama, logger: nkruntime.Logger): XpRates {
   } catch (e) {
     logger.warn('remote config unreadable, default XP rates used: %s', String(e));
     return DEFAULT_XP_RATES;
+  }
+}
+
+/** What a seat a bot finished is paid: the bot earned that capital, not the player. */
+const NO_XP: XpRates = { base: 0, perCoin: 0 };
+/** Versioned tries at the profile write before the last, unconditional one. */
+const GUARDED_SAVES = 2;
+
+interface Settled {
+  progress: Progress;
+  earnings: EarningsMessage;
+}
+
+/**
+ * Reads the profile, settles the game on it and writes it back. WHY the
+ * version: a daily or gift claim that lands between the read and the write
+ * would otherwise be overwritten, and its XP lost. A conflict reads again;
+ * the last try writes regardless, because a finished game must be paid.
+ */
+function settleAndSave(nk: nkruntime.Nakama, userId: string, settle: (current: Progress) => Settled): Settled {
+  for (let attempt = 0; ; attempt++) {
+    // WHY loadProfile: it ignores rows the client created itself, so a
+    // pre-seeded profile is never carried into the server-owned one.
+    const row = loadProfile(nk, userId);
+    const settled = settle(row.progress);
+    if (attempt >= GUARDED_SAVES) {
+      saveProfile(nk, userId, settled.progress);
+      return settled;
+    }
+    try {
+      saveProfile(nk, userId, settled.progress, row.version);
+      return settled;
+    } catch (e) {
+      // Changed since the read: settle again on the fresh row.
+    }
   }
 }
 
@@ -47,7 +82,7 @@ export function settleGame(before: Progress, r: SeatResult, stats: GameStats | n
     { kind: 'capital', xp: game.capital },
     { kind: 'finish', xp: game.finish },
   ];
-  let open: OpenQuest[] = [];
+  let open: EarningsQuest[] = [];
   if (stats) {
     next = { ...next, quests: applyGameToQuests(next.quests, stats, nowMs) };
     const got = collectQuests(next, nowMs);
@@ -98,22 +133,27 @@ export function awardProgress(s: MatchState, nk: nkruntime.Nakama, logger: nkrun
     // Forfeited players were recorded when they forfeited (awardForfeit).
     if (!seat || seat.id.startsWith('bot:') || s.forfeited[seat.id]) continue;
     try {
-      // WHY: loadProfile ignores rows the client created itself, so a
-      // pre-seeded profile is never carried into the server-owned one.
-      const current = loadProfile(nk, seat.id).progress;
-      // WHY no quest credit for the tutorial (a scripted game anyone can
-      // replay) or for a seat that ended as a bot after repeated timeouts:
-      // quest XP must not be farmable by idling or replaying.
-      const earnsQuests = !s.params.tutorial && !seat.isBot;
+      // WHY: a seat with a player's id that ended as a bot was left to time
+      // out. The game counts as played, but it pays no XP and no quest
+      // credit, so the cosmetic track cannot be earned by idling. The
+      // tutorial (a scripted game anyone can replay) pays no quest credit.
+      const away = seat.isBot;
+      const game = s.game;
+      const earnsQuests = !s.params.tutorial && !away;
       const result: SeatResult = { rank: score.rank, seats: seatCount, capital: score.score, humans };
-      let settled = settleGame(current, result, null, rates, now);
-      try {
-        if (earnsQuests) settled = settleGame(current, result, gameStats(s.game, s.log, score.seat, humans), rates, now);
-      } catch (e) {
-        logger.warn('quest progress failed for %s: %s', seat.id, String(e));
-      }
-      saveProfile(nk, seat.id, settled.progress);
-      s.earnings[seat.id] = settled.earnings;
+      const seatRates = away ? NO_XP : rates;
+      const settled = settleAndSave(nk, seat.id, (current) => {
+        if (earnsQuests) {
+          try {
+            return settleGame(current, result, gameStats(game, s.log, score.seat, humans), seatRates, now);
+          } catch (e) {
+            logger.warn('quest progress failed for %s: %s', seat.id, String(e));
+          }
+        }
+        return settleGame(current, result, null, seatRates, now);
+      });
+      // No receipt for a seat that was away: there is nothing to report.
+      if (!away) s.earnings[seat.id] = settled.earnings;
       const points = settled.earnings.seasonPoints;
       if (points > 0) {
         nk.leaderboardRecordWrite(SEASON_LEADERBOARD, seat.id, seat.name, points, score.rank === 1 ? 1 : 0);

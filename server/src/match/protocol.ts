@@ -73,7 +73,7 @@ export interface EarningsMessage {
   levelAfter: number;
   /** Season points this game added (0 against only bots). */
   seasonPoints: number;
-  /** Open quests this game advanced, nearest to done first; at most three. */
+  /** Quests still open (quests.ts openQuests): those this game moved first, then the nearest to done. */
   quests: EarningsQuest[];
   /** Track cosmetics this game unlocked (ids from cosmetics.ts). */
   unlocked: string[];

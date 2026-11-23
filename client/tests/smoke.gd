@@ -1101,11 +1101,17 @@ func _earnings_checks() -> int:
 	if table._earnings_report.visible:
 		push_error("Continue does nothing without a receipt")
 		failures += 1
+	# Play again from the standings closes a report that never opened.
+	table._earnings_report.modulate.a = 0.5
+	table._close_report()
+	if table._earnings_report.visible or not table._result_panel.visible or table._earnings_report.modulate.a != 1.0 or table._report_open:
+		push_error("closing a report that never opened leaves the standings as they were")
+		failures += 1
 	# The receipt arrives after the standings are up: the buttons follow it.
 	net.last_earnings = _receipt()
 	net.earnings_received.emit(net.last_earnings)
-	if not table._result_continue.visible or table._result_again.visible or table._result_leave.visible:
-		push_error("with a receipt the standings offer Continue alone")
+	if not table._result_continue.visible or table._result_again.visible or not table._result_leave.visible:
+		push_error("with a receipt the standings offer Continue, and Leave stays one tap away")
 		failures += 1
 	net.tutorial_mode = true
 	table._sync_result_buttons()
@@ -1126,12 +1132,15 @@ func _earnings_checks() -> int:
 		push_error("Continue swaps the standings for the earnings report")
 		failures += 1
 	var texts := _texts(report)
-	for want in ["Earnings report", "You won the game", "1st of 5 with 21 capital", "Capital 21 × 2", "+42", "Finished the game", "Quest: Win a game", "+107 XP", "Level 5", "403 XP to level 6", "LEVEL UP", "Season points", "+12", "New look: Navy felt", "Play 3 games", "Play again", "Leave"]:
+	for want in ["Earnings report", "You won the game", "21 capital, 5 players", "21 capital × 2 XP", "+42", "Finished the game", "Quest: Win a game", "+107 XP", "Level 5", "403 XP to level 6", "Season points", "+12", "New look: Navy felt", "Choose it in Quests, on the Looks tab.", "Play 3 games", "30 XP", "2 / 3", "Play again", "Leave"]:
 		if not texts.has(want):
 			push_error("the earnings report should say '%s', got %s" % [want, texts])
 			failures += 1
 	if texts.has("Win 3 games this week"):
-		push_error("a receipt with an unlock keeps one open quest so the sheet fits")
+		push_error("the report shows one open quest, the first the server lists")
+		failures += 1
+	if report._level_chip.modulate.a != 1.0 or report._level_plate_box.border_color != UiTheme.GOLD:
+		push_error("a level-up ends on the bright plate with its LEVEL UP chip")
 		failures += 1
 	if report._bar.text != "847 / 1,250" or not is_equal_approx(report._bar.fraction, 47.0 / 450.0):
 		push_error("the level bar shows the XP after the game, got %s at %s" % [report._bar.text, report._bar.fraction])
@@ -1152,12 +1161,28 @@ func _earnings_checks() -> int:
 	# The fill: from the XP before the game, through the level-up, to the end.
 	report.animate = true
 	report.show_report(_receipt())
-	if report._total.text != "+0 XP" or report._level_title.text != "Level 4" or report._bar.text != "740 / 800":
-		push_error("the fill starts from the level before the game, got %s, %s, %s" % [report._total.text, report._level_title.text, report._bar.text])
+	if report._total.text != "+0 XP" or report._level_title.text != "Level 4" or report._bar.text != "740 / 800" or report._level_sub.text != "60 XP to level 5":
+		push_error("the fill starts from the level before the game, got %s, %s, %s, %s" % [report._total.text, report._level_title.text, report._bar.text, report._level_sub.text])
 		failures += 1
-	report.finish_motion()
-	if report._total.text != "+107 XP" or report._level_title.text != "Level 5":
-		push_error("finish_motion() lands on the final numbers")
+	if report._level_chip.modulate.a != 0.0 or report._level_plate_box.border_color == UiTheme.GOLD:
+		push_error("the level-up dressing waits for the bar to cross over")
+		failures += 1
+	# A tap on the sheet skips to the end.
+	var tap := InputEventMouseButton.new()
+	tap.button_index = MOUSE_BUTTON_LEFT
+	tap.pressed = true
+	report._gui_input(tap)
+	if report._total.text != "+107 XP" or report._level_title.text != "Level 5" or report._level_sub.text != "403 XP to level 6" or report._level_chip.modulate.a != 1.0 or report._tween != null:
+		push_error("a tap lands the report on its final numbers, got %s, %s" % [report._total.text, report._level_title.text])
+		failures += 1
+	# Two levels in one game end in the last one.
+	var leap := _receipt()
+	leap.merge({"xp": 250, "xpBefore": 0, "xpAfter": 250, "levelBefore": 1, "levelAfter": 3, "unlocked": ["table_navy", "back_sunrise"]}, true)
+	report.animate = false
+	report.show_report(leap)
+	texts = _texts(report)
+	if report._level_title.text != "Level 3" or report._bar.text != "250 / 450" or not texts.has("New looks: Navy felt, Sunrise") or not texts.has("Choose one in Quests, on the Looks tab."):
+		push_error("a two-level game with two looks reads Level 3 and names both, got %s" % [texts])
 		failures += 1
 
 	# A lost game against bots: half pay, said plainly, no level-up dressing.
@@ -1168,13 +1193,20 @@ func _earnings_checks() -> int:
 	report.show_report(quiet)
 	await process_frame
 	texts = _texts(report)
-	for want in ["You finished 3rd", "3rd of 4 with 9 capital", "Capital 9 × 1", "+19 XP", "Level 4", "Games against bots pay half.", "Win 3 games this week"]:
+	for want in ["You finished 3rd", "9 capital, 4 players", "9 capital × 1 XP", "+19 XP", "Level 4", "281 XP to level 5", "Games with other people pay double.", "Play 3 games"]:
 		if not texts.has(want):
 			push_error("a bots-only receipt should say '%s', got %s" % [want, texts])
 			failures += 1
-	if texts.has("LEVEL UP") or texts.has("Season points"):
+	if report._level_chip.modulate.a != 0.0 or texts.has("Season points"):
 		push_error("no level-up chip and no season row when the game gave neither")
 		failures += 1
+	# A rate that is not a whole number (or none at all) drops the "× n".
+	for odd in [1.5, 0.0]:
+		quiet["rate"] = odd
+		report.show_report(quiet)
+		if not _texts(report).has("9 capital"):
+			push_error("a rate of %s shows the capital without a multiplier, got %s" % [odd, _texts(report)])
+			failures += 1
 	# Four finished quests fold into one line.
 	var busy := _receipt()
 	busy["lines"] = [{"kind": "capital", "xp": 42}, {"kind": "finish", "xp": 20}]
@@ -1764,14 +1796,14 @@ func _quests_checks() -> int:
 	var by_id := {}
 	for r in panel.rows:
 		by_id[r["id"]] = r
-	if by_id["d_play_3"]["button"].disabled or by_id["d_play_3"]["button"].text != "Collect":
+	if not by_id["d_play_3"]["button"].visible or by_id["d_play_3"]["button"].disabled or by_id["d_play_3"]["button"].text != "Collect" or by_id["d_play_3"]["done"].visible:
 		push_error("a completed quest must offer Collect")
 		failures += 1
-	if not by_id["d_win_1"]["button"].disabled:
-		push_error("an unfinished quest must not be claimable")
+	if by_id["d_win_1"]["button"].visible or by_id["d_win_1"]["done"].visible:
+		push_error("an unfinished quest shows no button and no tick")
 		failures += 1
-	if not by_id["d_people"]["button"].disabled or by_id["d_people"]["button"].text != "Collected":
-		push_error("a collected quest shows Collected and stays disabled")
+	if by_id["d_people"]["button"].visible or not by_id["d_people"]["done"].visible:
+		push_error("a collected quest shows the Collected tick, not a button")
 		failures += 1
 	if by_id["w_coins_25"]["bar"].value != 25 or by_id["w_coins_25"]["bar"].max_value != 25:
 		push_error("progress bar should mirror progress / target")
@@ -1785,8 +1817,8 @@ func _quests_checks() -> int:
 
 	# A claim flips the row and can unlock the next step.
 	panel._apply_claim("d_play_3", 840, ["back_classic", "table_green", "back_midnight", "table_navy"])
-	if not by_id["d_play_3"]["button"].disabled or by_id["d_play_3"]["button"].text != "Collected":
-		push_error("a collected row should flip to Collected")
+	if by_id["d_play_3"]["button"].visible or not by_id["d_play_3"]["done"].visible:
+		push_error("a collected row should flip to the Collected tick")
 		failures += 1
 	if panel.track_xp != 840 or panel._table_buttons["table_navy"].disabled:
 		push_error("a collect should update the track XP and enable the new unlock")
@@ -1998,7 +2030,7 @@ func _shop_checks() -> int:
 		failures += 1
 	# The quests picker labels paid skins instead of showing a points cost.
 	var quests = main._quests_panel
-	quests.apply_profile({"trackPoints": 0, "unlocked": ["back_classic", "table_green"], "track": [], "equipped": {}})
+	quests.apply_profile({"trackXp": 0, "unlocked": ["back_classic", "table_green"], "track": [], "equipped": {}})
 	var picker_text := ""
 	for b in quests.find_children("*", "Button", true, false):
 		if String(b.text).begins_with("Gilded"):

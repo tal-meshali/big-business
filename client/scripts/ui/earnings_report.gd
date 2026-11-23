@@ -1,28 +1,29 @@
 class_name EarningsReport
 extends PanelContainer
-## The earnings report: what the game that just ended paid you. A night
+## The earnings report: what the game that just ended paid you. A royal
 ## sheet with a gold band, shown after the Dividend day standings. It lists
 ## the XP line by line (capital first: XP follows the capital you ended
-## with, decision D23), fills the level bar, and shows the season points,
-## the quests the game moved and any look it unlocked.
+## with, decision D23), fills the level bar, and shows the season points, a
+## look the game unlocked and the quest nearest to done.
 ##
 ## Fed by the server's receipt (OP_EARNINGS, EarningsMessage in
-## server/src/match/protocol.ts). Nothing is computed here: the client only
-## draws what the server paid.
+## server/src/match/protocol.ts). Every amount on it is the server's; the
+## client only places the bar, with the level curve of progression.ts
+## (level_floor).
 
 signal play_again
 signal leave
 
-## The dark well rows sit in on the royal sheet.
-const WELL := Color("#170F40")
-## Hairline between two XP lines inside the well.
+## Hairline between two XP lines inside a plate.
 const RULE := Color("#2A1E66")
-## Soft text on the brighter level-up plate, where lilac is too dim.
-const SOFT_ON_GLOW := Color("#DAD4F7")
+## A beat before the numbers move, so the eye is on them when they do.
+const FILL_DELAY := 0.2
 ## The level bar: fill to the end of the old level, then into the new one.
 const FILL_SECONDS := 0.55
 const SPILL_SECONDS := 0.4
-## At most this many XP lines; more finished quests fold into one line.
+## The sheet's own entrance.
+const ENTER_SECONDS := 0.2
+## At most this many quest lines; more finished quests fold into one line.
 const MAX_QUEST_LINES := 2
 
 ## Px per design point (UiTheme.layout_scale).
@@ -37,24 +38,26 @@ var _level_title: Label
 var _level_sub: Label
 var _level_badge: LevelBadge
 var _bar: XpBar
+var _level_plate_box: StyleBoxFlat
+var _level_chip: Control
+## The bar's sequence, the total's count and the sheet's entrance.
 var _tween: Tween
+var _count_tween: Tween
+var _enter_tween: Tween
 var _earnings: Dictionary = {}
 
 
 ## Builds the empty sheet. Call once, before the first show_report.
 func setup(px_per_dp: float) -> void:
 	s = px_per_dp
-	var face := StyleBoxFlat.new()
-	face.bg_color = UiTheme.ROYAL
-	face.border_color = UiTheme.OUTLINE
-	face.set_border_width_all(_px(2))
-	face.border_width_bottom = _px(5)
-	face.set_corner_radius_all(_px(16))
-	face.shadow_color = Color(0, 0, 0, 0.4)
-	face.shadow_size = _px(12)
-	face.shadow_offset = Vector2(0, _px(6))
-	face.anti_aliasing = true
+	# The rules and quests sheet, with the band running edge to edge.
+	var face := UiTheme.royal_sheet_style(s)
+	face.content_margin_left = face.border_width_left
+	face.content_margin_right = face.border_width_right
+	face.content_margin_top = face.border_width_top
+	face.content_margin_bottom = face.border_width_bottom
 	add_theme_stylebox_override("panel", face)
+	pivot_offset_ratio = Vector2(0.5, 0.5)
 
 	var column := VBoxContainer.new()
 	column.add_theme_constant_override("separation", 0)
@@ -63,14 +66,15 @@ func setup(px_per_dp: float) -> void:
 	var band := PanelContainer.new()
 	var band_style := StyleBoxFlat.new()
 	band_style.bg_color = UiTheme.GOLD
-	band_style.corner_radius_top_left = _px(13)
-	band_style.corner_radius_top_right = _px(13)
+	band_style.corner_radius_top_left = face.corner_radius_top_left - face.border_width_top
+	band_style.corner_radius_top_right = face.corner_radius_top_right - face.border_width_top
 	band_style.border_color = UiTheme.OUTLINE
 	band_style.border_width_bottom = _px(2)
 	band_style.content_margin_top = _px(9)
 	band_style.content_margin_bottom = _px(9)
 	band_style.anti_aliasing = true
 	band.add_theme_stylebox_override("panel", band_style)
+	band.mouse_filter = Control.MOUSE_FILTER_PASS
 	column.add_child(band)
 	var title := UiTheme.outlined("Earnings report", _px(20))
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -86,17 +90,17 @@ func setup(px_per_dp: float) -> void:
 	rows.add_theme_constant_override("separation", _px(8))
 	body.add_child(rows)
 	_content = VBoxContainer.new()
-	_content.add_theme_constant_override("separation", _px(8))
+	_content.add_theme_constant_override("separation", _px(14))
 	rows.add_child(_content)
 
 	var buttons := HBoxContainer.new()
 	buttons.add_theme_constant_override("separation", _px(8))
 	rows.add_child(buttons)
-	_again = UiTheme.button("Play again", _px(15), _px(46), "primary")
+	_again = UiTheme.button("Play again", _px(15), _px(50), "primary")
 	_again.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_again.pressed.connect(func() -> void: play_again.emit())
 	buttons.add_child(_again)
-	_leave = UiTheme.button("Leave", _px(15), _px(46), "ghost")
+	_leave = UiTheme.button("Leave", _px(15), _px(50), "ghost")
 	_leave.custom_minimum_size.x = _px(92)
 	_leave.pressed.connect(func() -> void: leave.emit())
 	buttons.add_child(_leave)
@@ -104,40 +108,71 @@ func setup(px_per_dp: float) -> void:
 
 ## Draws the receipt `e` and, when `animate` is on, fills the level bar.
 func show_report(e: Dictionary) -> void:
+	_kill_tweens()
 	_earnings = e
-	if _tween != null:
-		_tween.kill()
 	for child in _content.get_children():
 		_content.remove_child(child)
 		child.queue_free()
-	_content.add_child(_headline(e))
-	_content.add_child(_lines_well(e))
-	_content.add_child(_level_plate(e))
+	# What the game paid, then what it moved: two groups, a wider gap between.
+	var paid := _group()
+	paid.add_child(_headline(e))
+	paid.add_child(_lines_well(e))
+	if bool(e.get("botsOnly", false)):
+		var note := _text("Games with other people pay double.", 13, UiTheme.LILAC)
+		note.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		paid.add_child(note)
+	paid.add_child(_level_plate())
+	var moved := _group()
 	if int(e.get("seasonPoints", 0)) > 0:
-		_content.add_child(_season_row(int(e.get("seasonPoints", 0))))
+		moved.add_child(_season_row(int(e.get("seasonPoints", 0))))
 	var unlocked: Array = e.get("unlocked", [])
 	if not unlocked.is_empty():
-		_content.add_child(_unlock_row(unlocked))
-	# A long receipt keeps one "next quest" so the sheet still fits a phone.
+		moved.add_child(_unlock_row(unlocked))
+	# One quest, the one the server lists first: the nearest thing to aim at.
 	var open: Array = e.get("quests", [])
-	var room := 1 if (not unlocked.is_empty() or _line_count(e) > 3) else 2
-	for i in mini(room, open.size()):
-		_content.add_child(_quest_row(open[i]))
-	if bool(e.get("botsOnly", false)):
-		var note := _text("Games against bots pay half.", 13, UiTheme.LILAC)
-		note.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		_content.add_child(note)
+	if not open.is_empty():
+		moved.add_child(_quest_row(open[0]))
+	if moved.get_child_count() == 0:
+		_content.remove_child(moved)
+		moved.queue_free()
 	visible = true
 	_again.grab_focus.call_deferred()
+	_play_enter()
 	_play_fill()
 
 
-## Jumps any running motion to its end state.
+## Jumps any running motion to its end state. Safe before the first report.
 func finish_motion() -> void:
-	if _tween != null:
-		_tween.kill()
-		_tween = null
+	_kill_tweens()
+	modulate.a = 1.0
+	scale = Vector2.ONE
+	if _earnings.is_empty():
+		return
 	_show_final()
+
+
+## A tap anywhere on the sheet skips the count-up.
+func _gui_input(event: InputEvent) -> void:
+	var pressed := (event is InputEventMouseButton or event is InputEventScreenTouch) and event.is_pressed()
+	if pressed and _tween != null and _tween.is_running():
+		finish_motion()
+		accept_event()
+
+
+func _kill_tweens() -> void:
+	for t in [_tween, _count_tween, _enter_tween]:
+		if t != null:
+			t.kill()
+	_tween = null
+	_count_tween = null
+	_enter_tween = null
+
+
+## True when the report should move: off in tests, and when the phone asks
+## for less motion.
+func _moves() -> bool:
+	# The call answers 1 for yes, 0 for no and -1 where the platform cannot say.
+	return animate and is_inside_tree() and DisplayServer.accessibility_should_reduce_animation() != 1
 
 
 ## 1250 as "1,250".
@@ -187,17 +222,20 @@ func _text(text: String, dp: float, color: Color, display := false) -> Label:
 	return l
 
 
-func _well(pad_x := 12.0, pad_y := 9.0, bg := WELL) -> PanelContainer:
+func _group() -> VBoxContainer:
+	var g := VBoxContainer.new()
+	g.add_theme_constant_override("separation", _px(8))
+	_content.add_child(g)
+	return g
+
+
+## The sheet's sunken plate (UiTheme.plate_style), letting taps through.
+func _well(pad_x := 12.0, pad_y := 9.0) -> PanelContainer:
 	var p := PanelContainer.new()
-	var box := StyleBoxFlat.new()
-	box.bg_color = bg
-	box.set_corner_radius_all(_px(11))
-	box.content_margin_left = _px(pad_x)
-	box.content_margin_right = _px(pad_x)
-	box.content_margin_top = _px(pad_y)
-	box.content_margin_bottom = _px(pad_y)
-	box.anti_aliasing = true
+	var box := UiTheme.plate_style(s, pad_x, pad_x, pad_y, pad_y)
+	box.set_corner_radius_all(_px(12))
 	p.add_theme_stylebox_override("panel", box)
+	p.mouse_filter = Control.MOUSE_FILTER_PASS
 	return p
 
 
@@ -236,7 +274,7 @@ func _headline(e: Dictionary) -> Control:
 	col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	h.add_child(col)
 	col.add_child(_text("You won the game" if rank == 1 else "You finished %s" % ordinal(rank), 16, Color.WHITE, true))
-	col.add_child(_text("%s of %d with %d capital" % [ordinal(rank), seats, capital], 13, UiTheme.LILAC))
+	col.add_child(_text("%d capital, %d players" % [capital, seats], 13, UiTheme.LILAC))
 	var pad := MarginContainer.new()
 	pad.add_theme_constant_override("margin_left", _px(4))
 	pad.add_theme_constant_override("margin_right", _px(4))
@@ -264,10 +302,6 @@ func _lines(e: Dictionary) -> Array:
 	return out
 
 
-func _line_count(e: Dictionary) -> int:
-	return _lines(e).size()
-
-
 func _line_text(line: Dictionary, e: Dictionary) -> String:
 	match String(line.get("kind", "")):
 		"capital":
@@ -275,8 +309,8 @@ func _line_text(line: Dictionary, e: Dictionary) -> String:
 			var capital := int(e.get("capital", 0))
 			# A whole rate reads as the sum it is; an odd one would not.
 			if is_equal_approx(rate, roundf(rate)) and rate > 0.0:
-				return "Capital %d × %d" % [capital, int(roundf(rate))]
-			return "Capital %d" % capital
+				return "%d capital × %d XP" % [capital, int(roundf(rate))]
+			return "%d capital" % capital
 		"finish":
 			return "Finished the game"
 		"quest":
@@ -301,7 +335,7 @@ func _lines_well(e: Dictionary) -> Control:
 		what.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 		what.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		h.add_child(what)
-		var amount := _text("+%d" % int(line.get("xp", 0)), 15, Color.WHITE, true)
+		var amount := _text("+%d" % int(line.get("xp", 0)), 14, Color.WHITE, true)
 		amount.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 		h.add_child(amount)
 		col.add_child(h)
@@ -322,14 +356,14 @@ func _lines_well(e: Dictionary) -> Control:
 	return well
 
 
-## The level and its bar; brighter, with a gold rim, when the game levelled you up.
-func _level_plate(e: Dictionary) -> Control:
-	var levelled := int(e.get("levelAfter", 1)) > int(e.get("levelBefore", 1))
-	var plate := _well(12, 10, UiTheme.ROYAL_GLOW if levelled else WELL)
-	if levelled:
-		var box: StyleBoxFlat = plate.get_theme_stylebox("panel")
-		box.border_color = UiTheme.GOLD
-		box.set_border_width_all(_px(2))
+## The level and its bar. It starts as a plain plate; _mark_level_up turns
+## it bright, with a gold rim and a chip, at the moment the bar crosses over.
+func _level_plate() -> Control:
+	var plate := _well(12, 10)
+	_level_plate_box = plate.get_theme_stylebox("panel")
+	# WHY a rim in the plate's own colour: the gold one then changes no size.
+	_level_plate_box.border_color = _level_plate_box.bg_color
+	_level_plate_box.set_border_width_all(_px(2))
 	var col := VBoxContainer.new()
 	col.add_theme_constant_override("separation", _px(9))
 	plate.add_child(col)
@@ -339,6 +373,7 @@ func _level_plate(e: Dictionary) -> Control:
 	_level_badge.font_px = _px(15)
 	_level_badge.custom_minimum_size = Vector2(_px(38), _px(38))
 	_level_badge.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	_level_badge.pivot_offset_ratio = Vector2(0.5, 0.5)
 	h.add_child(_level_badge)
 	var names := VBoxContainer.new()
 	names.add_theme_constant_override("separation", _px(1))
@@ -346,30 +381,46 @@ func _level_plate(e: Dictionary) -> Control:
 	h.add_child(names)
 	_level_title = _text("", 16, Color.WHITE, true)
 	names.add_child(_level_title)
-	_level_sub = _text("", 13, SOFT_ON_GLOW if levelled else UiTheme.LILAC)
+	_level_sub = _text("", 14, UiTheme.CREAM)
 	names.add_child(_level_sub)
-	if levelled:
-		var chip := PanelContainer.new()
-		var chip_box := StyleBoxFlat.new()
-		chip_box.bg_color = UiTheme.GOLD_PALE
-		chip_box.border_color = UiTheme.OUTLINE
-		chip_box.set_border_width_all(_px(2))
-		chip_box.set_corner_radius_all(_px(9))
-		chip_box.content_margin_left = _px(7)
-		chip_box.content_margin_right = _px(7)
-		chip_box.content_margin_top = _px(1)
-		chip_box.content_margin_bottom = _px(1)
-		chip_box.anti_aliasing = true
-		chip.add_theme_stylebox_override("panel", chip_box)
-		chip.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-		chip.add_child(UiTheme.label("LEVEL UP", _px(11), UiTheme.OUTLINE))
-		h.add_child(chip)
+	var chip := PanelContainer.new()
+	var chip_box := StyleBoxFlat.new()
+	chip_box.bg_color = UiTheme.GOLD_PALE
+	chip_box.border_color = UiTheme.OUTLINE
+	chip_box.set_border_width_all(_px(2))
+	chip_box.set_corner_radius_all(_px(9))
+	chip_box.content_margin_left = _px(7)
+	chip_box.content_margin_right = _px(7)
+	chip_box.content_margin_top = _px(1)
+	chip_box.content_margin_bottom = _px(1)
+	chip_box.anti_aliasing = true
+	chip.add_theme_stylebox_override("panel", chip_box)
+	chip.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	chip.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	chip.add_child(UiTheme.label("LEVEL UP", _px(11), UiTheme.OUTLINE))
+	# Hidden but keeping its place, so the title never jumps when it shows.
+	chip.modulate.a = 0.0
+	_level_chip = chip
+	h.add_child(chip)
 	_bar = XpBar.new()
-	_bar.font_px = _px(12)
+	_bar.font_px = _px(11)
 	_bar.outline_px = _px(2)
 	_bar.custom_minimum_size = Vector2(0, _px(16))
 	col.add_child(_bar)
 	return plate
+
+
+## The level-up look; with `pop` the badge lands with a small bounce and the
+## phone buzzes once.
+func _mark_level_up(pop: bool) -> void:
+	_level_plate_box.bg_color = UiTheme.ROYAL_GLOW
+	_level_plate_box.border_color = UiTheme.GOLD
+	_level_chip.modulate.a = 1.0
+	if not pop:
+		return
+	Sfx.buzz(20)
+	_level_badge.scale = Vector2(0.8, 0.8)
+	_level_badge.create_tween().tween_property(_level_badge, "scale", Vector2.ONE, 0.25).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 
 
 func _season_row(points: int) -> Control:
@@ -380,7 +431,7 @@ func _season_row(points: int) -> Control:
 	var what := _text("Season points", 14, UiTheme.CREAM)
 	what.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	h.add_child(what)
-	h.add_child(_text("+%d" % points, 15, UiTheme.GOLD, true))
+	h.add_child(_text("+%d" % points, 16, UiTheme.GOLD, true))
 	return well
 
 
@@ -396,84 +447,97 @@ func _unlock_row(ids: Array) -> Control:
 	col.add_theme_constant_override("separation", 0)
 	col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	h.add_child(col)
-	col.add_child(_text("New look: %s" % ", ".join(names), 14, UiTheme.CREAM))
-	col.add_child(_text("Pick it in Quests, under Looks.", 13, UiTheme.LILAC))
+	var what := _text("%s: %s" % ["New look" if names.size() == 1 else "New looks", ", ".join(names)], 14, UiTheme.CREAM)
+	what.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	col.add_child(what)
+	col.add_child(_text("%s in Quests, on the Looks tab." % ("Choose it" if names.size() == 1 else "Choose one"), 13, UiTheme.LILAC))
 	return well
 
 
-## A quest still open, with how far it is.
+## A quest still open: its name, what it pays and how far it is.
 func _quest_row(q: Dictionary) -> Control:
 	var well := _well()
 	var col := VBoxContainer.new()
-	col.add_theme_constant_override("separation", _px(6))
+	col.add_theme_constant_override("separation", _px(7))
 	well.add_child(col)
 	var h := _row(10)
 	col.add_child(h)
-	var names := VBoxContainer.new()
-	names.add_theme_constant_override("separation", 0)
-	names.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	h.add_child(names)
 	var what := _text(String(q.get("text", "")), 14, UiTheme.CREAM)
+	what.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	what.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	names.add_child(what)
-	names.add_child(_text("%s quest, %d XP" % ["Weekly" if bool(q.get("weekly", false)) else "Daily", int(q.get("xp", 0))], 13, UiTheme.LILAC))
-	var count := _text("%d / %d" % [int(q.get("progress", 0)), int(q.get("target", 1))], 14, Color.WHITE, true)
-	count.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	h.add_child(count)
+	h.add_child(what)
+	h.add_child(_text("%d XP" % int(q.get("xp", 0)), 13, UiTheme.LILAC))
+	h.add_child(_text("%d / %d" % [int(q.get("progress", 0)), int(q.get("target", 1))], 14, Color.WHITE, true))
+	# Violet, not gold: on this sheet gold is the XP total and the button.
 	var bar := XpBar.new()
-	bar.fill = UiTheme.GOLD
+	bar.fill = UiTheme.VIOLET
 	bar.fraction = clampf(float(q.get("progress", 0)) / maxf(1.0, float(q.get("target", 1))), 0.0, 1.0)
-	bar.custom_minimum_size = Vector2(0, _px(12))
+	bar.custom_minimum_size = Vector2(0, _px(8))
 	col.add_child(bar)
 	return well
 
 
-func _set_level(level: int, xp: int, fraction: float) -> void:
+## The level plate at `xp` inside `level`: title, what is left, the bar.
+func _set_level(level: int, xp: int) -> void:
 	_level_badge.level = level
 	_level_badge.queue_redraw()
 	_level_title.text = "Level %d" % level
-	_bar.fraction = fraction
+	_level_sub.text = "%s XP to level %d" % [grouped(maxi(0, level_floor(level + 1) - xp)), level + 1]
+	_bar.fraction = level_fraction(xp, level)
 	_bar.text = "%s / %s" % [grouped(xp), grouped(level_floor(level + 1))]
 	_bar.queue_redraw()
 
 
 func _show_final() -> void:
 	var e := _earnings
-	var after := int(e.get("xpAfter", 0))
-	var level := int(e.get("levelAfter", 1))
 	_total.text = "+%s XP" % grouped(int(e.get("xp", 0)))
-	_set_level(level, after, level_fraction(after, level))
-	_level_sub.text = "%s XP to level %d" % [grouped(maxi(0, level_floor(level + 1) - after)), level + 1]
+	_set_level(int(e.get("levelAfter", 1)), int(e.get("xpAfter", 0)))
+	if int(e.get("levelAfter", 1)) > int(e.get("levelBefore", 1)):
+		_mark_level_up(false)
+
+
+## The sheet arrives: a short fade and a small settle, nothing more.
+func _play_enter() -> void:
+	modulate.a = 1.0
+	scale = Vector2.ONE
+	if not _moves():
+		return
+	modulate.a = 0.0
+	scale = Vector2(0.96, 0.96)
+	_enter_tween = create_tween().set_parallel(true).set_trans(Tween.TRANS_QUART).set_ease(Tween.EASE_OUT)
+	_enter_tween.tween_property(self, "modulate:a", 1.0, ENTER_SECONDS)
+	_enter_tween.tween_property(self, "scale", Vector2.ONE, ENTER_SECONDS)
 
 
 ## The one authored moment: the XP counts up while the bar fills, and on a
-## level-up the bar runs to the end, then starts again in the new level.
+## level-up the bar runs to the end, the plate lights up, and the bar starts
+## again in the new level. The count and the bar run side by side on their
+## own tweens, so the count lands with the bar whatever the bar has to do.
 func _play_fill() -> void:
 	var e := _earnings
 	var before := int(e.get("xpBefore", 0))
 	var after := int(e.get("xpAfter", 0))
 	var level_from := int(e.get("levelBefore", 1))
 	var level_to := int(e.get("levelAfter", 1))
-	if not animate or not is_inside_tree() or after <= before:
+	if not _moves() or after <= before:
 		_show_final()
 		return
-	_show_final()
 	_total.text = "+0 XP"
-	_set_level(level_from, before, level_fraction(before, level_from))
+	_set_level(level_from, before)
+	var fill := func(xp: float, level: int) -> void: _set_level(level, int(roundf(xp)))
+	var levelled := level_to > level_from
+	_count_tween = create_tween()
+	_count_tween.tween_interval(FILL_DELAY)
+	_count_tween.tween_method(func(v: float) -> void: _total.text = "+%s XP" % grouped(int(roundf(v))), 0.0, float(after - before),
+		FILL_SECONDS + (SPILL_SECONDS if levelled else 0.0)).set_trans(Tween.TRANS_QUART).set_ease(Tween.EASE_OUT)
 	_tween = create_tween()
-	_tween.tween_interval(0.2)
-	var count := func(v: float) -> void: _total.text = "+%s XP" % grouped(int(roundf(v)))
-	var fill := func(xp: float, level: int) -> void: _set_level(level, int(roundf(xp)), level_fraction(int(roundf(xp)), level))
-	var gained := float(after - before)
-	if level_to == level_from:
-		_tween.tween_method(count, 0.0, gained, FILL_SECONDS).set_trans(Tween.TRANS_QUART).set_ease(Tween.EASE_OUT)
-		_tween.parallel().tween_method(fill.bind(level_from), float(before), float(after), FILL_SECONDS).set_trans(Tween.TRANS_QUART).set_ease(Tween.EASE_OUT)
+	_tween.tween_interval(FILL_DELAY)
+	if levelled:
+		_tween.tween_method(fill.bind(level_from), float(before), float(level_floor(level_from + 1)), FILL_SECONDS).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN_OUT)
+		_tween.tween_callback(_mark_level_up.bind(true))
+		_tween.tween_method(fill.bind(level_to), float(level_floor(level_to)), float(after), SPILL_SECONDS).set_trans(Tween.TRANS_QUART).set_ease(Tween.EASE_OUT)
 	else:
-		var edge := float(level_floor(level_from + 1))
-		var start := float(level_floor(level_to))
-		_tween.tween_method(count, 0.0, gained, FILL_SECONDS + SPILL_SECONDS).set_trans(Tween.TRANS_QUART).set_ease(Tween.EASE_OUT)
-		_tween.parallel().tween_method(fill.bind(level_from), float(before), edge, FILL_SECONDS).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN_OUT)
-		_tween.tween_method(fill.bind(level_to), start, float(after), SPILL_SECONDS).set_trans(Tween.TRANS_QUART).set_ease(Tween.EASE_OUT)
+		_tween.tween_method(fill.bind(level_from), float(before), float(after), FILL_SECONDS).set_trans(Tween.TRANS_QUART).set_ease(Tween.EASE_OUT)
 	_tween.tween_callback(_show_final)
 
 
@@ -540,6 +604,8 @@ class LevelBadge extends Control:
 		var inner := PackedVector2Array([c + Vector2(0, -r + o * 1.4), c + Vector2(r - o * 1.4, 0), c + Vector2(0, r - o * 1.4), c + Vector2(-r + o * 1.4, 0)])
 		draw_colored_polygon(outer, UiTheme.OUTLINE)
 		draw_colored_polygon(inner, UiTheme.VIOLET)
+		# The lobby badge's two tones: the upper facet catches the light.
+		draw_colored_polygon(PackedVector2Array([inner[3], inner[0], inner[1]]), UiTheme.VIOLET.lightened(0.14))
 		var font := UiTheme.display_font()
 		var text := str(level)
 		var px := font_px if text.length() < 3 else int(font_px * 0.78)

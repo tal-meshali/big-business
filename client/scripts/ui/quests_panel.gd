@@ -10,6 +10,8 @@ extends PanelContainer
 signal closed
 ## Emitted after a cosmetic is picked, once `Cosmetics` already reflects it.
 signal cosmetic_changed(slot: String, id: String)
+## A leftover quest was collected: the profile after its XP (level, XP).
+signal progress_changed(progress: Dictionary)
 
 const ROW_HEIGHT := 56.0
 ## Px per design point for the sheet and tabs.
@@ -17,8 +19,8 @@ const ROW_HEIGHT := 56.0
 ## (23 px text, 56 px rows); 1.35 matches the tabs to that text size.
 const K := 1.35
 const HINTS := [
-	"A finished quest pays out when the game ends. New ones at midnight UTC; weekly on Monday.",
-	"Every XP you earn moves the track toward the next look.",
+	"Finished quests pay when the game ends. New ones daily; weekly on Monday.",
+	"All XP counts toward the next look.",
 ]
 ## Text on the royal sheet.
 const CREAM := Color("#FFF6DE")
@@ -244,35 +246,47 @@ func _add_row(parent: Control, q: Dictionary) -> void:
 	count.add_theme_font_size_override("font_size", 17)
 	count.add_theme_color_override("font_color", UiTheme.LILAC)
 	col.add_child(count)
+	# The row's end: nothing while the quest is open, a tick once it paid,
+	# and a button only for a finished quest that still waits. The slot keeps
+	# its width in all three, so every row's bar is the same length.
+	var slot := CenterContainer.new()
+	slot.custom_minimum_size = Vector2(160, ROW_HEIGHT)
+	slot.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	row.add_child(slot)
 	var button := Button.new()
-	# Wide enough for "Collected", so every row's bar is the same length.
+	button.text = "Collect"
 	button.custom_minimum_size = Vector2(160, ROW_HEIGHT)
-	button.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	# Mint for rewards: a quest ready to collect stands out from the rest.
+	button.theme_type_variation = "GreenButton"
 	var id := String(q.get("id", ""))
 	button.pressed.connect(func() -> void: _on_claim(id))
-	row.add_child(button)
+	slot.add_child(button)
+	var done := HBoxContainer.new()
+	done.add_theme_constant_override("separation", 8)
+	slot.add_child(done)
+	var tick := EarningsReport.ReportIcon.new()
+	tick.kind = "check"
+	tick.custom_minimum_size = Vector2(26, 26)
+	tick.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	done.add_child(tick)
+	var done_label := Label.new()
+	done_label.text = "Collected"
+	done_label.add_theme_font_size_override("font_size", 19)
+	done_label.add_theme_color_override("font_color", CREAM)
+	done.add_child(done_label)
 	var entry := {"id": id, "claimable": bool(q.get("claimable", false)), "claimed": bool(q.get("claimed", false)),
-		"label": label, "bar": bar, "count": count, "button": button, "row": row}
+		"label": label, "bar": bar, "count": count, "button": button, "done": done, "row": row}
 	rows.append(entry)
 	_refresh_row(entry)
 
 
 func _refresh_row(entry: Dictionary) -> void:
 	var button: Button = entry["button"]
-	button.theme_type_variation = ""
-	if entry["claimed"]:
-		button.text = "Collected"
-		button.disabled = true
-	elif entry["claimable"]:
-		# WHY still a button: quests are collected when a game ends, but one
-		# finished before that existed (or whose game end failed) waits here.
-		button.text = "Collect"
-		button.disabled = false
-		# Mint for rewards: a quest ready to collect stands out from the rest.
-		button.theme_type_variation = "GreenButton"
-	else:
-		button.text = "Collect"
-		button.disabled = true
+	# WHY still a button at all: quests are collected when a game ends, but
+	# one finished on an older server waits here until the player takes it.
+	button.visible = entry["claimable"] and not entry["claimed"]
+	button.disabled = false
+	entry["done"].visible = entry["claimed"]
 
 
 func _on_claim(id: String) -> void:
@@ -287,6 +301,9 @@ func _on_claim(id: String) -> void:
 		_status_is_hint = false
 		return
 	_apply_claim(id, int(res.get("trackXp", track_xp)), res.get("unlocked", unlocked))
+	var progress: Dictionary = res.get("progress", {})
+	if not progress.is_empty():
+		progress_changed.emit(progress)
 
 
 ## Marks a row claimed and updates the track from the server's answer.

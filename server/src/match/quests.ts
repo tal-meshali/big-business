@@ -10,6 +10,7 @@
 import type { Action, GameState } from '../engine';
 import { availableCosmetics, TRACK } from './cosmetics';
 import { addXp, emptyQuestState, utcDate, type Progress, type QuestProgress, type QuestState } from './progression';
+import type { EarningsQuest } from './protocol';
 
 /** How a quest accumulates: `sum` adds each game's stat, `best` keeps the highest single game. */
 export type QuestKind = 'sum' | 'best';
@@ -267,7 +268,8 @@ export function questView(q: QuestState | undefined, nowMs: number): { daily: Qu
 
 /**
  * Claims a completed quest once and pays its XP. Normally collectQuests has
- * already done it; this stays for a quest finished before that existed.
+ * already done it when the game ended; this pays one it did not reach (the
+ * player's row was finished by a game on an older server).
  */
 export function claimQuest(p: Progress, id: string, nowMs: number): { ok: boolean; progress: Progress } {
   const def = questById(id);
@@ -306,25 +308,15 @@ export function collectQuests(p: Progress, nowMs: number): { progress: Progress;
   return { progress: addXp({ ...p, quests }, xp), collected };
 }
 
-/** A quest still open after a game, as the earnings report lists it. */
-export interface OpenQuest {
-  id: string;
-  text: string;
-  progress: number;
-  target: number;
-  xp: number;
-  weekly: boolean;
-}
-
 /**
  * The open quests worth showing after a game: those the game moved first,
  * then the nearest to done; at most `limit`. `before` is the quest state the
  * game started from (any day; a stale one counts as no progress).
  */
-export function openQuests(before: QuestState | undefined, after: QuestState, nowMs: number, limit: number = 2): OpenQuest[] {
+export function openQuests(before: QuestState | undefined, after: QuestState, nowMs: number, limit: number = 2): EarningsQuest[] {
   const was = rolloverQuests(before, nowMs);
   const now = rolloverQuests(after, nowMs);
-  const found: Array<{ q: OpenQuest; moved: boolean; left: number }> = [];
+  const found: Array<{ q: EarningsQuest; moved: boolean; left: number }> = [];
   const scan = (entries: { [id: string]: QuestProgress }, old: { [id: string]: QuestProgress }, defs: QuestDef[], weekly: boolean): void => {
     for (const def of defs) {
       const e = entries[def.id];

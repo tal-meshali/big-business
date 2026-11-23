@@ -8,7 +8,7 @@ import { utcDate } from './progression';
 
 /** Server-only rows: 'inbox' (gifts waiting) and 'sent' (today's sends) per player. */
 export const GIFT_COLLECTION = 'gifts';
-/** XP one gift is worth (15 since decision D23; it was 5 track points). */
+/** XP one gift is worth (decision D23; small, so spare accounts cannot buy the track). */
 export const GIFT_XP = 15;
 /** Gifts a player may collect per UTC day; the rest wait for tomorrow. */
 export const GIFTS_CLAIM_PER_DAY = 5;

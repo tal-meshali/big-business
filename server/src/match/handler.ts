@@ -205,8 +205,6 @@ export const matchLeave: nkruntime.MatchLeaveFunction<MatchState> = (ctx, logger
   state.lastActivity = nowMs();
   if (state.game) {
     sendViews(state, dispatcher);
-    // A player who comes back while the result is up gets their receipt again.
-    sendEarnings(state, dispatcher, presences);
   } else {
     dispatcher.matchLabelUpdate(label(state));
     send(dispatcher, OP_LOBBY, lobbyMessage(state));

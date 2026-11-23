@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { settleGame, type SeatResult } from './awards';
+import { applyAction, autoAction, createGame, type GameState } from '../engine';
+import { awardProgress, settleGame, type SeatResult } from './awards';
+import { loadProfile, saveProfile } from './profile';
+import { DEFAULT_PARAMS, OP_EARNINGS, type EarningsMessage } from './protocol';
+import type { MatchState } from './state';
+import { ALICE, BOB, fakeNk, logger } from './test_support';
+import { sendEarnings } from './views';
 import { DEFAULT_XP_RATES, emptyProgress, levelForXp, xpForLevel, type Progress } from './progression';
-import { dailyQuests, questView, type GameStats } from './quests';
+import { dailyQuests, questView, type GameStats, type LogEntry } from './quests';
 
 const t0 = Date.UTC(2026, 8, 28, 12); // Monday 2026-09-28
 
@@ -104,5 +110,188 @@ describe('the earnings receipt', () => {
       { kind: 'capital', xp: 40 },
       { kind: 'finish', xp: 5 },
     ]);
+  });
+});
+
+/** A finished game: ALICE and BOB (and a bot when `withBot`), played out by the timeout policy. */
+function endedMatch(over: { tutorial?: boolean; withBot?: boolean } = {}): MatchState {
+  const seats = [
+    { id: ALICE, name: 'Alice', isBot: false },
+    { id: BOB, name: 'Bob', isBot: false },
+    { id: 'bot:0', name: 'Ivy', isBot: true },
+  ];
+  let g: GameState = createGame(seats, 11, { stepSeconds: 0 });
+  const log: LogEntry[] = [];
+  let guard = 0;
+  while (g.phase !== 'ended' && guard++ < 800) {
+    const seat = g.active;
+    const action = autoAction(g);
+    const r = applyAction(g, seat, action);
+    let coins = 0;
+    for (const e of r.events) if (e.type === 'took_market') coins = e.coins;
+    g = r.state;
+    log.push({ seq: g.seq, seat, action, source: 'bot', coins });
+  }
+  expect(g.phase).toBe('ended');
+  return {
+    params: { ...DEFAULT_PARAMS, tutorial: !!over.tutorial },
+    presences: { [ALICE]: { userId: ALICE } as nkruntime.Presence, [BOB]: { userId: BOB } as nkruntime.Presence },
+    pendingJoins: {},
+    lobby: [],
+    seatByUser: { [ALICE]: 0, [BOB]: 1 },
+    game: g,
+    playStartsAt: 0,
+    forfeited: {},
+    lastActivity: 0,
+    startsAt: 0,
+    endedAt: 0,
+    botActAt: 0,
+    awarded: false,
+    earnings: {},
+    log,
+  } as unknown as MatchState;
+}
+
+/** fakeNk plus the calls the awards step makes outside storage. */
+function awardsNk() {
+  const { nk, rows } = fakeNk();
+  const board: Array<{ id: string; owner: string; score: number }> = [];
+  Object.assign(nk, {
+    leaderboardRecordWrite: (id: string, owner: string, _name: string, score: number) => { board.push({ id, owner, score }); },
+    usersGetId: (ids: string[]) => ids.map((userId) => ({ userId, username: 'u', createTime: 0 })),
+  });
+  return { nk, rows, board };
+}
+
+function scoreOf(s: MatchState, userId: string): { rank: number; score: number } {
+  const game = s.game as GameState;
+  const seat = game.seats.findIndex((x) => x.id === userId);
+  return (game.result as NonNullable<GameState['result']>).scores.find((x) => x.seat === seat) as { rank: number; score: number };
+}
+
+describe('awardProgress', () => {
+  it('pays every seated person once, keeps their receipt and reports the write', () => {
+    const { nk, board } = awardsNk();
+    const s = endedMatch();
+    expect(awardProgress(s, nk, logger)).toBe(true);
+    expect(Object.keys(s.earnings).sort()).toEqual([ALICE, BOB].sort());
+    for (const id of [ALICE, BOB]) {
+      const e = s.earnings[id] as EarningsMessage;
+      const mine = scoreOf(s, id);
+      const saved = loadProfile(nk, id).progress;
+      expect([e.rank, e.seats, e.capital, e.botsOnly, e.rate]).toEqual([mine.rank, 3, mine.score, false, 2]);
+      expect(e.lines[0]).toEqual({ kind: 'capital', xp: mine.score * 2 });
+      expect(e.lines[1]).toEqual({ kind: 'finish', xp: 20 });
+      // The receipt is the saved profile, to the point.
+      expect([saved.xp, saved.trackXp, saved.gamesPlayed]).toEqual([e.xpAfter, e.xp, 1]);
+      expect(e.lines.reduce((n, l) => n + l.xp, 0)).toBe(e.xp);
+    }
+    expect(board.every((r) => r.id === 'season')).toBe(true);
+    // A second call (the loop runs every tick) writes nothing more.
+    expect(awardProgress(s, nk, logger)).toBe(false);
+    expect(loadProfile(nk, ALICE).progress.gamesPlayed).toBe(1);
+  });
+
+  it('gives a forfeited seat nothing and counts the game as solo for the one who stayed', () => {
+    const { nk } = awardsNk();
+    const s = endedMatch();
+    s.forfeited[BOB] = true;
+    awardProgress(s, nk, logger);
+    expect(s.earnings[BOB]).toBeUndefined();
+    expect(loadProfile(nk, BOB).progress.xp).toBe(0);
+    const e = s.earnings[ALICE] as EarningsMessage;
+    expect([e.botsOnly, e.rate, e.seasonPoints, e.lines[1]?.xp]).toEqual([true, 1, 0, 10]);
+  });
+
+  it('pays no XP and sends no receipt to a seat a bot had to finish', () => {
+    const { nk } = awardsNk();
+    const s = endedMatch();
+    ((s.game as GameState).seats.find((x) => x.id === BOB) as { isBot: boolean }).isBot = true;
+    awardProgress(s, nk, logger);
+    const bob = loadProfile(nk, BOB).progress;
+    expect([bob.xp, bob.trackXp, bob.gamesPlayed]).toEqual([0, 0, 1]);
+    expect(bob.quests.daily).toEqual({});
+    expect(s.earnings[BOB]).toBeUndefined();
+    expect((s.earnings[ALICE] as EarningsMessage).xp).toBeGreaterThan(0);
+  });
+
+  it('pays the tutorial at the solo rate with no quest credit', () => {
+    const { nk } = awardsNk();
+    const s = endedMatch({ tutorial: true });
+    s.forfeited[BOB] = true;
+    awardProgress(s, nk, logger);
+    const e = s.earnings[ALICE] as EarningsMessage;
+    expect(e.lines.map((l) => l.kind)).toEqual(['capital', 'finish']);
+    expect(e.quests).toEqual([]);
+    expect(loadProfile(nk, ALICE).progress.quests.daily).toEqual({});
+  });
+
+  it('keeps a claim that lands while the game is being settled', () => {
+    const { nk } = awardsNk();
+    const s = endedMatch();
+    saveProfile(nk, ALICE, { ...loadProfile(nk, ALICE).progress, xp: 100, level: 2, trackXp: 100 });
+    // A gift claim commits between the award's read and its write, once.
+    const write = nk.storageWrite;
+    let raced = false;
+    (nk as { storageWrite: typeof nk.storageWrite }).storageWrite = (reqs) => {
+      const first = reqs[0] as nkruntime.StorageWriteRequest;
+      if (!raced && first.collection === 'profile' && first.userId === ALICE && first.version) {
+        raced = true;
+        const row = loadProfile(nk, ALICE);
+        write([{ collection: 'profile', key: 'progress', userId: ALICE, value: { ...row.progress, xp: row.progress.xp + 15, trackXp: row.progress.trackXp + 15 }, permissionRead: 1, permissionWrite: 0 }]);
+      }
+      return write(reqs);
+    };
+    awardProgress(s, nk, logger);
+    const e = s.earnings[ALICE] as EarningsMessage;
+    expect(raced).toBe(true);
+    expect(e.xpBefore).toBe(115);
+    expect(loadProfile(nk, ALICE).progress.xp).toBe(115 + e.xp);
+  });
+
+  it('sends no receipt when the profile cannot be written', () => {
+    const { nk } = awardsNk();
+    const s = endedMatch();
+    const write = nk.storageWrite;
+    (nk as { storageWrite: typeof nk.storageWrite }).storageWrite = (reqs) => {
+      if ((reqs[0] as nkruntime.StorageWriteRequest).userId === ALICE && (reqs[0] as nkruntime.StorageWriteRequest).collection === 'profile') throw new Error('storage down');
+      return write(reqs);
+    };
+    expect(awardProgress(s, nk, logger)).toBe(true);
+    expect(s.earnings[ALICE]).toBeUndefined();
+    expect(s.earnings[BOB]).toBeDefined();
+  });
+});
+
+describe('sendEarnings', () => {
+  function sent() {
+    const out: Array<{ op: number; data: EarningsMessage; to: string[] }> = [];
+    const dispatcher = {
+      broadcastMessage: (op: number, data: string, to: nkruntime.Presence[] | null) => { out.push({ op, data: JSON.parse(data), to: (to || []).map((p) => p.userId) }); },
+    } as unknown as nkruntime.MatchDispatcher;
+    return { out, dispatcher };
+  }
+
+  it('sends each present player their own receipt, and nobody else one', () => {
+    const { nk } = awardsNk();
+    const s = endedMatch();
+    const WATCHER = '3f8fad5b-d9cb-469f-a165-70867728950e';
+    s.presences[WATCHER] = { userId: WATCHER } as nkruntime.Presence;
+    delete s.presences[BOB];
+    awardProgress(s, nk, logger);
+    const { out, dispatcher } = sent();
+    sendEarnings(s, dispatcher);
+    expect(out.map((m) => [m.op, m.to])).toEqual([[OP_EARNINGS, [ALICE]]]);
+    expect(out[0]?.data).toEqual(s.earnings[ALICE]);
+  });
+
+  it('resends only to the player who came back', () => {
+    const { nk } = awardsNk();
+    const s = endedMatch();
+    awardProgress(s, nk, logger);
+    const { out, dispatcher } = sent();
+    sendEarnings(s, dispatcher, [{ userId: BOB } as nkruntime.Presence]);
+    expect(out.map((m) => m.to)).toEqual([[BOB]]);
+    expect(out[0]?.data.xp).toBe((s.earnings[BOB] as EarningsMessage).xp);
   });
 });

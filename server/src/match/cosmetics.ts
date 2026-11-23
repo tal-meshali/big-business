@@ -63,9 +63,9 @@ export const DEFAULT_EQUIPPED: Equipped = { cardBack: 'back_classic', table: 'ta
 /**
  * Track thresholds in XP. A normal day of two or three games with the
  * dailies earns about 370 XP (docs/design/engagement-plan.md section 3), so
- * the whole track takes roughly ten active days. They are the old quest-point
- * thresholds (30 to 300) times TRACK_XP_PER_POINT, so nobody lost an unlock
- * when points were retired.
+ * the whole track takes roughly ten active days. Each is a multiple of
+ * TRACK_XP_PER_POINT, so a profile stored in track points (progression.ts
+ * normalizeProgress) lands exactly on the step it had reached.
  */
 export const TRACK: ReadonlyArray<TrackStep> = [
   { xp: 360, cosmeticId: 'back_midnight' },

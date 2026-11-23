@@ -88,6 +88,10 @@ var _result_continue: Button
 ## What the game paid you, shown after the standings (see EarningsReport).
 var _earnings_report: EarningsReport
 var _report_open := false
+var _shade_tween: Tween
+## True from a tap on Play again or Leave until the match is left, so a
+## second tap cannot start a second game.
+var _leaving := false
 
 var _selected_card: int = -1
 var _pending_events: Array = []
@@ -381,18 +385,20 @@ func _build_result_panel() -> void:
 	var result_buttons := HBoxContainer.new()
 	result_buttons.add_theme_constant_override("separation", _px(8))
 	result_box.add_child(result_buttons)
-	# With a receipt from the server the standings lead on to the earnings
-	# report, which carries Play again and Leave; without one (the tutorial,
-	# watching, a forfeit) they stay here.
+	# With a receipt to show, the gold button leads on to the earnings
+	# report, which has its own Play again; otherwise (the tutorial, a
+	# watcher, a seat a bot finished) Play again is here. Leave is always
+	# one tap away.
 	_result_continue = _make_button(result_buttons, "Continue", _on_result_continue, "primary")
 	_result_again = _make_button(result_buttons, "Play again", _on_play_again, "primary")
 	_result_again.visible = true
 	_result_leave = _make_button(result_buttons, "Leave", _on_leave, "ghost")
 	_result_leave.visible = true
 	_result_leave.size_flags_horizontal = Control.SIZE_FILL
+	# The same width as the standings, so the sheet's edge holds at the swap.
 	_earnings_report = EarningsReport.new()
 	_earnings_report.setup(_s)
-	_earnings_report.custom_minimum_size = Vector2(minf(get_viewport_rect().size.x, 720.0) - _px(28), 0)
+	_earnings_report.custom_minimum_size = Vector2(_result_panel.custom_minimum_size.x, 0)
 	_earnings_report.visible = false
 	_earnings_report.play_again.connect(_on_play_again)
 	_earnings_report.leave.connect(_on_leave)
@@ -410,7 +416,6 @@ func _sync_result_buttons() -> void:
 	var onward := _has_earnings()
 	_result_continue.visible = onward
 	_result_again.visible = not onward
-	_result_leave.visible = not onward
 
 
 ## Standings to earnings report: the sheet swaps in over a night shade.
@@ -419,15 +424,20 @@ func _on_result_continue() -> void:
 		return
 	_report_open = true
 	_result_panel.visible = false
-	_result_backdrop.color = RESULT_SHADE_NIGHT
-	_earnings_report.modulate.a = 0.0
 	_earnings_report.show_report(Net.last_earnings)
-	create_tween().tween_property(_earnings_report, "modulate:a", 1.0, 0.15).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	# The shade deepens to night as the sheet arrives, rather than cutting.
+	if _shade_tween != null:
+		_shade_tween.kill()
+	_shade_tween = create_tween()
+	_shade_tween.tween_property(_result_backdrop, "color", RESULT_SHADE_NIGHT, EarningsReport.ENTER_SECONDS)
 
 
 ## Back to the standings for the next game's Dividend day.
 func _close_report() -> void:
 	_report_open = false
+	if _shade_tween != null:
+		_shade_tween.kill()
+		_shade_tween = null
 	if _earnings_report != null:
 		_earnings_report.finish_motion()
 		_earnings_report.visible = false
@@ -816,6 +826,9 @@ func _on_cancel_pressed() -> void:
 
 
 func _on_leave() -> void:
+	if _leaving:
+		return
+	_leaving = true
 	await Net.leave_match()
 	get_tree().change_scene_to_file("res://scenes/main.tscn")
 
@@ -847,7 +860,11 @@ func _on_player_forfeited(seat: int) -> void:
 
 
 func _on_play_again() -> void:
+	if _leaving:
+		return
+	_leaving = true
 	await Net.leave_match()
+	_leaving = false
 	# WHY: the next game reuses this scene; a tutorial coach left attached
 	# would keep restricting moves and showing cards in a timed real game.
 	if coach != null:

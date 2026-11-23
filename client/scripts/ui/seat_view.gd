@@ -41,6 +41,8 @@ var _shown := {}
 var _shown_seat := -1
 ## Where each chip was drawn last, for flying coins and the deltas.
 var _chip_rects := {}
+## The word each chip showed ("" when it was dropped to fit).
+var _chip_words := {}
 ## What the capital is drawn on (plate or bottom bar), so its count
 ## picks ink or outlined cream.
 var _surface := Color.WHITE
@@ -290,10 +292,12 @@ func _draw_coins(at: Vector2, bronze: int, gold: int, spell: bool, right: float 
 		gap *= k
 	var x := at.x
 	_chip_rects.clear()
+	_chip_words.clear()
 	for p in chips:
 		var kind: String = p[0]
 		var rect := CapitalChip.draw(self, Vector2(x, at.y), int(p[1]), p[2], h, kind == "gold", float(_pop[kind]), _surface)
 		_chip_rects[kind] = rect
+		_chip_words[kind] = p[2]
 		x = rect.end.x + gap
 	_draw_deltas(h, delta_right if not is_nan(delta_right) else right)
 	return x - gap + 8.0 * s
@@ -330,6 +334,9 @@ func _draw_deltas(h: float, right: float) -> void:
 			stop = minf(stop, _chip_rects["gold"].position.x - 2.0 * s)
 		if x + w > stop:
 			continue
+		# WHY: a count swelling past its chip nudges the delta along (within
+		# the room it already had), so the two never overlap.
+		x = minf(x + CapitalChip.swell_reach(int(data.get(kind, 0)), _chip_words.get(kind, ""), h, float(_pop[kind])), stop - w)
 		var rise := 0.0 if reduce else ease(t, 0.3) * 3.0 * s
 		var at := Vector2(x, rect.get_center().y + px * 0.36 - rise)
 		var a := clampf((1.0 - t) / (1.0 - DELTA_HOLD), 0.0, 1.0)

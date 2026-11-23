@@ -19,8 +19,7 @@ const PAD := 0.2
 ## Count and word sizes, as parts of the height.
 const NUMBER_PX := 0.95
 const WORD_PX := 0.55
-## Least gap between the count and its word (a wide count gets more, for
-## its swell).
+## Gap between the count and its word.
 const WORD_GAP := 0.3
 ## Text outline, as a part of the text size (the buttons' and deltas' 0.3).
 const OUTLINE_K := 0.3
@@ -70,24 +69,26 @@ static func _face(gold: bool) -> ImageTexture:
 	return tex
 
 
-## Width of a coin and its count (and an optional `word`) at height `h`.
+## Width of a coin and its count (and an optional `word`) at height `h`,
+## at rest.
+## WHY no room for the swell: the word fades out of its way during a tick,
+## and the gap to the next chip takes a two-digit swell.
 static func width(count: int, word: String, h: float) -> float:
-	var npx := int(h * NUMBER_PX)
-	var nw := _text_width(str(count), npx)
-	var room := _swell_room(nw, npx, h)
-	var w := h * COIN_R * 2.0 + PAD * h + nw
+	var w := h * COIN_R * 2.0 + PAD * h + _text_width(str(count), int(h * NUMBER_PX))
 	if word != "":
-		w += maxf(WORD_GAP * h, room) + _text_width(word, int(h * WORD_PX))
-	else:
-		w += room
-	return w
+		w += WORD_GAP * h + _text_width(word, int(h * WORD_PX))
+	return w + h * 0.1
 
 
-## Room after a count `nw` wide, so its swell and outline at the peak of
-## a tick stay clear of the word and the next chip.
-static func _swell_room(nw: float, npx: int, h: float) -> float:
-	# WHY half the outline: it straddles the glyph edge.
-	return nw * NUMBER_POP + _outline(npx) * 0.5 + h * 0.04
+## How far past its chip's resting right edge a count reaches mid-tick
+## (0 when the word beside it takes the swell).
+static func swell_reach(count: int, word: String, h: float, pop: float) -> float:
+	if UiTheme.reduce_motion():
+		return 0.0
+	var reach := _text_width(str(count), int(h * NUMBER_PX)) * NUMBER_POP * pop - h * 0.1
+	if word != "":
+		reach -= WORD_GAP * h + _text_width(word, int(h * WORD_PX))
+	return maxf(0.0, reach)
 
 
 static func _outline(px: int) -> int:
@@ -115,18 +116,19 @@ static func draw(ci: CanvasItem, at: Vector2, count: int, word: String, h: float
 	var npx := int(h * NUMBER_PX)
 	var num := str(count)
 	var nw := _text_width(num, npx)
-	var room := _swell_room(nw, npx, h)
 	var x := cc.x + r + PAD * h
 	var base := at.y + npx * 0.36
 	if word != "":
 		var wpx := int(h * WORD_PX)
-		var wat := Vector2(x + nw + maxf(WORD_GAP * h, room), base)
-		# The word is quieter than the count on either surface.
+		var wat := Vector2(x + nw + WORD_GAP * h, base)
+		# The word is quieter than the count on either surface, and steps
+		# aside (fades) while the count swells over it.
+		var fade := 1.0 - clampf(swell * 1.6, 0.0, 1.0)
 		if light:
-			ci.draw_string(font, wat, word, HORIZONTAL_ALIGNMENT_LEFT, -1, wpx, Color(UiTheme.OUTLINE, 0.65))
-		else:
-			ci.draw_string_outline(font, wat, word, HORIZONTAL_ALIGNMENT_LEFT, -1, wpx, _outline(wpx), UiTheme.OUTLINE)
-			ci.draw_string(font, wat, word, HORIZONTAL_ALIGNMENT_LEFT, -1, wpx, UiTheme.LILAC)
+			ci.draw_string(font, wat, word, HORIZONTAL_ALIGNMENT_LEFT, -1, wpx, Color(UiTheme.OUTLINE, 0.65 * fade))
+		elif fade > 0.0:
+			ci.draw_string_outline(font, wat, word, HORIZONTAL_ALIGNMENT_LEFT, -1, wpx, _outline(wpx), Color(UiTheme.OUTLINE, fade))
+			ci.draw_string(font, wat, word, HORIZONTAL_ALIGNMENT_LEFT, -1, wpx, Color(UiTheme.LILAC, fade))
 	# The count swells out of the coin (from its left edge, so it never
 	# runs back over the coin) and turns gold at the peak.
 	var k := 1.0 + NUMBER_POP * swell

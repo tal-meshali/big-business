@@ -1,25 +1,43 @@
 extends SceneTree
-## Rasterises client/icon.svg into the store icons: a 1024 opaque square (iOS),
-## a 192 legacy launcher icon, and Android's adaptive pair (felt background,
-## artwork foreground shrunk into the 66% safe circle), and the boot splash.
+## Rasterises the brand artwork from tools/logo_art.py into the store icons
+## and the boot splash: a 1024 opaque square (iOS), a 192 legacy launcher
+## icon, Android's adaptive pair (room background, cards-and-coin foreground)
+## and the boot splash, drawn at 1.5x (1620x2880) so Cover doesn't blur it
+## on 1440 px wide phones. Exits with 1 if any file fails.
 ## Run: godot --headless --path client -s ../tools/make_icons.gd
-func _init():
-	var svg := FileAccess.get_file_as_string("res://icon.svg")
-	_save(svg, 1024, "res://icons/icon_1024.png", true)
-	_save(svg, 192, "res://icons/android_192.png", true)
-	var bg_end := svg.find("<!-- table -->")
-	var head := svg.substr(0, bg_end)
-	_save(head + "</svg>", 432, "res://icons/android_background_432.png", true)
-	var art := svg.substr(bg_end).replace("</svg>", "")
-	var head_no_bg := head.replace('<rect width="1024" height="1024" fill="url(#felt)"/>', "")
-	_save(head_no_bg + '<g transform="translate(512 540) scale(0.72) translate(-512 -540)">' + art + "</g></svg>", 432, "res://icons/android_foreground_432.png", false)
-	# Boot splash: the artwork alone, on the project's felt-green background.
-	_save(head_no_bg + art + "</svg>", 512, "res://icons/splash.png", false)
-	quit()
 
-func _save(svg: String, size: int, path: String, opaque: bool) -> void:
+## WHY outside client/: Godot would otherwise import the source SVGs.
+const ART := "res://../tools/art/"
+
+
+func _init() -> void:
+	var ok := true
+	var icon := _read("res://icon.svg")
+	ok = _save(icon, 1.0, "res://icons/icon_1024.png", true) and ok
+	ok = _save(icon, 192.0 / 1024.0, "res://icons/android_192.png", true) and ok
+	ok = _save(_read(ART + "android_background.svg"), 432.0 / 1024.0, "res://icons/android_background_432.png", true) and ok
+	ok = _save(_read(ART + "android_foreground.svg"), 432.0 / 1024.0, "res://icons/android_foreground_432.png", false) and ok
+	ok = _save(_read(ART + "splash.svg"), 1.5, "res://icons/splash.png", true) and ok
+	quit(0 if ok else 1)
+
+
+func _read(path: String) -> String:
+	var text := FileAccess.get_file_as_string(ProjectSettings.globalize_path(path).simplify_path())
+	if text.is_empty():
+		push_error("make_icons: can't read %s (run tools/logo_art.py first)" % path)
+	return text
+
+
+func _save(svg: String, scale: float, path: String, opaque: bool) -> bool:
+	if svg.is_empty():
+		return false
 	var img := Image.new()
-	img.load_svg_from_string(svg, size / 1024.0)
+	if img.load_svg_from_string(svg, scale) != OK:
+		push_error("make_icons: can't render the SVG for %s" % path)
+		return false
 	if opaque:
 		img.convert(Image.FORMAT_RGB8)
-	img.save_png(path)
+	if img.save_png(path) != OK:
+		push_error("make_icons: can't write %s" % path)
+		return false
+	return true

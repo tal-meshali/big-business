@@ -117,6 +117,8 @@ func _run() -> void:
 	failures += await _forfeit_checks()
 	failures += await _peek_checks()
 	failures += await _draw_landing_checks()
+	failures += await _play_leaves_hand_checks()
+	failures += await _market_take_checks()
 	failures += await _friends_checks()
 	failures += await _quests_checks()
 	failures += await _account_checks()
@@ -404,6 +406,24 @@ func _check_button_sizes(scene: Node, where: String) -> int:
 	return failures
 
 
+## A press at `from`, a drag of `dx` px and a release, as the help sheet sees them.
+func _swipe(help: HelpScreen, from: Vector2, dx: float) -> void:
+	var down := InputEventMouseButton.new()
+	down.button_index = MOUSE_BUTTON_LEFT
+	down.pressed = true
+	down.position = from
+	help._input(down)
+	for k in [0.25, 0.5, 1.0]:
+		var move := InputEventMouseMotion.new()
+		move.position = from + Vector2(dx * k, 0)
+		help._input(move)
+	var up := InputEventMouseButton.new()
+	up.button_index = MOUSE_BUTTON_LEFT
+	up.pressed = false
+	up.position = from + Vector2(dx, 0)
+	help._input(up)
+
+
 ## Server field parsing, and the rules / help overlay from the lobby and table.
 func _help_checks() -> int:
 	var failures := 0
@@ -443,26 +463,172 @@ func _help_checks() -> int:
 		push_error("Rules and help should open one help screen, got %d" % helps.size())
 		return failures + 1
 	var help: HelpScreen = helps[0]
+	await process_frame
+	if help.tab_count() != help.pages.size() or help.tabs.tab_count() != help.tab_count():
+		push_error("help should have one page per tab")
+		failures += 1
+	if help.current != 0 or not help.pages[0].visible:
+		push_error("help opens on its first page")
+		failures += 1
+	# Every rule, on some page, with every page fitting a 720x1280 phone.
 	var text := ""
+	for i in help.tab_count():
+		help.select_tab(i, false)
+		await process_frame
+		await process_frame
+		if help.pages.filter(func(p: Control) -> bool: return p.visible).size() != 1 or not help.pages[i].visible:
+			push_error("help tab %d should show exactly its own page" % i)
+			failures += 1
+		var page: ScrollContainer = help.pages[i]
+		var content: Control = page.get_child(0)
+		if content.size.y > page.size.y + 1.0:
+			push_error("help page %s scrolls on a 720x1280 phone (%.0f > %.0f)" % [HelpScreen.PAGES[i]["tab"], content.size.y, page.size.y])
+			failures += 1
+		if not help._next_button.visible or (help._next_button.text == "Done") != (i == help.tab_count() - 1):
+			push_error("the footer keeps Next, reading Done only on the last page (page %d: %s)" % [i, help._next_button.text])
+			failures += 1
+		failures += _check_button_sizes(help, "help page %d" % i)
 	for l in help.find_children("*", "Label", true, false):
 		text += l.text + "\n"
-	for section in HelpScreen.SECTIONS:
-		if not text.contains(section["title"]):
-			push_error("help is missing section %s" % section["title"])
-			failures += 1
-	for c in Companies.DATA:
-		if not text.contains("%s: %d" % [c["name"], c["shares"]]):
-			push_error("help should list %s's share count" % c["name"])
-			failures += 1
-	if help._email_button.disabled != AppInfo.SUPPORT_EMAIL.is_empty() or help._privacy_button.disabled != AppInfo.PRIVACY_URL.is_empty():
-		push_error("contact buttons should be enabled exactly when AppInfo is filled in")
+	for r in help.find_children("*", "RichTextLabel", true, false):
+		text += r.get_parsed_text() + "\n"
+	for page in HelpScreen.PAGES:
+		for section in page["sections"] + page.get("after", []):
+			if section.has("title") and not text.contains(section["title"]):
+				push_error("help is missing section %s" % section["title"])
+				failures += 1
+			if not text.contains(String(section["body"]).replace("**", "")):
+				push_error("help is missing the text of %s" % section.get("title", page["title"]))
+				failures += 1
+	if text.contains("**"):
+		push_error("help shows raw ** markup")
 		failures += 1
-	failures += _check_button_sizes(help, "help")
-	help.close_help()
+	var shown: Array = []
+	for card in help.pages[HelpScreen.Tab.GOAL].find_children("*", "CardView", true, false):
+		shown.append(card.company)
+	shown.sort()
+	if shown != [0, 1, 2, 3, 4, 5]:
+		push_error("the Goal page should show one share of each company, got %s" % [shown])
+		failures += 1
+	if help._email_button.visible == AppInfo.SUPPORT_EMAIL.is_empty() or help._privacy_button.visible == AppInfo.PRIVACY_URL.is_empty():
+		push_error("contact buttons should show exactly when AppInfo is filled in")
+		failures += 1
+	# Next walks forward; a sideways swipe on the page turns it either way.
+	help.select_tab(0, false)
+	help._next_button.pressed.emit()
+	if help.current != 1 or help.tabs.current != 1:
+		push_error("Next should go to the second page, at %d" % help.current)
+		failures += 1
+	# Swipes: [start, travel, page it should land on]. A drag on the tabs
+	# never turns the page, and the last page does not turn past itself.
+	var mid := help._page_holder.get_global_rect().get_center()
+	var on_tabs := help.tabs.get_global_rect().get_center()
+	for step in [[mid, -200.0, 2], [mid, 200.0, 1], [mid, 30.0, 1], [on_tabs, -200.0, 1]]:
+		_swipe(help, step[0], step[1])
+		if help.current != step[2]:
+			push_error("a %+.0f px swipe should land on page %d, at %d" % [step[1], step[2], help.current])
+			failures += 1
+	# A second drag while the first page turn is still sliding: only the
+	# page under the finger is on screen.
+	help.select_tab(0, false)
+	_swipe(help, mid, -200.0)
+	var again := InputEventMouseButton.new()
+	again.button_index = MOUSE_BUTTON_LEFT
+	again.pressed = true
+	again.position = mid
+	help._input(again)
+	var pull := InputEventMouseMotion.new()
+	pull.position = mid + Vector2(-60, 0)
+	help._input(pull)
+	if help.pages.filter(func(p: Control) -> bool: return p.visible).size() != 1:
+		push_error("a drag during a page slide should leave only the current page showing")
+		failures += 1
+	var let_go := InputEventMouseButton.new()
+	let_go.button_index = MOUSE_BUTTON_LEFT
+	let_go.pressed = false
+	let_go.position = mid + Vector2(-60, 0)
+	help._input(let_go)
+	help.select_tab(help.tab_count() - 1, false)
+	_swipe(help, mid, -200.0)
+	await create_timer(HelpScreen.SLIDE + 0.05).timeout
+	if help.current != help.tab_count() - 1 or absf(help.pages[help.current].offset_left) > 1.0:
+		push_error("swiping past the last page should stay there and spring back")
+		failures += 1
+	# A real tap on a tab, through the strip's own input.
+	for want in [3, 0]:
+		var at := help.tabs.tab_rect(want).get_center()
+		for pressed in [true, false]:
+			var tap := InputEventMouseButton.new()
+			tap.button_index = MOUSE_BUTTON_LEFT
+			tap.pressed = pressed
+			tap.position = at
+			help.tabs._gui_input(tap)
+		if help.current != want or not help.pages[want].visible:
+			push_error("tapping tab %d should show its page, at %d" % [want, help.current])
+			failures += 1
+	# A tap that lets go below the strip picks nothing, like a button.
+	var before_tap := help.current
+	var tab_at := help.tabs.tab_rect(5).get_center()
+	for pressed in [true, false]:
+		var off := InputEventMouseButton.new()
+		off.button_index = MOUSE_BUTTON_LEFT
+		off.pressed = pressed
+		off.position = tab_at if pressed else tab_at + Vector2(0, 400)
+		help.tabs._gui_input(off)
+	if help.current != before_tap:
+		push_error("letting go off the tab strip should not pick a tab")
+		failures += 1
+	# A swipe that starts on the Sound switch turns the page and leaves Sound alone.
+	help.select_tab(HelpScreen.Tab.SETTINGS, false)
 	await process_frame
+	await process_frame
+	var sound_was: bool = Sfx.sound_on
+	var on_switch := help._sound_button.get_global_rect()
+	var from := on_switch.position + Vector2(8, on_switch.size.y / 2.0)
+	var events: Array[InputEvent] = []
+	var press := InputEventMouseButton.new()
+	press.button_index = MOUSE_BUTTON_LEFT
+	press.pressed = true
+	press.position = from
+	events.append(press)
+	for k in [0.3, 0.6, 1.0]:
+		var drag := InputEventMouseMotion.new()
+		drag.position = from + Vector2(110 * k, 0)
+		events.append(drag)
+	var lift := InputEventMouseButton.new()
+	lift.button_index = MOUSE_BUTTON_LEFT
+	lift.pressed = false
+	lift.position = from + Vector2(110, 0)
+	events.append(lift)
+	for e in events:
+		root.push_input(e)
+		await process_frame
+	if Sfx.sound_on != sound_was or help.current != HelpScreen.Tab.SCORING:
+		push_error("a swipe from the Sound switch should turn the page without toggling it (sound %s, page %d)" % [Sfx.sound_on, help.current])
+		failures += 1
+	Sfx.sound_on = sound_was
+	Sfx.save_settings()
+	# The settings page's switches flip and save.
+	var sound_before: bool = Sfx.sound_on
+	help._sound_button.pressed.emit()
+	if Sfx.sound_on == sound_before or help._sound_button.text != ("On" if Sfx.sound_on else "Off"):
+		push_error("the sound switch should flip and show its state")
+		failures += 1
+	help._sound_button.pressed.emit()
+	help.close_help()
+	await create_timer(HelpScreen.CLOSE + 0.1).timeout
 	if main.find_children("*", "HelpScreen", true, false).size() != 0:
 		push_error("Close should remove the help screen")
 		failures += 1
+	# The table's "?" opens the rules on the turn page.
+	var at_table := Control.new()
+	root.add_child(at_table)
+	var opened := HelpScreen.open_over(at_table, HelpScreen.Tab.TURN)
+	await process_frame
+	if opened.current != HelpScreen.Tab.TURN or not opened.pages[HelpScreen.Tab.TURN].visible:
+		push_error("open_over should start on the asked tab")
+		failures += 1
+	at_table.queue_free()
 	main.queue_free()
 	return failures
 
@@ -547,7 +713,7 @@ func _feedback_checks() -> int:
 	await process_frame
 	var was: bool = Sfx.sound_on
 	help._on_toggle_sound()
-	if Sfx.sound_on == was or not help._sound_button.text.ends_with("off" if was else "on"):
+	if Sfx.sound_on == was or help._sound_button.text != ("Off" if was else "On"):
 		push_error("the sound toggle should flip and relabel")
 		failures += 1
 	help._on_toggle_sound()
@@ -731,8 +897,16 @@ func _get_ready_checks() -> int:
 	if table.view.is_empty() or table._hand_cards.size() != 3:
 		push_error("the table should render the view the lobby already received")
 		failures += 1
-	if not table._ready_overlay.visible or table._ready_count.text != "2":
-		push_error("get-ready should count down from the first view, got visible=%s count=%s" % [table._ready_overlay.visible, table._ready_count.text])
+	if not table._ready_overlay.visible or table._ready_burst.text != "2":
+		push_error("get-ready should count down from the first view, got visible=%s count=%s" % [table._ready_overlay.visible, table._ready_burst.text])
+		failures += 1
+	# The shade covers the whole screen (notch and home indicator too), and
+	# the top bar sits above it so Forfeit stays tappable.
+	if table._ready_overlay.get_global_rect() != table.get_viewport_rect():
+		push_error("the get-ready shade should cover the whole screen, got %s" % [table._ready_overlay.get_global_rect()])
+		failures += 1
+	if table._top_bar.get_index() != table._ready_overlay.get_index() + 1:
+		push_error("the top bar should sit just above the get-ready shade")
 		failures += 1
 	if not table._ready_seats.text.begins_with("1.  Ivy  • bot\n2.  You") or table._ready_first.text != "Ivy goes first":
 		push_error("get-ready should list the turn order, got %s / %s" % [table._ready_seats.text, table._ready_first.text])
@@ -740,6 +914,28 @@ func _get_ready_checks() -> int:
 	if table._timer_label.text != "":
 		push_error("the step timer should stay hidden during the countdown")
 		failures += 1
+	# Nothing on the shade but the shade itself takes taps, so that it can
+	# let them through during GO!.
+	for c in table._ready_overlay.find_children("*", "Control", true, false):
+		if c.mouse_filter != Control.MOUSE_FILTER_IGNORE:
+			push_error("%s on the get-ready shade should ignore the mouse" % c)
+			failures += 1
+			break
+	# A view whose countdown end moved by a few ms (latency) keeps the end.
+	var ends: int = table._ready_ends_msec
+	var jitter := v.duplicate(true)
+	jitter["startsInMs"] = int(v["startsInMs"]) - 120
+	await create_timer(0.05).timeout
+	table._on_view(jitter)
+	if table._ready_ends_msec != ends:
+		push_error("latency jitter should not move the countdown's end")
+		failures += 1
+	# Reconnecting shows above the shade.
+	table._on_reconnecting(1)
+	if table._reconnect_overlay.get_index() < table._ready_overlay.get_index():
+		push_error("Reconnecting should show above the get-ready shade")
+		failures += 1
+	table._on_reconnected()
 	# My turn comes first in this deal: no chime until the countdown ends.
 	v["active"] = 1
 	table._on_view(v.duplicate(true))
@@ -751,12 +947,26 @@ func _get_ready_checks() -> int:
 	v["legal"] = [{"type": "take_supply"}]
 	v["drawCost"] = 0
 	table._on_view(v.duplicate(true))
+	# While GO! holds and fades, play has begun: taps pass through the shade
+	# and YOUR TURN waits for it to clear.
+	if table._ready_burst.text != "GO!":
+		push_error("the countdown should end with GO! when play begins, got %s" % table._ready_burst.text)
+		failures += 1
+	if table._ready_overlay.mouse_filter != Control.MOUSE_FILTER_IGNORE or table.sfx.history.has("turn"):
+		push_error("after GO! the shade should let taps through, and the chime should wait for it to clear")
+		failures += 1
 	for i in 40:
 		await create_timer(0.05).timeout
 		if not table._ready_overlay.visible:
 			break
-	if table._ready_overlay.visible or table._ready_count.text != "Go!" or table._ready_ends_msec != 0:
-		push_error("the countdown should end with Go! when play begins")
+	if table._ready_overlay.visible or table._ready_burst.text != "" or table._ready_ends_msec != 0:
+		push_error("the countdown should clear once play begins")
+		failures += 1
+	if table._top_bar.get_index() != table._top_bar_home:
+		push_error("the top bar should go back under the table's overlays after the countdown")
+		failures += 1
+	if table._ready_burst.get_child_count() != 0 and not table._ready_burst.get_children().all(func(c: Node) -> bool: return c.is_queued_for_deletion()):
+		push_error("the countdown numerals should be freed once the shade is gone")
 		failures += 1
 	if table.sfx.history.count("turn") != 1:
 		push_error("the turn chime should play once the countdown ends, history %s" % [table.sfx.history])
@@ -770,6 +980,23 @@ func _get_ready_checks() -> int:
 			break
 	if table._ready_overlay.visible:
 		push_error("the countdown should end on its own when time is up")
+		failures += 1
+	# A game that ends during the countdown goes to dividend day without GO!.
+	v["startsInMs"] = 1200
+	table._on_view(v.duplicate(true))
+	var ended := v.duplicate(true)
+	ended["startsInMs"] = 0
+	ended["phase"] = "ended"
+	table._on_view(ended)
+	if table._ready_burst.text == "GO!":
+		push_error("no GO! when the game ended during the countdown")
+		failures += 1
+	# WHY here: this table got its first view before its first layout (the
+	# lobby path), when the prompt had no width and wrapped every word.
+	for i in 3:
+		await process_frame
+	if table._prompt.custom_minimum_size.y > maxf(table._px(38), table._prompt_height(2)) + 1.0:
+		push_error("the prompt should keep its two-line height when the table opens on a view, got %s px" % table._prompt.custom_minimum_size.y)
 		failures += 1
 	table.queue_free()
 	return failures
@@ -940,14 +1167,263 @@ func _draw_landing_checks() -> int:
 	if ghost == null or not ghost.face_up or ghost.company != 4:
 		push_error("your own draw should fly face up")
 		failures += 1
-	for i in 40:
-		await create_timer(0.05).timeout
+	var landed := Vector2.ZERO
+	for i in 200:
+		if ghost != null and is_instance_valid(ghost):
+			landed = table._center_of(ghost)
+		await process_frame
 		if not table._animating:
 			break
 	if table._hand_cards.size() != 4 or table._hand_cards[3].card_id != 9 or table._hand_cards[3].position != want["pos"]:
 		push_error("the new hand should show the drawn share in the slot it landed in")
 		failures += 1
+	elif landed.distance_to(table._center_of(table._hand_cards[3])) > 1.5:
+		push_error("the drawn share should land on its slot, off by %s" % [table._center_of(table._hand_cards[3]) - landed])
+		failures += 1
 	table.queue_free()
+	return failures
+
+
+## Taking a share from the Market: it leaves the row as it flies (no copy
+## left behind) and the shares beside it close up before the render.
+func _market_take_checks() -> int:
+	var failures := 0
+	var table = load("res://scenes/table.tscn").instantiate()
+	root.add_child(table)
+	await process_frame
+	var v := _live_view()
+	v["startsInMs"] = 0
+	v["active"] = 1
+	v["turn"] = 2
+	v["market"] = [{"card": {"id": 40, "company": 0}, "coins": 0}, {"card": {"id": 41, "company": 2}, "coins": 1}, {"card": {"id": 42, "company": 4}, "coins": 0}]
+	v["legal"] = [{"type": "take_market", "cardId": 41}]
+	table._on_view(v.duplicate(true))
+	await process_frame
+	table._on_events(3, [{"type": "took_market", "seat": 1, "card": {"id": 41, "company": 2}, "coins": 1}])
+	v["phase"] = "play"
+	v["tookCompany"] = 2
+	v["market"] = [{"card": {"id": 40, "company": 0}, "coins": 0}, {"card": {"id": 42, "company": 4}, "coins": 0}]
+	v["seats"][1]["hand"].append({"id": 41, "company": 2})
+	v["legal"] = []
+	table._on_view(v.duplicate(true))
+	for c in table._market_row.get_children():
+		if c is CardView and c.card_id == 41 and c.visible:
+			push_error("the taken share should leave the Market as it flies")
+			failures += 1
+	var held_at := {}
+	for i in 200:
+		for c in table._market_row.get_children():
+			if c is CardView and c.visible and not c.is_queued_for_deletion():
+				held_at[c.card_id] = table._center_of(c)
+		await process_frame
+		if not table._animating:
+			break
+	await process_frame
+	var ids := []
+	for c in table._market_row.get_children():
+		if c is CardView and not c.is_queued_for_deletion():
+			ids.append(c.card_id)
+			if held_at.has(c.card_id) and held_at[c.card_id].distance_to(table._center_of(c)) > 1.5:
+				push_error("Market share %d should close up before the render, moved %s" % [c.card_id, table._center_of(c) - held_at[c.card_id]])
+				failures += 1
+	if ids != [40, 42]:
+		push_error("the Market after the take should be 40, 42, got %s" % [ids])
+		failures += 1
+	# Two takes arriving together: during the first flight the row makes
+	# room only for that take, not for the newest view's Market yet.
+	v["market"] = [{"card": {"id": 40, "company": 0}, "coins": 0}, {"card": {"id": 42, "company": 4}, "coins": 0}, {"card": {"id": 43, "company": 1}, "coins": 0}, {"card": {"id": 44, "company": 3}, "coins": 0}]
+	v["active"] = 2
+	v["phase"] = "take"
+	table._on_view(v.duplicate(true))
+	await process_frame
+	table._on_events(4, [{"type": "took_market", "seat": 2, "card": {"id": 42, "company": 4}, "coins": 0}, {"type": "took_market", "seat": 0, "card": {"id": 44, "company": 3}, "coins": 0}])
+	v["market"] = [{"card": {"id": 40, "company": 0}, "coins": 0}, {"card": {"id": 43, "company": 1}, "coins": 0}]
+	table._on_view(v.duplicate(true))
+	if table._market_ids != [40, 43, 44]:
+		push_error("during the first take the Market should be 40, 43, 44, got %s" % [table._market_ids])
+		failures += 1
+	table.queue_free()
+	await process_frame
+	return failures
+
+
+## Playing a card: the card itself leaves your hand the moment the play
+## animates (no copy left behind), without a jump, the hand closes up
+## behind it, the Keep / Sell choice goes away, the bar and felt hold
+## still, and the hand drawn after matches. Also when the server plays a
+## card for you (timeout) while you had another one selected.
+func _play_leaves_hand_checks() -> int:
+	var failures := 0
+	failures += await _play_once(2, 2, "market")
+	failures += await _play_once(1, 3, "portfolio")
+	# The bar (and so the felt and hand above it) keeps one height whether
+	# the prompt takes one line or two.
+	var table = load("res://scenes/table.tscn").instantiate()
+	root.add_child(table)
+	await process_frame
+	table._prompt.text = "Bo is thinking…"
+	for i in 3:
+		await process_frame
+	var one_line: float = table._bar.size.y
+	table._prompt.text = "Cogwheel Robotics: keep it in your Portfolio or sell it to the Market? Tap Keep or Sell."
+	for i in 3:
+		await process_frame
+	if table._prompt.get_line_count() < 2 or absf(table._bar.size.y - one_line) > 0.5:
+		push_error("the bar should be as tall with one prompt line as with two (%s vs %s)" % [one_line, table._bar.size.y])
+		failures += 1
+	# A longer prompt (a tutorial hint) may raise the bar, but it then stays.
+	table._prompt.text = "Tutorial: keep a share this time. Tap a card, then Keep.\nCogwheel Robotics: keep it in your Portfolio or sell it to the Market? Tap Keep or Sell."
+	for i in 3:
+		await process_frame
+	var tall: float = table._bar.size.y
+	table._prompt.text = "Bo is thinking…"
+	for i in 3:
+		await process_frame
+	if absf(table._bar.size.y - tall) > 0.5:
+		push_error("the bar should not shrink back after a long prompt (%s vs %s)" % [tall, table._bar.size.y])
+		failures += 1
+	table.queue_free()
+	await process_frame
+	return failures
+
+
+func _play_once(select_id: int, play_id: int, to: String) -> int:
+	var failures := 0
+	var table = load("res://scenes/table.tscn").instantiate()
+	root.add_child(table)
+	await process_frame
+	var hand := [{"id": 1, "company": 0}, {"id": 2, "company": 3}, {"id": 3, "company": 5}, {"id": 9, "company": 4}]
+	var v := _live_view()
+	v["startsInMs"] = 0
+	v["active"] = 1
+	v["turn"] = 2
+	v["phase"] = "play"
+	v["tookCompany"] = 4
+	v["seats"][1]["hand"] = hand.duplicate(true)
+	v["seats"][1]["portfolio"] = [{"id": 30, "company": 1}, {"id": 31, "company": 2}]
+	v["market"] = [{"card": {"id": 40, "company": 0}, "coins": 1}]
+	v["legal"] = [{"type": "play_portfolio", "cardId": 1}, {"type": "play_portfolio", "cardId": 2}, {"type": "play_portfolio", "cardId": 3}, {"type": "play_market", "cardId": 2}]
+	table._on_view(v.duplicate(true))
+	await process_frame
+	table._on_hand_card_pressed(select_id)
+	for i in 15:
+		await process_frame
+	if not table._sell_button.visible:
+		push_error("selecting a card should offer Keep / Sell")
+		failures += 1
+	var center_before := Vector2.ZERO
+	for cv in table._hand_cards:
+		if cv.card_id == play_id:
+			center_before = table._center_of(cv)
+	var hand_y: float = table._hand_layer.global_position.y
+	var played: Dictionary = {}
+	for c in hand:
+		if c["id"] == play_id:
+			played = c
+	table._on_events(3, [{"type": "played", "seat": 1, "card": played, "to": to}])
+	v["phase"] = "take"
+	v["active"] = 2
+	v["turn"] = 3
+	v["tookCompany"] = null
+	v["seats"][1]["hand"] = hand.filter(func(c: Dictionary) -> bool: return c["id"] != play_id)
+	if to == "portfolio":
+		v["seats"][1]["portfolio"].append(played)
+	else:
+		v["market"] = [{"card": {"id": 40, "company": 0}, "coins": 1}, {"card": played, "coins": 0}]
+	v["legal"] = []
+	table._on_view(v.duplicate(true))
+	# WHY no frame wait: everything checked here is set before the flight's
+	# first await, and a slow frame could otherwise finish the flight.
+	var want: Array = v["seats"][1]["hand"].map(func(c: Dictionary) -> int: return c["id"])
+	var ids: Array = table._hand_cards.map(func(cv: CardView) -> int: return cv.card_id)
+	if not table._animating or ids != want:
+		push_error("the played card should leave the hand as it flies, hand shows %s" % [ids])
+		failures += 1
+	for cv in table._hand_layer.get_children():
+		if cv is CardView and cv.card_id == play_id and not cv.is_queued_for_deletion():
+			push_error("the played card should not stay in the hand layer")
+			failures += 1
+	var flying: Array = table._fx_layer.get_children().filter(func(c: Node) -> bool: return c is CardView)
+	if flying.size() != 1 or flying[0].card_id != play_id or flying[0].selected or flying[0].mouse_filter != Control.MOUSE_FILTER_IGNORE:
+		push_error("the played card itself should fly, unselected and untappable")
+		failures += 1
+	elif table._center_of(flying[0]).distance_to(center_before) > 0.5:
+		push_error("the played card should start its flight where it sat, moved %s" % [table._center_of(flying[0]) - center_before])
+		failures += 1
+	if table._keep_button.visible or table._sell_button.visible or table._cancel_button.visible:
+		push_error("Keep / Sell should go away once the card is played")
+		failures += 1
+	if table._hand_cards.any(func(cv: CardView) -> bool: return cv.selectable or cv.selected):
+		push_error("the cards left in hand should not be selected or tappable during the flight")
+		failures += 1
+	var landed := Vector2.ZERO
+	var card_in_flight: CardView = flying[0] if flying.size() == 1 else null
+	await process_frame
+	if table._animating and absf(table._hand_layer.global_position.y - hand_y) > 0.5:
+		push_error("the hand should not shift while the played card flies")
+		failures += 1
+	# A resize mid-flight must not draw the played share on the table while
+	# it is still in the air.
+	table._on_resized()
+	await process_frame
+	if table._animating:
+		for layer in [table._portfolio_layer, table._market_row]:
+			for c in layer.get_children():
+				if c is CardView and c.card_id == play_id and not c.is_queued_for_deletion():
+					push_error("a resize mid-flight should not show the played share twice")
+					failures += 1
+	# Where your other Portfolio shares are on the last frame before the
+	# render, by card id, to check the render does not move them.
+	var held_at := {}
+	for i in 200:
+		if card_in_flight != null and is_instance_valid(card_in_flight) and not card_in_flight.is_queued_for_deletion():
+			landed = table._center_of(card_in_flight)
+		for c in table._portfolio_layer.get_children() + table._market_row.get_children():
+			if c is CardView and c.visible and not c.is_queued_for_deletion():
+				held_at[c.card_id] = table._center_of(c)
+		await process_frame
+		if not table._animating:
+			break
+	await process_frame
+	for c in table._portfolio_layer.get_children() + table._market_row.get_children():
+		if c is CardView and c.card_id != play_id and held_at.has(c.card_id) and held_at[c.card_id].distance_to(table._center_of(c)) > 1.5:
+			push_error("share %d on the felt should already be in place when the render lands, moved %s" % [c.card_id, table._center_of(c) - held_at[c.card_id]])
+			failures += 1
+	if to == "market":
+		var sold: CardView = null
+		for c in table._market_row.get_children():
+			if c is CardView and c.card_id == play_id:
+				sold = c
+		if sold == null or landed.distance_to(table._center_of(sold)) > 1.5:
+			push_error("a sold share should land on its own Market slot")
+			failures += 1
+	if to == "portfolio":
+		var kept: CardView = null
+		for c in table._portfolio_layer.get_children():
+			if c is CardView and c.card_id == play_id:
+				kept = c
+		if kept == null or landed.distance_to(table._center_of(kept)) > 6.0:
+			push_error("a kept share should land on its own spot in the Portfolio, off by %s" % [table._center_of(kept) - landed if kept != null else "(not drawn)"])
+			failures += 1
+	ids = table._hand_cards.map(func(cv: CardView) -> int: return cv.card_id)
+	if ids != want:
+		push_error("the hand after the play should be %s, got %s" % [want, ids])
+		failures += 1
+	await process_frame
+	if absf(table._hand_layer.global_position.y - hand_y) > 0.5:
+		push_error("the hand should not shift after the card lands either")
+		failures += 1
+	for i in table._hand_cards.size():
+		var slot: Dictionary = table._hand_slot(i, ids.size())
+		if table._hand_cards[i].position != slot["pos"]:
+			push_error("hand card %d should rest in slot %d of %d" % [i, i, ids.size()])
+			failures += 1
+	await process_frame
+	if table._fx_layer.get_children().any(func(c: Node) -> bool: return c is CardView):
+		push_error("no card should be left in flight")
+		failures += 1
+	table.queue_free()
+	await process_frame
 	return failures
 
 
@@ -1114,6 +1590,32 @@ func _quests_checks() -> int:
 	if panel.rows.size() != 5 or panel._daily_box.get_child_count() != 3 or panel._weekly_box.get_child_count() != 2:
 		push_error("quests panel should list 3 daily and 2 weekly rows, got %d" % panel.rows.size())
 		failures += 1
+	if not panel.quests_page.visible or panel.looks_page.visible:
+		push_error("quests open on the Quests tab")
+		failures += 1
+	panel.select_tab(1)
+	if panel.quests_page.visible or not panel.looks_page.visible:
+		push_error("the Looks tab shows the card backs and felts instead of the quests")
+		failures += 1
+	if panel.find_children("*", "ScrollContainer", true, false).any(func(sc: Node) -> bool: return sc.is_ancestor_of(panel._status)):
+		push_error("the quests status line should stay outside the scrolling pages")
+		failures += 1
+	if panel._status.text != panel.HINTS[1]:
+		push_error("the Looks tab shows its own hint, got %s" % panel._status.text)
+		failures += 1
+	panel._status.text = "Unlocked: Midnight"
+	panel._status_is_hint = false
+	panel.select_tab(0)
+	if panel._status.text != "Unlocked: Midnight":
+		push_error("a message on the status line should survive a tab switch")
+		failures += 1
+	panel.select_tab(1)
+	panel.visible = false
+	panel.visible = true
+	if not panel.quests_page.visible or panel.tabs._pill_at != 0.0:
+		push_error("reopening Quests starts on the Quests tab, pill already there")
+		failures += 1
+	panel.select_tab(0)
 	var by_id := {}
 	for r in panel.rows:
 		by_id[r["id"]] = r

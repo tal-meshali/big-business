@@ -1,6 +1,6 @@
 # Engagement plan: XP, quests, daily rewards, seasons, ranks and swag
 
-Agreed with the project owner on 2026-11-21 (decisions D17 to D21 in `docs/decisions.md`). This is the reference for every progression, reward and growth feature. Nothing here is built yet beyond what section 2 lists; section 13 gives the build order.
+Agreed with the project owner on 2026-11-21 (decisions D23 to D27 in `docs/decisions.md`). This is the reference for every progression, reward and growth feature. Nothing here is built yet beyond what section 2 lists; section 13 gives the build order.
 
 Items marked **Proposed** were put to the owner and not objected to, but not explicitly confirmed. Check before building them. Every number is a starting value that lives in Remote Config, so it can be tuned without a release.
 

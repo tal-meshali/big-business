@@ -1,10 +1,13 @@
 class_name SeatView
 extends Control
-## One player at the table. Opponents get a royal plate with the ink
-## outline (avatar, name in cream and a bot or away tag, capital, then one
+## One player at the table. Opponents get a white plate with the ink
+## outline (avatar, name in ink and a bot or away tag, capital, then one
 ## coloured pip per company held, with a gold regulator seal); the local
 ## player gets a flat strip in the bottom bar. The seat whose turn it is
-## lifts, brightens and gets a gold rim, with a timer arc around the avatar.
+## lifts, warms to pale gold and gets a gold rim, with a timer arc around
+## the avatar.
+## WHY white: the table keeps its light surfaces; the night look is for
+## sheets, panels and what opens over the table (docs/design/theme.md).
 
 signal seat_pressed(seat_index: int, at: Vector2)
 
@@ -79,7 +82,7 @@ func _draw() -> void:
 			ring.set_corner_radius_all(int(16 * s))
 			ring.anti_aliasing = true
 			draw_style_box(ring, box.grow(4 * s))
-		var plate := UiTheme.ink_box(UiTheme.ROYAL.lerp(UiTheme.VIOLET, 0.5) if is_active else UiTheme.ROYAL, 12 * s, maxf(2.0, 1.5 * s))
+		var plate := UiTheme.ink_box(UiTheme.PLATE_ON if is_active else Companies.PANEL, 12 * s, maxf(2.0, 1.5 * s))
 		plate.border_width_bottom += int(3 * s)
 		draw_style_box(plate, box)
 
@@ -90,7 +93,7 @@ func _draw() -> void:
 	var fill: Color = avatar_color if connected else avatar_color.lerp(Color.GRAY, 0.6)
 	# Ink edge, white ring, then the avatar's own colour, as in the lobby.
 	draw_circle(c, r, UiTheme.OUTLINE, true, -1.0, true)
-	draw_circle(c, r - 1.3 * s, Color.WHITE if connected else UiTheme.TEXT_SOFT, true, -1.0, true)
+	draw_circle(c, r - 1.3 * s, Color.WHITE if connected else UiTheme.LILAC, true, -1.0, true)
 	draw_circle(c, r - 2.6 * s, fill, true, -1.0, true)
 	var name_text := "You" if is_me else String(data.get("name", "?"))
 	var initial := name_text.substr(0, 1).to_upper()
@@ -102,11 +105,14 @@ func _draw() -> void:
 	if is_active and deadline_ms > 0 and step_ms > 0:
 		var remaining := (deadline_ms - Time.get_unix_time_from_system() * 1000.0) / step_ms
 		remaining = clampf(remaining, 0.0, 1.0)
-		var arc_color := UiTheme.GOLD if remaining > 0.3 else UiTheme.BADGE
-		draw_arc(c, r + 3.5 * s, -PI / 2, -PI / 2 + TAU * remaining, 40, UiTheme.OUTLINE, 3.5 * s, true)
+		# WHY deep gold on a wide ink line: the arc lies on white, pale gold
+		# or cream, where the bright gold alone all but disappears.
+		var arc_color := UiTheme.GOLD_DEEP if remaining > 0.3 else UiTheme.BADGE
+		draw_arc(c, r + 3.5 * s, -PI / 2, -PI / 2 + TAU * remaining, 40, UiTheme.OUTLINE, 4.4 * s, true)
 		draw_arc(c, r + 3.5 * s, -PI / 2, -PI / 2 + TAU * remaining, 40, arc_color, 2.2 * s, true)
 	elif is_active:
-		draw_arc(c, r + 3.5 * s, 0, TAU, 40, UiTheme.GOLD, 2.2 * s, true)
+		draw_arc(c, r + 3.5 * s, 0, TAU, 40, UiTheme.OUTLINE, 4.4 * s, true)
+		draw_arc(c, r + 3.5 * s, 0, TAU, 40, UiTheme.GOLD_DEEP, 2.2 * s, true)
 
 	var bronze := int(data.get("bronze", 0))
 	var gold := int(data.get("gold", 0))
@@ -128,13 +134,13 @@ func _draw() -> void:
 	var shown := name_text
 	if text.get_string_size(name_text, HORIZONTAL_ALIGNMENT_LEFT, -1, npx).x > max_w - tag_w:
 		shown = _fit(text, short_name(data), npx, max_w - tag_w)
-	draw_string(text, Vector2(nx, top + 13 * s), shown, HORIZONTAL_ALIGNMENT_LEFT, -1, npx, UiTheme.TEXT if connected else UiTheme.TEXT_SOFT)
+	draw_string(text, Vector2(nx, top + 13 * s), shown, HORIZONTAL_ALIGNMENT_LEFT, -1, npx, UiTheme.OUTLINE if connected else UiTheme.INK_SOFT)
 	if tag != "":
-		# The tag: lilac on an ink pill, at the smallest size the game uses.
+		# The tag: ink on a pale lilac pill, at the smallest size the game uses.
 		var tx := nx + text.get_string_size(shown, HORIZONTAL_ALIGNMENT_LEFT, -1, npx).x + 4 * s
 		var tag_box := Rect2(tx, top + 2 * s, tag_w - 4 * s, 15 * s)
-		draw_style_box(UiTheme.ink_box(UiTheme.OUTLINE, 7.5 * s, 0), tag_box)
-		draw_string(text, Vector2(tx + 5 * s, tag_box.get_center().y + tag_px * 0.34), tag, HORIZONTAL_ALIGNMENT_LEFT, -1, tag_px, UiTheme.TEXT_SOFT)
+		draw_style_box(UiTheme.ink_box(UiTheme.TAG, 7.5 * s, 0), tag_box)
+		draw_string(text, Vector2(tx + 5 * s, tag_box.get_center().y + tag_px * 0.34), tag, HORIZONTAL_ALIGNMENT_LEFT, -1, tag_px, UiTheme.OUTLINE)
 	_draw_coins(text, Vector2(nx, top + 26 * s), bronze, gold, wide)
 
 	_draw_pips(text, Vector2(8 * s, top + 35 * s), size.x - 12 * s)
@@ -144,7 +150,7 @@ func _draw_strip(text: Font, c: Vector2, r: float, name_text: String, bronze: in
 	var px := int(13 * s)
 	var x := c.x + r + 8 * s
 	var base := size.y / 2.0 + px * 0.36
-	draw_string(text, Vector2(x, base), name_text, HORIZONTAL_ALIGNMENT_LEFT, -1, px, UiTheme.TEXT)
+	draw_string(text, Vector2(x, base), name_text, HORIZONTAL_ALIGNMENT_LEFT, -1, px, UiTheme.OUTLINE)
 	x += text.get_string_size(name_text, HORIZONTAL_ALIGNMENT_LEFT, -1, px).x + 10 * s
 	x = _draw_coins(text, Vector2(x, size.y / 2.0), bronze, gold, true)
 	# Pips flush right.
@@ -164,7 +170,7 @@ func _draw_coins(text: Font, at: Vector2, bronze: int, gold: int, spell: bool) -
 		draw_circle(cc, 6 * s, UiTheme.OUTLINE)
 		draw_circle(cc, 4.6 * s, coin[1])
 		var label := "%d%s" % [int(coin[0]), coin[2]]
-		draw_string(text, Vector2(x + 15 * s, at.y + px * 0.36), label, HORIZONTAL_ALIGNMENT_LEFT, -1, px, UiTheme.TEXT)
+		draw_string(text, Vector2(x + 15 * s, at.y + px * 0.36), label, HORIZONTAL_ALIGNMENT_LEFT, -1, px, UiTheme.OUTLINE)
 		x += 15 * s + text.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, px).x + 8 * s
 	return x
 

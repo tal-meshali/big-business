@@ -321,15 +321,15 @@ func _build_top_bar() -> void:
 	top.add_child(_leave_button)
 
 
-## The royal bar at the bottom, the table's twin of the lobby dock: you,
-## then the prompt in cream, then the move buttons.
+## The cream bar at the bottom: you, then the prompt in ink, then the move
+## buttons. WHY cream: the table keeps its light seats and bar; the night
+## look is for sheets and panels (docs/design/theme.md).
 func _build_bottom_bar() -> void:
 	_bar = PanelContainer.new()
 	_bar.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_WIDE)
 	_bar.grow_vertical = Control.GROW_DIRECTION_BEGIN
-	_bar.theme = UiTheme.night_theme()
 	var style := StyleBoxFlat.new()
-	style.bg_color = UiTheme.ROYAL.darkened(0.25)
+	style.bg_color = UiTheme.CREAM
 	style.border_color = UiTheme.OUTLINE
 	style.border_width_top = _px(2)
 	style.corner_radius_top_left = _px(20)
@@ -373,7 +373,7 @@ func _build_bottom_bar() -> void:
 	help.pressed.connect(func() -> void: HelpScreen.open_over(self, HelpScreen.Tab.TURN))
 	me_row.add_child(help)
 
-	_prompt = UiTheme.body("", _px(UiTheme.TYPE_BODY))
+	_prompt = UiTheme.body("", _px(UiTheme.TYPE_BODY), UiTheme.OUTLINE)
 	# WHY two lines and a full button height: the felt and hand sit on top
 	# of this bar, so a bar that grew and shrank with the prompt's lines or
 	# with the buttons shown would shift the table between turns and right
@@ -710,7 +710,7 @@ func _on_emote_shown(seat: int, emote: String) -> void:
 
 
 ## A speech bubble over a seat: cream paper with the ink outline, so it
-## pops against the night plates. `font_size` 0 is the label size.
+## reads as the seat's own voice. `font_size` 0 is the label size.
 func _show_bubble(seat: int, text: String, font_size: int = 0) -> void:
 	var old = _emote_bubbles.get(seat)
 	if old != null and is_instance_valid(old):

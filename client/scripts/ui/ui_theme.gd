@@ -20,6 +20,13 @@ const DESIGN_H := 844.0
 ## Orange ring on whatever you can tap right now.
 const RING := Color("#F7941D")
 const CREAM := Color("#FFFDF6")
+## The table's light surfaces (seat plates, the bottom bar).
+## The plate of the seat whose turn it is.
+const PLATE_ON := Color("#FFF1C9")
+## The quieter ink, for an away player's name.
+const INK_SOFT := Color("#6B6585")
+## The pill behind a "bot" or "away" tag.
+const TAG := Color("#D3CBF2")
 
 ## "After-hours trading floor" (2026-11): royal purple rooms, gold for the
 ## one main action, violet for the rest, mint for rewards, red for badges.
@@ -504,8 +511,9 @@ static func title(text: String, px: int, color: Color = Color.WHITE, drop := fal
 	return ink_outline(l, px, drop)
 
 
-## Sentences on a dark surface: Nunito Sans Bold in cream, wrapping, with
-## a little extra leading (light text on dark needs the air).
+## Sentences: Nunito Sans Bold, wrapping, with a little extra leading
+## (light text on dark needs the air). Cream for the dark surfaces; pass
+## `OUTLINE` ink on the table's light ones.
 static func body(text: String, px: int, color: Color = TEXT) -> Label:
 	var l := label(text, px, color)
 	l.add_theme_font_override("font", body_font())

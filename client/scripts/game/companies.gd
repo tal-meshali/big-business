@@ -24,7 +24,6 @@ const CARD_FACE := Color("#FFFDF6")
 const PANEL := Color("#FFFFFF")
 ## Near-black ink for text and borders.
 const INK := Color("#1C1C1C")
-const INK_SOFT := Color("#5A5A5A")
 ## Coins.
 const BRONZE := Color("#B8722E")
 const GOLD := Color("#E2B23A")

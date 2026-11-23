@@ -92,7 +92,7 @@ export function botActionFromView(view: PlayerView, rng: () => number): Action {
           if (p <= 0) continue;
           const counts = model.mine.slice();
           counts[c] = (counts[c] as number) + 1;
-          ev += p * bestPlay(model, hand.concat([{ id: -1, company: c as CompanyId }]), counts, c, false, commit, null);
+          ev += p * bestPlay(model, hand.concat([{ id: -1, company: c as CompanyId }]), counts, -1, false, commit, null);
         }
         const cost = view.drawCost === null ? 0 : view.drawCost;
         scored.push({ action, value: bronze - cost + ev });
@@ -461,7 +461,7 @@ function holdingsValue(model: Model, counts: number[]): number {
 
 /**
  * Best play-step value for a 4-card hand. `counts` are my holdings with that
- * hand; `took` is the company taken this turn (it may not go to the Market).
+ * hand; `took` is the company taken from the Market this turn (it may not go back to the Market).
  * Pushes every candidate into `collect` when given. `noSell` forbids Market
  * plays. `commit` is added to keeping a share of the focus company.
  */

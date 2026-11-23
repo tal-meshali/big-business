@@ -102,3 +102,9 @@ Decisions made by the project owner on 2026-09-27, after the research in `docs/r
 - **Decision:** the lobby offers "Play vs bots now" (a one-player game with two bots and the normal timer that starts as soon as you join) and, while waiting in a lobby, "Start now with bots" (bots fill the empty seats at once). In a public lobby anyone waiting may start it; in a private room only the host may. These are real games: they count for XP, quests and stats like a quick play game that bots filled.
 - **Why:** waiting 20 seconds for players who are not there is the worst part of a quiet server. The rules engine runs only on the server (TypeScript in `server/src/engine`), so a truly offline game would need a second engine in GDScript; the bot game reuses the server's bots and anti-cheat for free.
 - **Implies:** a bot game is labelled `solo`, so quick play never lists it, and only its creator may join it. Playing with no network at all still needs a client-side engine; the browser table (web/) is that for now.
+
+## D22. A share drawn from the Supply may be sold the same turn (2026-11-22)
+
+- **Decision:** only a share taken from the Market restricts the Play step: the player may not sell a share of that company back to the Market that turn. After a Supply draw any share in hand, the drawn one included, may be sold.
+- **Why:** the owner's call on how the game should play; it departs from most rules summaries, which restrict after a draw too.
+- **Implies:** draw-then-sell cycling is bounded only by the draw cost and the finite Supply (rules-spec section 9). `tookCompany` in the state and view is set only by a Market take. Numbered D22 because D17 to D21 are taken by open PRs.

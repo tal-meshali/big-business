@@ -223,7 +223,9 @@ export function applyAction(
       me.bronze -= cost;
       const card = state.supply.pop() as Card;
       me.hand.push(card);
-      state.tookCompany = card.company;
+      // A drawn share may be sold to the Market this turn; only a share
+      // taken from the Market is barred from going straight back.
+      state.tookCompany = null;
       events.push({ type: 'took_supply', seat, cost });
       break;
     }

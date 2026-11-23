@@ -1,6 +1,6 @@
 /** Sends each connected player the view of the game its seat may see. */
 import { playerView } from '../engine';
-import { OP_VIEW, type ViewMessage } from './protocol';
+import { OP_EARNINGS, OP_VIEW, type ViewMessage } from './protocol';
 import { nowMs, send, type MatchState } from './state';
 
 export function sendViews(s: MatchState, dispatcher: nkruntime.MatchDispatcher): void {
@@ -19,5 +19,19 @@ export function sendViews(s: MatchState, dispatcher: nkruntime.MatchDispatcher):
       view.drawCost = null;
     }
     send(dispatcher, OP_VIEW, view, [presence]);
+  }
+}
+
+/**
+ * Sends each connected player the earnings receipt of the finished game:
+ * to everyone once the awards are written, or to `only` (a player who came
+ * back while the result is still up).
+ */
+export function sendEarnings(s: MatchState, dispatcher: nkruntime.MatchDispatcher, only?: nkruntime.Presence[]): void {
+  const targets = only || Object.keys(s.presences).map((userId) => s.presences[userId]);
+  for (const presence of targets) {
+    if (!presence) continue;
+    const earnings = s.earnings[presence.userId];
+    if (earnings) send(dispatcher, OP_EARNINGS, earnings, [presence]);
   }
 }

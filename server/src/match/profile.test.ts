@@ -23,27 +23,27 @@ describe('loadProfile', () => {
   });
 
   it('trusts a server-owned row', () => {
-    const { nk } = fakeNk({ value: { xp: 500, trackPoints: 300 }, version: 'v1', permissionWrite: 0 });
+    const { nk } = fakeNk({ value: { xp: 500, trackXp: 300 }, version: 'v1', permissionWrite: 0 });
     const row = loadProfile(nk, 'u');
     expect(row.progress.xp).toBe(500);
-    expect(row.progress.trackPoints).toBe(300);
+    expect(row.progress.trackXp).toBe(300);
     expect(row.version).toBe('v1');
   });
 
   it('ignores a row the client created itself (permissionWrite 1) but keeps its version for the replacing write', () => {
-    const { nk } = fakeNk({ value: { xp: 999999, trackPoints: 999999, level: 99 }, version: 'v7', permissionWrite: 1 });
+    const { nk } = fakeNk({ value: { xp: 999999, trackXp: 999999, level: 99 }, version: 'v7', permissionWrite: 1 });
     const row = loadProfile(nk, 'u');
     expect(row.progress).toEqual(emptyProgress());
     expect(row.version).toBe('v7');
   });
 
   it('clamps junk numbers in a server-owned row', () => {
-    const { nk } = fakeNk({ value: { xp: -5, level: 0, wins: NaN, trackPoints: 12.9 }, version: 'v1', permissionWrite: 0 });
+    const { nk } = fakeNk({ value: { xp: -5, level: 0, wins: NaN, trackXp: 12.9 }, version: 'v1', permissionWrite: 0 });
     const p = loadProfile(nk, 'u').progress;
     expect(p.xp).toBe(0);
     expect(p.level).toBe(1);
     expect(p.wins).toBe(0);
-    expect(p.trackPoints).toBe(12);
+    expect(p.trackXp).toBe(12);
   });
 });
 

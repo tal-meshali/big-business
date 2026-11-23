@@ -35,6 +35,10 @@ const MARKET_CARD := 0.5
 const SUPPLY_CARD := 0.48
 const PORTFOLIO_CARD := 0.36
 const HAND_CARD := 0.9
+## The shade behind the Dividend day standings, and the deeper night one
+## behind the earnings report that follows it.
+const RESULT_SHADE := Color(0.04, 0.09, 0.06, 0.6)
+const RESULT_SHADE_NIGHT := Color(0.071, 0.047, 0.18, 0.86)
 ## Opponent plates for 1..6 opponents, clockwise from your left:
 ## [anchor ("L" left edge, "R" right edge, "C" centre), x dp, y dp, width dp].
 const PLATE_SLOTS := [
@@ -78,6 +82,12 @@ var _result_panel: PanelContainer
 var _result_backdrop: ColorRect
 var _result_rows: VBoxContainer
 var _result_label: Label
+var _result_again: Button
+var _result_leave: Button
+var _result_continue: Button
+## What the game paid you, shown after the standings (see EarningsReport).
+var _earnings_report: EarningsReport
+var _report_open := false
 
 var _selected_card: int = -1
 var _pending_events: Array = []
@@ -135,6 +145,7 @@ func _ready() -> void:
 	Net.reconnected.connect(_on_reconnected)
 	Net.player_forfeited.connect(_on_player_forfeited)
 	Net.custom_deck_changed.connect(_on_room_look)
+	Net.earnings_received.connect(func(_e: Dictionary) -> void: _sync_result_buttons())
 	get_viewport().size_changed.connect(_on_resized)
 	# The lobby opened this scene on the game's first view; render it now.
 	if not Net.last_view.is_empty():
@@ -343,7 +354,7 @@ func _build_bottom_bar() -> void:
 ## Dividend day: a gold-banded panel with the standings and each payout.
 func _build_result_panel() -> void:
 	_result_backdrop = ColorRect.new()
-	_result_backdrop.color = Color(0.04, 0.09, 0.06, 0.6)
+	_result_backdrop.color = RESULT_SHADE
 	_result_backdrop.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_result_backdrop.visible = false
 	add_child(_result_backdrop)
@@ -370,10 +381,58 @@ func _build_result_panel() -> void:
 	var result_buttons := HBoxContainer.new()
 	result_buttons.add_theme_constant_override("separation", _px(8))
 	result_box.add_child(result_buttons)
-	_make_button(result_buttons, "Play again", _on_play_again, "primary").visible = true
-	var leave := _make_button(result_buttons, "Leave", _on_leave, "ghost")
-	leave.visible = true
-	leave.size_flags_horizontal = Control.SIZE_FILL
+	# With a receipt from the server the standings lead on to the earnings
+	# report, which carries Play again and Leave; without one (the tutorial,
+	# watching, a forfeit) they stay here.
+	_result_continue = _make_button(result_buttons, "Continue", _on_result_continue, "primary")
+	_result_again = _make_button(result_buttons, "Play again", _on_play_again, "primary")
+	_result_again.visible = true
+	_result_leave = _make_button(result_buttons, "Leave", _on_leave, "ghost")
+	_result_leave.visible = true
+	_result_leave.size_flags_horizontal = Control.SIZE_FILL
+	_earnings_report = EarningsReport.new()
+	_earnings_report.setup(_s)
+	_earnings_report.custom_minimum_size = Vector2(minf(get_viewport_rect().size.x, 720.0) - _px(28), 0)
+	_earnings_report.visible = false
+	_earnings_report.play_again.connect(_on_play_again)
+	_earnings_report.leave.connect(_on_leave)
+	center.add_child(_earnings_report)
+
+
+## True when the server sent a receipt for the game that just ended.
+func _has_earnings() -> bool:
+	return not Net.last_earnings.is_empty() and not Net.tutorial_mode and _my_seat >= 0
+
+
+func _sync_result_buttons() -> void:
+	if _result_continue == null:
+		return
+	var onward := _has_earnings()
+	_result_continue.visible = onward
+	_result_again.visible = not onward
+	_result_leave.visible = not onward
+
+
+## Standings to earnings report: the sheet swaps in over a night shade.
+func _on_result_continue() -> void:
+	if not _has_earnings() or _report_open:
+		return
+	_report_open = true
+	_result_panel.visible = false
+	_result_backdrop.color = RESULT_SHADE_NIGHT
+	_earnings_report.modulate.a = 0.0
+	_earnings_report.show_report(Net.last_earnings)
+	create_tween().tween_property(_earnings_report, "modulate:a", 1.0, 0.15).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+
+
+## Back to the standings for the next game's Dividend day.
+func _close_report() -> void:
+	_report_open = false
+	if _earnings_report != null:
+		_earnings_report.finish_motion()
+		_earnings_report.visible = false
+	_result_panel.visible = true
+	_result_backdrop.color = RESULT_SHADE
 
 
 func _on_resized() -> void:
@@ -799,6 +858,7 @@ func _on_play_again() -> void:
 	_prompt.custom_minimum_size.y = maxf(_px(38), _prompt_height(2))
 	_status.text = "Finding a new game..."
 	_result_backdrop.visible = false
+	_close_report()
 	var ok: bool = await Net.quick_play()
 	if not ok:
 		get_tree().change_scene_to_file("res://scenes/main.tscn")
@@ -1498,7 +1558,10 @@ func _render_result(seats: Array) -> void:
 	var result = view.get("result")
 	_result_backdrop.visible = result != null
 	if result == null:
+		if _report_open:
+			_close_report()
 		return
+	_sync_result_buttons()
 	for child in _result_rows.get_children():
 		_result_rows.remove_child(child)
 		child.queue_free()

@@ -2,12 +2,12 @@ class_name FriendsPanel
 extends PanelContainer
 ## Lobby friends panel: friends with an online dot, add by name, remove,
 ## invite to the current private room, incoming invites with a Join
-## button, a daily gift of track points to each friend (and collecting
+## button, a daily gift of XP to each friend (and collecting
 ## theirs), and Watch for a friend who is in a game. Self-contained: it talks to Net itself. main.gd only sets
 ## `room_code` and handles `join_requested`.
 
 signal join_requested(code: String)
-## Gifts turned into track points: the lobby reloads the profile.
+## Gifts turned into XP: the lobby reloads the profile.
 signal gifts_collected
 ## Joined a friend's game as a watcher; the table opens with the first view.
 signal watch_started
@@ -131,7 +131,7 @@ func set_extras(gifts: Dictionary, playing: Array) -> void:
 		_gift_row.visible = waiting > 0
 		var names: Array = gifts.get("names", [])
 		var from := ", ".join(PackedStringArray(names)) if not names.is_empty() else "friends"
-		_gift_label.text = "%d %s from %s (+%d track points each)" % [waiting, "gift" if waiting == 1 else "gifts", from, int(gifts.get("points", 0))]
+		_gift_label.text = "%d %s from %s (+%d XP each)" % [waiting, "gift" if waiting == 1 else "gifts", from, int(gifts.get("xp", 0))]
 		_collect_button.disabled = int(gifts.get("claimLeft", 0)) <= 0
 		if _collect_button.disabled:
 			_gift_label.text += ". Collect more tomorrow."
@@ -304,7 +304,7 @@ func _on_gift_pressed(user_id: String, button: Button) -> void:
 	button.disabled = true
 	var ok: bool = await SocialApi.send_gift(user_id)
 	if ok:
-		_status.text = "Gift sent. They get %d track points." % int(_gifts.get("points", 5))
+		_status.text = "Gift sent. They get %d XP." % int(_gifts.get("xp", 15))
 		set_extras(await SocialApi.gift_state(), _playing)
 	else:
 		_status.text = SocialApi.last_error
@@ -318,7 +318,7 @@ func _on_collect_pressed() -> void:
 	if res.is_empty():
 		_status.text = SocialApi.last_error
 	else:
-		_status.text = "Collected %d track points from friends." % int(res.get("points", 0))
+		_status.text = "Collected %d XP from friends." % int(res.get("xp", 0))
 		gifts_collected.emit()
 	set_extras(await SocialApi.gift_state(), _playing)
 

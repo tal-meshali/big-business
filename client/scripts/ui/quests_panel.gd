@@ -1,7 +1,8 @@
 class_name QuestsPanel
 extends PanelContainer
 ## Quests overlay for the lobby: today's and this week's quests with progress
-## bars and Claim buttons, the free cosmetic track, and a picker for the card
+## bars (a finished quest pays its XP when its game ends; the button only
+## collects a leftover), the free cosmetic track, and a picker for the card
 ## back and table felt (only unlocked ones enabled), on two tabs (Quests,
 ## Looks) so neither needs scrolling on a phone. Built in code on a royal
 ## panel; fed by the `get_profile` dictionary through `apply_profile`.
@@ -16,15 +17,16 @@ const ROW_HEIGHT := 56.0
 ## (23 px text, 56 px rows); 1.35 matches the tabs to that text size.
 const K := 1.35
 const HINTS := [
-	"Quests reset at midnight UTC; weekly ones on Monday.",
-	"Points from quests unlock new looks along the track.",
+	"A finished quest pays out when the game ends. New ones at midnight UTC; weekly on Monday.",
+	"Every XP you earn moves the track toward the next look.",
 ]
 ## Text on the royal sheet.
 const CREAM := Color("#FFF6DE")
 
 ## One entry per quest row: {id, claimable, claimed, label, bar, count, button}.
 var rows: Array[Dictionary] = []
-var track_points := 0
+## XP counted toward the cosmetic track.
+var track_xp := 0
 var unlocked: Array = []
 var track: Array = []
 var _daily_box: VBoxContainer
@@ -198,7 +200,7 @@ func _show_hint() -> void:
 
 ## Feeds the whole `get_profile` result (or any dictionary with the same keys).
 func apply_profile(data: Dictionary) -> void:
-	track_points = int(data.get("trackPoints", 0))
+	track_xp = int(data.get("trackXp", 0))
 	unlocked = data.get("unlocked", [Cosmetics.DEFAULT_CARD_BACK, Cosmetics.DEFAULT_TABLE])
 	track = data.get("track", [])
 	Cosmetics.apply_equipped(data.get("equipped", {}))
@@ -228,7 +230,7 @@ func _add_row(parent: Control, q: Dictionary) -> void:
 	col.add_theme_constant_override("separation", 4)
 	row.add_child(col)
 	var label := Label.new()
-	label.text = "%s  (+%d pts)" % [String(q.get("text", "")), int(q.get("points", 0))]
+	label.text = "%s  (+%d XP)" % [String(q.get("text", "")), int(q.get("xp", 0))]
 	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	label.add_theme_font_size_override("font_size", 23)
 	label.add_theme_color_override("font_color", CREAM)
@@ -243,8 +245,8 @@ func _add_row(parent: Control, q: Dictionary) -> void:
 	count.add_theme_color_override("font_color", UiTheme.LILAC)
 	col.add_child(count)
 	var button := Button.new()
-	# Wide enough for "Claimed", so every row's bar is the same length.
-	button.custom_minimum_size = Vector2(136, ROW_HEIGHT)
+	# Wide enough for "Collected", so every row's bar is the same length.
+	button.custom_minimum_size = Vector2(160, ROW_HEIGHT)
 	button.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	var id := String(q.get("id", ""))
 	button.pressed.connect(func() -> void: _on_claim(id))
@@ -259,15 +261,17 @@ func _refresh_row(entry: Dictionary) -> void:
 	var button: Button = entry["button"]
 	button.theme_type_variation = ""
 	if entry["claimed"]:
-		button.text = "Claimed"
+		button.text = "Collected"
 		button.disabled = true
 	elif entry["claimable"]:
-		button.text = "Claim"
+		# WHY still a button: quests are collected when a game ends, but one
+		# finished before that existed (or whose game end failed) waits here.
+		button.text = "Collect"
 		button.disabled = false
-		# Mint for rewards: a quest ready to claim stands out from the rest.
+		# Mint for rewards: a quest ready to collect stands out from the rest.
 		button.theme_type_variation = "GreenButton"
 	else:
-		button.text = "Claim"
+		button.text = "Collect"
 		button.disabled = true
 
 
@@ -279,21 +283,21 @@ func _on_claim(id: String) -> void:
 	var res: Dictionary = await Net.claim_quest(id)
 	if res.is_empty() or not res.get("ok", false):
 		entry["button"].disabled = false
-		_status.text = "Could not claim right now. Try again in a moment."
+		_status.text = "Could not collect right now. Try again in a moment."
 		_status_is_hint = false
 		return
-	_apply_claim(id, int(res.get("trackPoints", track_points)), res.get("unlocked", unlocked))
+	_apply_claim(id, int(res.get("trackXp", track_xp)), res.get("unlocked", unlocked))
 
 
 ## Marks a row claimed and updates the track from the server's answer.
-func _apply_claim(id: String, new_points: int, new_unlocked: Array) -> void:
+func _apply_claim(id: String, new_track_xp: int, new_unlocked: Array) -> void:
 	var entry := _row_by_id(id)
 	if not entry.is_empty():
 		entry["claimed"] = true
 		entry["claimable"] = false
 		_refresh_row(entry)
 	var before := unlocked.size()
-	track_points = new_points
+	track_xp = new_track_xp
 	unlocked = new_unlocked
 	_refresh_track()
 	_refresh_picker()
@@ -309,31 +313,31 @@ func _row_by_id(id: String) -> Dictionary:
 	return {}
 
 
-## Track summary: points so far and the next unlock.
+## Track summary: XP so far and the next unlock.
 func _refresh_track() -> void:
 	var prev := 0
 	var next: Dictionary = {}
 	for step in track:
-		if track_points < int(step.get("points", 0)):
+		if track_xp < int(step.get("xp", 0)):
 			next = step
 			break
-		prev = int(step.get("points", 0))
+		prev = int(step.get("xp", 0))
 	if next.is_empty():
-		_track_label.text = "Track: %d points. Every cosmetic unlocked!" % track_points if not track.is_empty() else "Track: %d points" % track_points
+		_track_label.text = "Track: %s XP. Every look unlocked!" % EarningsReport.grouped(track_xp) if not track.is_empty() else "Track: %s XP" % EarningsReport.grouped(track_xp)
 		_track_bar.min_value = 0
-		_track_bar.max_value = maxf(1.0, float(track_points))
-		_track_bar.value = track_points
+		_track_bar.max_value = maxf(1.0, float(track_xp))
+		_track_bar.value = track_xp
 		return
-	_track_label.text = "Track: %d points  •  next: %s at %d" % [track_points, Cosmetics.name_of(String(next.get("cosmeticId", ""))), int(next.get("points", 0))]
+	_track_label.text = "Track: %s XP  •  next: %s at %s" % [EarningsReport.grouped(track_xp), Cosmetics.name_of(String(next.get("cosmeticId", ""))), EarningsReport.grouped(int(next.get("xp", 0)))]
 	_track_bar.min_value = prev
-	_track_bar.max_value = int(next.get("points", 0))
-	_track_bar.value = track_points
+	_track_bar.max_value = int(next.get("xp", 0))
+	_track_bar.value = track_xp
 
 
-func _unlock_points(id: String) -> int:
+func _unlock_xp(id: String) -> int:
 	for step in track:
 		if String(step.get("cosmeticId", "")) == id:
-			return int(step.get("points", 0))
+			return int(step.get("xp", 0))
 	return 0
 
 
@@ -352,15 +356,15 @@ func _refresh_pick_button(b: Button, id: String, current: String) -> void:
 	b.set_pressed_no_signal(id == current)
 	# The look in use is gold, so it stands apart from the other unlocked ones.
 	b.theme_type_variation = "PrimaryButton" if id == current else ""
-	var pts := _unlock_points(id)
-	if is_unlocked or (pts == 0 and not Cosmetics.is_paid(id) and not Cosmetics.is_plus(id)):
+	var at := _unlock_xp(id)
+	if is_unlocked or (at == 0 and not Cosmetics.is_paid(id) and not Cosmetics.is_plus(id)):
 		b.text = Cosmetics.name_of(id)
 	elif Cosmetics.is_paid(id):
 		b.text = "%s  (shop)" % Cosmetics.name_of(id)
 	elif Cosmetics.is_plus(id):
 		b.text = "%s  (Plus)" % Cosmetics.name_of(id)
 	else:
-		b.text = "%s  (%d pts)" % [Cosmetics.name_of(id), pts]
+		b.text = "%s  (%s XP)" % [Cosmetics.name_of(id), EarningsReport.grouped(at)]
 
 
 ## Applies the pick locally first so the lobby and cards change at once,

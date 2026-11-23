@@ -115,6 +115,7 @@ func _run() -> void:
 	failures += await _hand_fit_checks()
 	failures += await _get_ready_checks()
 	failures += await _forfeit_checks()
+	failures += await _earnings_checks()
 	failures += await _peek_checks()
 	failures += await _draw_landing_checks()
 	failures += await _play_leaves_hand_checks()
@@ -1053,6 +1054,150 @@ func _forfeit_checks() -> int:
 	return failures
 
 
+## The server's receipt for a won five-seat game that levels the player up.
+func _receipt() -> Dictionary:
+	return {
+		"rank": 1, "seats": 5, "capital": 21, "rate": 2.0, "botsOnly": false,
+		"lines": [{"kind": "capital", "xp": 42}, {"kind": "finish", "xp": 20}, {"kind": "quest", "xp": 45, "text": "Win a game"}],
+		"xp": 107, "xpBefore": 740, "xpAfter": 847, "levelBefore": 4, "levelAfter": 5, "seasonPoints": 12,
+		"quests": [
+			{"id": "d_play_3", "text": "Play 3 games", "progress": 2, "target": 3, "xp": 30, "weekly": false},
+			{"id": "w_win_3", "text": "Win 3 games this week", "progress": 2, "target": 3, "xp": 160, "weekly": true},
+		],
+		"unlocked": ["table_navy"],
+	}
+
+
+## After Dividend day the standings lead on to the earnings report.
+func _earnings_checks() -> int:
+	var failures := 0
+	var report_script = load("res://scripts/ui/earnings_report.gd")
+	if report_script.grouped(999) != "999" or report_script.grouped(1250) != "1,250" or report_script.grouped(1234567) != "1,234,567":
+		push_error("grouped() should set thousands apart with commas")
+		failures += 1
+	var places := [1, 2, 3, 4, 11, 12, 13, 21, 22].map(func(n: int) -> String: return report_script.ordinal(n))
+	if places != ["1st", "2nd", "3rd", "4th", "11th", "12th", "13th", "21st", "22nd"]:
+		push_error("ordinal() wrong: %s" % [places])
+		failures += 1
+	if report_script.level_floor(5) != 800 or not is_equal_approx(report_script.level_fraction(1025, 5), 0.5):
+		push_error("level maths should match the server (level 5 starts at 800 XP, level 6 at 1,250)")
+		failures += 1
+
+	var net: Node = root.get_node("Net")
+	var table = load("res://scenes/table.tscn").instantiate()
+	root.add_child(table)
+	await process_frame
+	var v := _live_view()
+	v["startsInMs"] = 0
+	v["phase"] = "ended"
+	v["legal"] = []
+	v["result"] = {"companies": [], "scores": [{"seat": 0, "bronze": 9, "gold": 4, "score": 21, "rank": 1}]}
+	table._on_view(v.duplicate(true))
+	await process_frame
+	if table._result_continue.visible or not table._result_again.visible or not table._result_leave.visible:
+		push_error("without a receipt the standings keep Play again and Leave")
+		failures += 1
+	table._on_result_continue()
+	if table._earnings_report.visible:
+		push_error("Continue does nothing without a receipt")
+		failures += 1
+	# The receipt arrives after the standings are up: the buttons follow it.
+	net.last_earnings = _receipt()
+	net.earnings_received.emit(net.last_earnings)
+	if not table._result_continue.visible or table._result_again.visible or table._result_leave.visible:
+		push_error("with a receipt the standings offer Continue alone")
+		failures += 1
+	net.tutorial_mode = true
+	table._sync_result_buttons()
+	if table._result_continue.visible:
+		push_error("the tutorial has no earnings report")
+		failures += 1
+	net.tutorial_mode = false
+	table._sync_result_buttons()
+	await process_frame
+	failures += _check_button_sizes(table._result_panel, "dividend day with Continue")
+
+	table._earnings_report.animate = false
+	table._result_continue.pressed.emit()
+	for i in 4:
+		await process_frame
+	var report = table._earnings_report
+	if not report.visible or table._result_panel.visible or not table._result_backdrop.visible:
+		push_error("Continue swaps the standings for the earnings report")
+		failures += 1
+	var texts := _texts(report)
+	for want in ["Earnings report", "You won the game", "1st of 5 with 21 capital", "Capital 21 × 2", "+42", "Finished the game", "Quest: Win a game", "+107 XP", "Level 5", "403 XP to level 6", "LEVEL UP", "Season points", "+12", "New look: Navy felt", "Play 3 games", "Play again", "Leave"]:
+		if not texts.has(want):
+			push_error("the earnings report should say '%s', got %s" % [want, texts])
+			failures += 1
+	if texts.has("Win 3 games this week"):
+		push_error("a receipt with an unlock keeps one open quest so the sheet fits")
+		failures += 1
+	if report._bar.text != "847 / 1,250" or not is_equal_approx(report._bar.fraction, 47.0 / 450.0):
+		push_error("the level bar shows the XP after the game, got %s at %s" % [report._bar.text, report._bar.fraction])
+		failures += 1
+	failures += _check_button_sizes(report, "earnings report")
+	var screen: Vector2 = root.get_visible_rect().size
+	var box: Rect2 = report.get_global_rect()
+	if box.position.x < 0 or box.position.y < 0 or box.end.x > screen.x or box.end.y > screen.y:
+		push_error("the earnings report must fit the screen, got %s in %s" % [box, screen])
+		failures += 1
+	# The server resends the ended view (a rejoin, a resize): the report stays.
+	table._on_view(v.duplicate(true))
+	await process_frame
+	if not report.visible or table._result_panel.visible:
+		push_error("a repeated ended view must not close the earnings report")
+		failures += 1
+
+	# The fill: from the XP before the game, through the level-up, to the end.
+	report.animate = true
+	report.show_report(_receipt())
+	if report._total.text != "+0 XP" or report._level_title.text != "Level 4" or report._bar.text != "740 / 800":
+		push_error("the fill starts from the level before the game, got %s, %s, %s" % [report._total.text, report._level_title.text, report._bar.text])
+		failures += 1
+	report.finish_motion()
+	if report._total.text != "+107 XP" or report._level_title.text != "Level 5":
+		push_error("finish_motion() lands on the final numbers")
+		failures += 1
+
+	# A lost game against bots: half pay, said plainly, no level-up dressing.
+	var quiet := _receipt()
+	quiet.merge({"rank": 3, "seats": 4, "capital": 9, "rate": 1.0, "botsOnly": true, "xp": 19, "xpBefore": 500, "xpAfter": 519, "levelBefore": 4, "levelAfter": 4, "seasonPoints": 0, "unlocked": [],
+		"lines": [{"kind": "capital", "xp": 9}, {"kind": "finish", "xp": 10}]}, true)
+	report.animate = false
+	report.show_report(quiet)
+	await process_frame
+	texts = _texts(report)
+	for want in ["You finished 3rd", "3rd of 4 with 9 capital", "Capital 9 × 1", "+19 XP", "Level 4", "Games against bots pay half.", "Win 3 games this week"]:
+		if not texts.has(want):
+			push_error("a bots-only receipt should say '%s', got %s" % [want, texts])
+			failures += 1
+	if texts.has("LEVEL UP") or texts.has("Season points"):
+		push_error("no level-up chip and no season row when the game gave neither")
+		failures += 1
+	# Four finished quests fold into one line.
+	var busy := _receipt()
+	busy["lines"] = [{"kind": "capital", "xp": 42}, {"kind": "finish", "xp": 20}]
+	for i in 4:
+		busy["lines"].append({"kind": "quest", "xp": 30, "text": "Quest %d" % i})
+	report.show_report(busy)
+	if not _texts(report).has("4 quests completed") or not _texts(report).has("+120"):
+		push_error("more than two finished quests fold into one line, got %s" % [_texts(report)])
+		failures += 1
+
+	# The next game starts from the standings again.
+	v["phase"] = "take"
+	v["result"] = null
+	table._on_view(v.duplicate(true))
+	await process_frame
+	if report.visible or not table._result_panel.visible or table._result_backdrop.visible:
+		push_error("a new game hides the report and resets the standings")
+		failures += 1
+	net.last_earnings = {}
+	table.queue_free()
+	return failures
+
+
 func _mouse(at: Vector2, pressed: bool) -> void:
 	var ev := InputEventMouseButton.new()
 	ev.button_index = MOUSE_BUTTON_LEFT
@@ -1471,13 +1616,13 @@ func _friends_checks() -> int:
 		push_error("a request row has no Gift")
 		failures += 1
 	var bo_id := String(panel._friends[0].get("userId", ""))
-	panel.set_extras({"waiting": 2, "names": ["Cara", "Dev"], "claimLeft": 5, "sentToday": [bo_id], "sendLeft": 9, "points": 5}, [bo_id])
+	panel.set_extras({"waiting": 2, "names": ["Cara", "Dev"], "claimLeft": 5, "sentToday": [bo_id], "sendLeft": 9, "xp": 15}, [bo_id])
 	await process_frame
 	bo_row = panel._list.get_child(0)
 	if bo_row.get_child(3).text != "Watch" or bo_row.get_child(4).text != "Sent" or not bo_row.get_child(4).disabled:
 		push_error("a friend in a game offers Watch; a gift sent today reads Sent")
 		failures += 1
-	if not panel._gift_row.visible or panel._gift_label.text != "2 gifts from Cara, Dev (+5 track points each)" or panel._collect_button.custom_minimum_size.y < 48:
+	if not panel._gift_row.visible or panel._gift_label.text != "2 gifts from Cara, Dev (+15 XP each)" or panel._collect_button.custom_minimum_size.y < 48:
 		push_error("waiting gifts show with Collect, got '%s'" % panel._gift_label.text)
 		failures += 1
 	panel.set_extras({}, [])
@@ -1565,23 +1710,23 @@ func _quests_checks() -> int:
 	root.add_child(panel)
 	await process_frame
 	var profile := {
-		"trackPoints": 40,
+		"trackXp": 480,
 		"unlocked": ["back_classic", "table_green", "back_midnight"],
 		"equipped": {"cardBack": "back_classic", "table": "table_green"},
 		"track": [
-			{"points": 30, "cosmeticId": "back_midnight"}, {"points": 70, "cosmeticId": "table_navy"},
-			{"points": 120, "cosmeticId": "back_sunrise"}, {"points": 200, "cosmeticId": "table_burgundy"},
-			{"points": 300, "cosmeticId": "back_pinstripe"},
+			{"xp": 360, "cosmeticId": "back_midnight"}, {"xp": 840, "cosmeticId": "table_navy"},
+			{"xp": 1440, "cosmeticId": "back_sunrise"}, {"xp": 2400, "cosmeticId": "table_burgundy"},
+			{"xp": 3600, "cosmeticId": "back_pinstripe"},
 		],
 		"quests": {
 			"daily": [
-				{"id": "d_play_3", "text": "Play 3 games", "target": 3, "points": 10, "progress": 3, "claimable": true, "claimed": false},
-				{"id": "d_win_1", "text": "Win a game", "target": 1, "points": 15, "progress": 0, "claimable": false, "claimed": false},
-				{"id": "d_people", "text": "Play a game with other people", "target": 1, "points": 10, "progress": 1, "claimable": false, "claimed": true},
+				{"id": "d_play_3", "text": "Play 3 games", "target": 3, "xp": 30, "progress": 3, "claimable": true, "claimed": false},
+				{"id": "d_win_1", "text": "Win a game", "target": 1, "xp": 45, "progress": 0, "claimable": false, "claimed": false},
+				{"id": "d_people", "text": "Play a game with other people", "target": 1, "xp": 30, "progress": 1, "claimable": false, "claimed": true},
 			],
 			"weekly": [
-				{"id": "w_win_3", "text": "Win 3 games this week", "target": 3, "points": 40, "progress": 1, "claimable": false, "claimed": false},
-				{"id": "w_coins_25", "text": "Collect 25 coins from Market shares", "target": 25, "points": 30, "progress": 25, "claimable": true, "claimed": false},
+				{"id": "w_win_3", "text": "Win 3 games this week", "target": 3, "xp": 160, "progress": 1, "claimable": false, "claimed": false},
+				{"id": "w_coins_25", "text": "Collect 25 coins from Market shares", "target": 25, "xp": 120, "progress": 25, "claimable": true, "claimed": false},
 			],
 		},
 	}
@@ -1619,39 +1764,39 @@ func _quests_checks() -> int:
 	var by_id := {}
 	for r in panel.rows:
 		by_id[r["id"]] = r
-	if by_id["d_play_3"]["button"].disabled or by_id["d_play_3"]["button"].text != "Claim":
-		push_error("a completed quest must offer Claim")
+	if by_id["d_play_3"]["button"].disabled or by_id["d_play_3"]["button"].text != "Collect":
+		push_error("a completed quest must offer Collect")
 		failures += 1
 	if not by_id["d_win_1"]["button"].disabled:
 		push_error("an unfinished quest must not be claimable")
 		failures += 1
-	if not by_id["d_people"]["button"].disabled or by_id["d_people"]["button"].text != "Claimed":
-		push_error("a claimed quest shows Claimed and stays disabled")
+	if not by_id["d_people"]["button"].disabled or by_id["d_people"]["button"].text != "Collected":
+		push_error("a collected quest shows Collected and stays disabled")
 		failures += 1
 	if by_id["w_coins_25"]["bar"].value != 25 or by_id["w_coins_25"]["bar"].max_value != 25:
 		push_error("progress bar should mirror progress / target")
 		failures += 1
-	if not panel._track_label.text.contains("Navy felt") or not panel._track_label.text.contains("70"):
+	if not panel._track_label.text.contains("Navy felt") or not panel._track_label.text.contains("840") or not by_id["d_win_1"]["label"].text.ends_with("(+45 XP)"):
 		push_error("track summary should name the next unlock, got %s" % panel._track_label.text)
 		failures += 1
-	if panel._track_bar.min_value != 30 or panel._track_bar.max_value != 70 or panel._track_bar.value != 40:
+	if panel._track_bar.min_value != 360 or panel._track_bar.max_value != 840 or panel._track_bar.value != 480:
 		push_error("track bar bounds wrong: %s %s %s" % [panel._track_bar.min_value, panel._track_bar.max_value, panel._track_bar.value])
 		failures += 1
 
 	# A claim flips the row and can unlock the next step.
-	panel._apply_claim("d_play_3", 70, ["back_classic", "table_green", "back_midnight", "table_navy"])
-	if not by_id["d_play_3"]["button"].disabled or by_id["d_play_3"]["button"].text != "Claimed":
-		push_error("claimed row should flip to Claimed")
+	panel._apply_claim("d_play_3", 840, ["back_classic", "table_green", "back_midnight", "table_navy"])
+	if not by_id["d_play_3"]["button"].disabled or by_id["d_play_3"]["button"].text != "Collected":
+		push_error("a collected row should flip to Collected")
 		failures += 1
-	if panel.track_points != 70 or panel._table_buttons["table_navy"].disabled:
-		push_error("claim should update track points and enable the new unlock")
+	if panel.track_xp != 840 or panel._table_buttons["table_navy"].disabled:
+		push_error("a collect should update the track XP and enable the new unlock")
 		failures += 1
 
 	# Picker: locked items disabled, unlocked ones enabled, current one pressed.
 	if panel._back_buttons["back_midnight"].disabled or not panel._back_buttons["back_sunrise"].disabled or not panel._back_buttons["back_pinstripe"].disabled:
 		push_error("card back picker should enable only unlocked backs")
 		failures += 1
-	if not panel._back_buttons["back_sunrise"].text.contains("120"):
+	if not panel._back_buttons["back_sunrise"].text.contains("1,440 XP"):
 		push_error("locked items show their unlock threshold, got %s" % panel._back_buttons["back_sunrise"].text)
 		failures += 1
 	if not panel._back_buttons["back_classic"].button_pressed:

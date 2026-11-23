@@ -1,6 +1,6 @@
 /**
  * Friend gifting (research section 7, Phase 3): the pure rules. A gift is a
- * few points on the free cosmetic track, never anything sold and never a
+ * little XP, never anything sold and never a
  * currency (decision D5: real-money prices only, no virtual currency).
  * rpc_gifts.ts holds the RPCs and storage.
  */
@@ -8,8 +8,8 @@ import { utcDate } from './progression';
 
 /** Server-only rows: 'inbox' (gifts waiting) and 'sent' (today's sends) per player. */
 export const GIFT_COLLECTION = 'gifts';
-/** Track points one gift is worth. */
-export const GIFT_POINTS = 5;
+/** XP one gift is worth (15 since decision D23; it was 5 track points). */
+export const GIFT_XP = 15;
 /** Gifts a player may collect per UTC day; the rest wait for tomorrow. */
 export const GIFTS_CLAIM_PER_DAY = 5;
 /** Gifts a player may send per UTC day (one per friend). */
@@ -89,8 +89,8 @@ export function claimsLeft(inbox: GiftInbox, now: number): number {
   return Math.max(0, GIFTS_CLAIM_PER_DAY - (inbox.claimDay === utcDate(now) ? inbox.claimed : 0));
 }
 
-/** Collects the oldest waiting gifts up to today's cap: the new inbox, how many and the points. */
-export function claimGifts(inbox: GiftInbox, now: number): { inbox: GiftInbox; count: number; points: number } {
+/** Collects the oldest waiting gifts up to today's cap: the new inbox, how many and the XP. */
+export function claimGifts(inbox: GiftInbox, now: number): { inbox: GiftInbox; count: number; xp: number } {
   const today = utcDate(now);
   const pending = fresh(inbox.pending, now);
   const count = Math.min(pending.length, claimsLeft(inbox, now));
@@ -98,7 +98,7 @@ export function claimGifts(inbox: GiftInbox, now: number): { inbox: GiftInbox; c
   return {
     inbox: { pending: pending.slice(count), claimDay: today, claimed: already + count },
     count,
-    points: count * GIFT_POINTS,
+    xp: count * GIFT_XP,
   };
 }
 

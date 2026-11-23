@@ -4,9 +4,11 @@ extends SceneTree
 ##   xvfb-run -a godot --rendering-driver opengl3 --path client --script res://tests/screenshot.gd -- out_dir
 ## Output: <out_dir>/lobby.png, help.png (the Goal tab) and help_<tab>.png
 ## for the other rule tabs, table.png, play_step.png, dividend.png,
-## tutorial.png, emotes.png, get_ready.png, forfeit.png, peek.png, token.png,
-## then lobby_tall.png, lobby_more.png (the More sheet), table_tall.png and coach_tall.png at
-## 720x1560 (a 19.5:9 phone).
+## earnings.png (the report after it), earnings_bots.png, tutorial.png,
+## emotes.png, get_ready.png, forfeit.png, peek.png, token.png, then
+## lobby_tall.png, lobby_more.png (the More sheet), table_tall.png,
+## earnings_tall.png (a level-up) and coach_tall.png at 720x1560 (a 19.5:9
+## phone).
 ## Add "he" after the folder to run under a Hebrew (right-to-left) locale:
 ##   ... --script res://tests/screenshot.gd -- out_dir he
 
@@ -82,13 +84,26 @@ func _run() -> void:
 			{"seat": 4, "bronze": 6, "gold": 0, "score": 6, "rank": 5},
 		],
 	}
+	var net: Node = root.get_node("Net")
+	net.last_earnings = _fake_receipt(false)
 	table._on_view(view)
 	await _settle()
 	await _save(out_dir + "/dividend.png")
+	# Continue: the earnings report, drawn at its end state.
+	table._earnings_report.animate = false
+	table._on_result_continue()
+	await create_timer(0.3).timeout
+	await _save(out_dir + "/earnings.png")
+	var bots := _fake_receipt(false)
+	bots.merge({"rank": 3, "capital": 9, "rate": 1.0, "botsOnly": true, "xp": 19, "xpBefore": 500, "xpAfter": 519, "seasonPoints": 0,
+		"lines": [{"kind": "capital", "xp": 9}, {"kind": "finish", "xp": 10}]}, true)
+	table._earnings_report.show_report(bots)
+	await _settle()
+	await _save(out_dir + "/earnings_bots.png")
+	net.last_earnings = {}
 	table.queue_free()
 
 	# Tutorial coach card over the opening position.
-	var net: Node = root.get_node("Net")
 	net.tutorial_mode = true
 	var tutorial = load("res://scenes/table.tscn").instantiate()
 	root.add_child(tutorial)
@@ -206,6 +221,19 @@ func _run() -> void:
 	big._on_view(four)
 	await _settle()
 	await _save(out_dir + "/table_tall.png")
+	four["phase"] = "ended"
+	four["legal"] = []
+	four["result"] = {"companies": [], "scores": [
+		{"seat": 0, "bronze": 6, "gold": 5, "score": 21, "rank": 1}, {"seat": 1, "bronze": 8, "gold": 3, "score": 17, "rank": 2},
+		{"seat": 2, "bronze": 9, "gold": 1, "score": 12, "rank": 3}, {"seat": 3, "bronze": 6, "gold": 0, "score": 6, "rank": 4}]}
+	net.last_earnings = _fake_receipt(true)
+	big._on_view(four)
+	await _settle()
+	big._earnings_report.animate = false
+	big._on_result_continue()
+	await create_timer(0.3).timeout
+	await _save(out_dir + "/earnings_tall.png")
+	net.last_earnings = {}
 	big.queue_free()
 	net.tutorial_mode = true
 	var coached = load("res://scenes/table.tscn").instantiate()
@@ -233,6 +261,22 @@ func _save(path: String) -> void:
 	var img := root.get_viewport().get_texture().get_image()
 	var err := img.save_png(path)
 	print("saved ", path, " (", img.get_width(), "x", img.get_height(), ") err=", err)
+
+
+## The server's receipt for a won game: `level_up` crosses into level 5 and
+## unlocks a felt, otherwise the game stays inside level 4.
+func _fake_receipt(level_up: bool) -> Dictionary:
+	return {
+		"rank": 1, "seats": 5, "capital": 21, "rate": 2.0, "botsOnly": false,
+		"lines": [{"kind": "capital", "xp": 42}, {"kind": "finish", "xp": 20}, {"kind": "quest", "xp": 45, "text": "Win a game"}],
+		"xp": 107, "xpBefore": 740 if level_up else 520, "xpAfter": 847 if level_up else 627,
+		"levelBefore": 4, "levelAfter": 5 if level_up else 4, "seasonPoints": 12,
+		"quests": [
+			{"id": "d_play_3", "text": "Play 3 games", "progress": 2, "target": 3, "xp": 30, "weekly": false},
+			{"id": "w_win_3", "text": "Win 3 games this week", "progress": 2, "target": 3, "xp": 160, "weekly": true},
+		],
+		"unlocked": ["table_navy"] if level_up else [],
+	}
 
 
 func _fake_view() -> Dictionary:

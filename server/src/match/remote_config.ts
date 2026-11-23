@@ -30,6 +30,10 @@ export interface RemoteConfig {
    * launches without a subscription. Members keep their benefits either way.
    */
   plusEnabled: boolean;
+  /** XP for finishing a game (decision D23); games against only bots pay half. */
+  xpGameBase: number;
+  /** XP per coin of final capital at the end of a game (decision D23). */
+  xpPerCoin: number;
 }
 
 export const DEFAULT_CONFIG: RemoteConfig = {
@@ -40,12 +44,16 @@ export const DEFAULT_CONFIG: RemoteConfig = {
   quickPlayWaitSeconds: 20,
   designerEnabled: true,
   plusEnabled: false,
+  xpGameBase: 20,
+  xpPerCoin: 2,
 };
 
 /** Integer keys and their allowed range; values outside are clamped. */
 const RANGES: { [key: string]: [number, number] } = {
   pushCooldownMinutes: [1, 1440],
   quickPlayWaitSeconds: [5, 60],
+  xpGameBase: [0, 200],
+  xpPerCoin: [0, 20],
 };
 
 /**

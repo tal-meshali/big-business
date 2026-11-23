@@ -20,7 +20,7 @@ These sit on top of D4 (every age) and D5 (no virtual currency, no loot boxes).
 
 ## 2. What exists today
 
-A first version of each piece is merged (`server/src/match/progression.ts`, `quests.ts`, `cosmetics.ts`, `awards.ts`, `gifts.ts`, `boards.ts`).
+A first version of each piece is merged (`server/src/match/progression.ts`, `quests.ts`, `cosmetics.ts`, `awards.ts`, `gifts.ts`, `boards.ts`). The table is where the plan started from on 2026-11-21; section 13 marks what has been built since.
 
 | Piece | How it works now | What it gives |
 | --- | --- | --- |
@@ -99,8 +99,8 @@ The day changes at midnight UTC for everyone, as today.
 
 | Kind | How many | Resets | Pays | Status |
 | --- | --- | --- | --- | --- |
-| Daily | 3 a day | Midnight UTC | 30 to 45 XP | Exists, pays track points |
-| Weekly | 2 a week | Monday | 120 to 160 XP | Exists, pays track points |
+| Daily | 3 a day | Midnight UTC | 30 to 45 XP | Built: pays XP, collected when the game ends |
+| Weekly | 2 a week | Monday | 120 to 160 XP | Built: pays XP, collected when the game ends |
 | Getting started | 8, once | Never | 50 XP each; a starter card back for all 8 | New |
 | Achievements | About 20, in bronze, silver and gold | Never | A profile badge and XP; a few give a title | New |
 
@@ -225,12 +225,12 @@ Each item is a feature thread that follows the project workflow (build, test, re
 
 **Phase 1: make what exists pay off (before the soft launch)**
 
-1. Earnings report on the end-of-game screen.
-2. One XP number: capital-based game XP; quests and gifts pay XP; the track reads XP. Cosmetics already unlocked stay unlocked.
+1. Earnings report on the end-of-game screen. **Built (2026-11-23):** after the Dividend day standings, Continue opens the report (`client/scripts/ui/earnings_report.gd`), drawn from the server's receipt (`OP_EARNINGS`). The career title and the rank emblem join it with items 4 and Phase 2.
+2. One XP number: capital-based game XP; quests and gifts pay XP; the track reads XP. Cosmetics already unlocked stay unlocked. **Built (2026-11-23):** old track points count 12 XP each, so nobody loses a look; the track's steps are 360, 840, 1,440, 2,400 and 3,600 XP. A finished quest pays when its game ends; the Quests screen keeps a Collect button for a leftover.
 3. Daily dividend: paid by the first game, 7-day calendar, forgiving flame.
 4. Career titles and frames.
 5. Getting-started goals.
-6. Values in Remote Config, and counters for the measures below.
+6. Values in Remote Config, and counters for the measures below. **Started:** the game XP rates are `xpGameBase` and `xpPerCoin`.
 
 **Phase 2: reasons to stay (soft launch to launch)**
 

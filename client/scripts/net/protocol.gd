@@ -20,6 +20,9 @@ const OP_FORFEITED := 15
 ## {"owner", "back", "art": [6]}: the host's custom card art for this
 ## private room, as art hashes (null keeps the standard drawing).
 const OP_DECK := 16
+## The earnings receipt for the game that just ended: what it paid this
+## player (EarningsMessage in server/src/match/protocol.ts).
+const OP_EARNINGS := 17
 
 ## Nakama notification code of a room invite (INVITE_CODE on the server).
 const INVITE_CODE := 100

@@ -88,6 +88,7 @@ Decisions made by the project owner on 2026-09-27, after the research in `docs/r
 
 - **Decision:** a friend gift is 5 points on the free cosmetic track: one a day to each mutual friend, ten sends a day, five collected a day, kept 7 days. Watching is for mutual friends only: the friend's match grants a short pass and the watcher joins with no seat, seeing what a player without a seat sees (no hands) and sending nothing the game acts on; at most 8 watch a game, and never the tutorial.
 - **Why:** the research's "gift free currency" does not fit D5 (real money only, no virtual currency), so the gift is the one free thing players already earn. Small daily caps keep a ring of spare accounts from buying the track. Friends only matches the invite rule (D4): a stranger cannot find a child's game, and watching shows nothing a seat at the table would not.
+- **Changed by D23 (2026-11-23):** track points are retired; a gift is now 15 XP, with the same caps.
 - **Implies:** gifts and the `playing` rows are server-only storage. Nobody can be watched by a stranger, but friends can watch without asking; if players ask for it, add a setting to turn watching off. A watcher sees emotes but cannot send one.
 
 

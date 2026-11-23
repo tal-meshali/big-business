@@ -23,6 +23,7 @@ function playingState(tutorial = false): MatchState {
     endedAt: 0,
     botActAt: 0,
     awarded: false,
+    earnings: {},
     lastEmoteAt: {},
     log: [],
     pushTurnKey: '',

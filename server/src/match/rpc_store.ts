@@ -21,7 +21,7 @@ const WEBHOOK_MAX_BYTES = 65536;
 function unequipLost(nk: nkruntime.Nakama, userId: string, owned: string[]): { cardBack: string; table: string } {
   const row = loadProfile(nk, userId);
   const p = row.progress;
-  const equipped = dropUnavailable(p.equipped, availableCosmetics(p.trackPoints, owned));
+  const equipped = dropUnavailable(p.equipped, availableCosmetics(p.trackXp, owned));
   if (equipped !== p.equipped) {
     try {
       saveProfile(nk, userId, { ...p, equipped }, row.version);
@@ -62,7 +62,7 @@ export const rpcSyncPurchases: nkruntime.RpcFunction = (ctx, logger, nk, payload
   }
   const equipped = unequipLost(nk, userId, result.owned);
   const p = loadProfile(nk, userId).progress;
-  return JSON.stringify({ configured: result.configured, owned: result.owned, equipped, unlocked: availableCosmetics(p.trackPoints, result.owned) });
+  return JSON.stringify({ configured: result.configured, owned: result.owned, equipped, unlocked: availableCosmetics(p.trackXp, result.owned) });
 };
 
 function header(ctx: nkruntime.Context, name: string): string {

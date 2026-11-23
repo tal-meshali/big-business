@@ -78,6 +78,12 @@ var _swallow_press: bool = false
 ## Designer preview: pictures shown instead of the room's (null: use the room's).
 var preview_back: Texture2D
 var preview_art: Texture2D
+## Founder screen preview: draws this company look instead of the room's
+## ({name, color: palette id, logo, picture: Texture2D or null}); {} for none.
+var preview_look: Dictionary = {}:
+	set(value):
+		preview_look = value
+		queue_redraw()
 
 
 func _init() -> void:
@@ -210,8 +216,9 @@ func _draw() -> void:
 		_draw_back()
 		return
 
-	var color := Companies.color_of(company)
-	var text_on_band := Companies.band_text_color(company)
+	var look := _look()
+	var color: Color = look["color"]
+	var text_on_band: Color = look["text"]
 	var comp := Companies.get_company(company)
 	var display := UiTheme.display_font()
 	var text := UiTheme.ui_font()
@@ -230,7 +237,7 @@ func _draw() -> void:
 	var count_w := display.get_string_size(count, HORIZONTAL_ALIGNMENT_LEFT, -1, 25).x
 	var mid := (INSET + 6 + count_w + size.x - INSET) / 2.0
 	_draw_centered_text("SHARE OF", Vector2(mid, INSET + 13), 8, text_on_band, text)
-	var short := Companies.short_name_of(company).to_upper()
+	var short := String(look["short"]).to_upper()
 	# The short name shrinks to fit beside a two-digit count.
 	var room := size.x - INSET - 4 - (INSET + 6 + count_w + 4)
 	var short_px := 15
@@ -240,7 +247,12 @@ func _draw() -> void:
 
 	# Full name over a rule, the art window, and the share count in words.
 	var name_y := INSET + BAND_H + 4
-	_draw_centered_text(String(comp["name"]), Vector2(size.x / 2.0, name_y + 7), 11, Companies.INK, text)
+	# A typed company name may be long: it shrinks to the card's width.
+	var full := String(look["name"])
+	var name_px := 11
+	while name_px > 8 and text.get_string_size(full, HORIZONTAL_ALIGNMENT_LEFT, -1, name_px).x > size.x - INSET * 2 - 4:
+		name_px -= 1
+	_draw_centered_text(full, Vector2(size.x / 2.0, name_y + 7), name_px, Companies.INK, text)
 	draw_line(Vector2(INSET, name_y + 16), Vector2(size.x - INSET, name_y + 16), Companies.INK, 1.2)
 	# Art window: the only area a custom design may replace.
 	var art := Rect2(INSET, name_y + 20, size.x - INSET * 2, size.y - name_y - 20 - FOOT_H - INSET)
@@ -255,14 +267,14 @@ func _draw() -> void:
 		draw_texture_rect(custom, art.grow(-1), false)
 		draw_rect(art, Companies.INK, false, 1.0)
 	elif coins == 0:
-		_draw_icon(art.get_center(), minf(art.size.x, art.size.y) * 0.8, color)
+		_draw_logo(look, art.get_center(), minf(art.size.x, art.size.y) * 0.8, color)
 	var foot_y := size.y - INSET - FOOT_H
 	draw_line(Vector2(INSET, foot_y + 3), Vector2(size.x - INSET, foot_y + 3), Companies.INK, 1.2)
 	_draw_centered_text("%d shares issued" % int(comp["shares"]), Vector2(size.x / 2.0, foot_y + 12), 10, Companies.INK, text)
 
 	if coins > 0:
 		if custom == null:
-			_draw_icon(art.get_center() - Vector2(0, art.size.y * 0.12), minf(art.size.x, art.size.y) * 0.55, color)
+			_draw_logo(look, art.get_center() - Vector2(0, art.size.y * 0.12), minf(art.size.x, art.size.y) * 0.55, color)
 		_draw_coin_badge(coins, art.get_center() + Vector2(0, art.size.y * 0.16))
 	if blocked:
 		_draw_blocked_stripes(rect)
@@ -404,63 +416,35 @@ func _draw_monogram(color: Color) -> void:
 	_draw_centered_text("BUSINESS", Vector2(size.x / 2.0, size.y / 2.0 + 12), 19, color, display)
 
 
-## The company's art in a 24-unit box centred on `center`, `box` px wide:
-## sun, pine, anchor, gear, cloud, bolt. Ink outlines, company fill.
-## WHY: each company also differs in silhouette, for colourblind players.
-func _draw_icon(center: Vector2, box: float, color: Color) -> void:
-	var k := box / 24.0
-	var at := func(x: float, y: float) -> Vector2: return center + (Vector2(x, y) - Vector2(12, 12)) * k
-	var w := maxf(1.0, 1.6 * k)
-	match company:
-		0:
-			for ray in [[12, 2, 12, 5], [12, 19, 12, 22], [2, 12, 5, 12], [19, 12, 22, 12], [4.9, 4.9, 7, 7], [17, 17, 19.1, 19.1], [4.9, 19.1, 7, 17], [17, 7, 19.1, 4.9]]:
-				draw_line(at.call(ray[0], ray[1]), at.call(ray[2], ray[3]), Companies.INK, w, true)
-			draw_circle(at.call(12, 12), 4.5 * k, color)
-			draw_arc(at.call(12, 12), 4.5 * k, 0, TAU, 32, Companies.INK, w, true)
-		1:
-			_ink_polygon([at.call(12, 2), at.call(19, 21), at.call(5, 21)], color, w)
-			for seg in [[8.6, 12, 15.4, 12], [7, 16.5, 17, 16.5], [12, 7, 12, 21]]:
-				draw_line(at.call(seg[0], seg[1]), at.call(seg[2], seg[3]), Companies.INK, w, true)
-		2:
-			draw_circle(at.call(12, 5), 2.3 * k, color)
-			draw_arc(at.call(12, 5), 2.3 * k, 0, TAU, 24, Companies.INK, w * 1.1, true)
-			draw_line(at.call(12, 7.3), at.call(12, 21), Companies.INK, w * 1.1, true)
-			draw_line(at.call(8, 10.5), at.call(16, 10.5), Companies.INK, w * 1.1, true)
-			draw_arc(at.call(12, 13.5), 7.5 * k, 0, PI, 24, Companies.INK, w * 1.1, true)
-		3:
-			var gear := [[10.4, 2], [13.6, 2], [14.2, 4.6], [16.2, 5.4], [18.5, 4], [20.7, 6.2], [19.3, 8.5], [20.1, 10.5], [22.7, 11.1], [22.7, 14.3], [20.1, 14.9], [19.3, 16.9], [20.7, 19.2], [18.5, 21.4], [16.2, 20], [14.2, 20.8], [13.6, 23.4], [10.4, 23.4], [9.8, 20.8], [7.8, 20], [5.5, 21.4], [3.3, 19.2], [4.7, 16.9], [3.9, 14.9], [2, 13.6], [2, 10.4], [4.6, 9.8], [5.4, 7.8], [4, 5.5], [6.2, 3.3], [8.5, 4.7], [10.5, 3.9]]
-			var pts: Array = []
-			for p in gear:
-				pts.append(at.call(p[0], p[1] - 0.7))
-			_ink_polygon(pts, color, w)
-			draw_circle(at.call(12, 12), 3.4 * k, Companies.CARD_FACE)
-			draw_arc(at.call(12, 12), 3.4 * k, 0, TAU, 24, Companies.INK, w, true)
-		4:
-			# Cloud: ink blobs first, then the same blobs in colour, smaller.
-			var blobs := [[7.4, 14.2, 4.8], [12.2, 10.6, 5.6], [17.2, 14.6, 4.4]]
-			for b in blobs:
-				draw_circle(at.call(b[0], b[1]), b[2] * k + w, Companies.INK)
-			draw_rect(Rect2(at.call(7.4, 14.2) - Vector2(0, w), (Vector2(17.2, 19) - Vector2(7.4, 14.2)) * k + Vector2(0, 2 * w)), Companies.INK)
-			for b in blobs:
-				draw_circle(at.call(b[0], b[1]), b[2] * k, color)
-			draw_rect(Rect2(at.call(7.4, 14.2), (Vector2(17.2, 19) - Vector2(7.4, 14.2)) * k), color)
-		5:
-			draw_circle(at.call(12, 12), 9.5 * k, color)
-			draw_arc(at.call(12, 12), 9.5 * k, 0, TAU, 40, Companies.INK, w, true)
-			draw_circle(at.call(12, 12), 6.2 * k, Companies.CARD_FACE)
-			draw_arc(at.call(12, 12), 6.2 * k, 0, TAU, 32, Companies.INK, w, true)
-			var bolt := [[13.2, 7.2], [9.4, 12.6], [12.5, 12.6], [11.4, 16.8], [15.2, 11.3], [12.1, 11.3]]
-			var bpts := PackedVector2Array()
-			for p in bolt:
-				bpts.append(at.call(p[0], p[1]))
-			draw_colored_polygon(bpts, Companies.INK)
+## What this card shows for its company: the Founder preview, else the
+## room's company (custom or standard).
+func _look() -> Dictionary:
+	if not preview_look.is_empty():
+		var cid := String(preview_look.get("color", "yellow"))
+		var n := String(preview_look.get("name", ""))
+		# The standard company keeps its own band name ("Solar", not "Sunny").
+		var std: Dictionary = Companies.DATA[clampi(company, 0, 5)]
+		return {
+			"name": n, "short": String(std["short"]) if n == String(std["name"]) else Companies.short_of_name(n),
+			"color": Companies.PALETTE.get(cid, Companies.GOLD), "text": Companies.text_on(cid),
+			"logo": String(preview_look.get("logo", "sun")), "picture": preview_look.get("picture"),
+		}
+	var comp := Companies.get_company(company)
+	return {
+		"name": String(comp["name"]), "short": String(comp["short"]),
+		"color": comp["color"], "text": Companies.band_text_color(company),
+		"logo": Companies.logo_of(company), "picture": Companies.picture_of(company),
+	}
 
 
-func _ink_polygon(points: Array, fill: Color, width: float) -> void:
-	var pts := PackedVector2Array(points)
-	draw_colored_polygon(pts, fill)
-	pts.append(pts[0])
-	draw_polyline(pts, Companies.INK, width, true)
+## The company's logo in the art window: its approved picture in a round
+## frame, else its drawn logo (CompanyLogos).
+func _draw_logo(look: Dictionary, center: Vector2, box: float, color: Color) -> void:
+	var pic = look.get("picture")
+	if pic is Texture2D:
+		CompanyLogos.draw_picture(self, pic, center, box * 0.9)
+	else:
+		CompanyLogos.draw(self, String(look["logo"]), center, box, color)
 
 
 func _draw_coin_badge(n: int, c: Vector2) -> void:

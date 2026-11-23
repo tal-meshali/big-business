@@ -10,6 +10,8 @@ class_name CardArt
 
 const BACK_SIZE := Vector2i(250, 350)
 const WINDOW_SIZE := Vector2i(324, 228)
+## A custom company's logo picture (Founder), square; server LOGO_TEMPLATE.
+const LOGO_SIZE := Vector2i(192, 192)
 ## The server refuses images above this many bytes.
 const MAX_BYTES := 64 * 1024
 const PARTS: Array[String] = ["back", "c0", "c1", "c2", "c3", "c4", "c5"]
@@ -27,6 +29,8 @@ static var _textures: Dictionary = {}
 
 
 static func template_size(part: String) -> Vector2i:
+	if part == "logo":
+		return LOGO_SIZE
 	return BACK_SIZE if part == "back" else WINDOW_SIZE
 
 

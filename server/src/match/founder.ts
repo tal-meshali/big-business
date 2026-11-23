@@ -21,7 +21,7 @@
 export const COLORS = ['yellow', 'green', 'blue', 'orange', 'purple', 'red', 'teal', 'pink', 'navy', 'brown', 'lime', 'slate'];
 
 /** Drawn logo ids, in the order the picker shows them. The first six are the standard companies' art. */
-export const LOGOS = ['sun', 'pine', 'anchor', 'gear', 'cloud', 'bolt', 'rocket', 'crown', 'leaf', 'diamond', 'heart', 'star', 'wave', 'flame', 'key', 'mountain', 'cup', 'globe'];
+export const LOGOS = ['sun', 'pine', 'anchor', 'gear', 'cloud', 'bolt', 'rocket', 'crown', 'leaf', 'diamond', 'heart', 'star', 'chart', 'flame', 'key', 'mountain', 'cup', 'globe'];
 
 /** The standard companies' look, by company id (engine/companies.ts). */
 export const DEFAULT_NAMES = ['Sunny Side Solar', 'Pinecone Foods', 'Tidewater Freight', 'Cogwheel Robotics', 'Nimbus Air', 'Redline Motors'];

@@ -399,8 +399,11 @@ func report_player(target_user_id: String, reason: String, note: String = "") ->
 	var rpc: NakamaAPI.ApiRpc = await client.rpc_async(session, "report_player", payload)
 	# Reporting the player whose custom deck is on the table reports its art too.
 	if CardArt.deck_owner() == target_user_id:
-		for h in CardArt.deck_hashes():
+		for h in CardArt.deck_hashes() + Companies.picture_hashes():
 			await client.rpc_async(session, "report_card_art", JSON.stringify({"hash": h, "matchId": match_id}))
+		# The host's typed company names go to the moderator too.
+		if not Companies.room_companies.is_empty():
+			await client.rpc_async(session, "report_companies", JSON.stringify({"userId": target_user_id, "matchId": match_id}))
 	return not rpc.is_exception()
 
 
@@ -453,14 +456,27 @@ func _on_match_state(state: NakamaRTAPI.MatchData) -> void:
 			# A Plus member's deck in quick play shows only to players who opted in.
 			if data is Dictionary and not is_blocked(String(data.get("owner", ""))) and (not data.get("public", false) or CardArt.show_public):
 				Cosmetics.set_room_skins(String(data.get("cardBack", "")), String(data.get("table", "")))
+				Companies.set_room_companies(data.get("companies"))
 				_set_room_deck(data)
-				await fetch_card_art(CardArt.missing_hashes())
+				var want := CardArt.missing_hashes()
+				want.append_array(_missing_logo_pictures())
+				await fetch_card_art(want)
 				custom_deck_changed.emit()
+
+
+## The room's company logo pictures that are not cached yet.
+func _missing_logo_pictures() -> Array[String]:
+	var out: Array[String] = []
+	for h in Companies.picture_hashes():
+		if CardArt.texture(h) == null:
+			out.append(h)
+	return out
 
 
 func _set_room_deck(deck: Dictionary) -> void:
 	if deck.is_empty():
 		Cosmetics.set_room_skins("", "")
+		Companies.clear_room_companies()
 		if CardArt.room_deck.is_empty():
 			return
 	CardArt.set_room_deck(deck)

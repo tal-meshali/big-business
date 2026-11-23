@@ -45,7 +45,11 @@ export interface GameState {
   phase: Phase;
   /** Turn counter, starts at 1. */
   turn: number;
-  /** Company of the share taken this turn, valid during the play step. */
+  /**
+   * Company of the share taken from the Market this turn, valid during the
+   * play step; its shares may not be played to the Market. Null after a draw
+   * from the Supply (a drawn share may be sold).
+   */
   tookCompany: CompanyId | null;
   /** Seat index holding each company's regulator token, or null. */
   tokens: Array<number | null>;

@@ -33,8 +33,12 @@ func _run() -> void:
 	var main = load("res://scenes/main.tscn").instantiate()
 	root.add_child(main)
 	main._apply_progress({"xp": 120, "level": 2, "gamesPlayed": 3, "wins": 1, "streak": 4}, true)
-	main._name_edit.text = "Tal"
-	main._on_name_changed("Tal")
+	# A named player, without touching the settings file: with `named`
+	# already set, `_set_named` only shows the name.
+	var net: Node = root.get_node("Net")
+	net.display_name = "Tal"
+	net.named = true
+	main._set_named(true)
 	await _settle()
 	for b in main._buttons:
 		b.disabled = false

@@ -77,9 +77,16 @@ func _load_settings() -> void:
 		set_server_address(AppInfo.SERVER_ADDRESS)
 	var cfg := ConfigFile.new()
 	if cfg.load(SETTINGS_PATH) == OK:
-		host = cfg.get_value("server", "host", host)
-		port = cfg.get_value("server", "port", port)
-		scheme = cfg.get_value("server", "scheme", scheme)
+		# WHY: a saved server is kept only while the build's default is the
+		# one it was saved under. When a new build moves the default (a server
+		# move, docs/home-server.md), players follow it instead of staying on
+		# the old address they never chose.
+		var saved_default: Variant = cfg.get_value("server", "default", null)
+		if not OS.has_feature("template") or AppInfo.SERVER_ADDRESS.is_empty() \
+				or saved_default == AppInfo.SERVER_ADDRESS:
+			host = cfg.get_value("server", "host", host)
+			port = cfg.get_value("server", "port", port)
+			scheme = cfg.get_value("server", "scheme", scheme)
 		display_name = cfg.get_value("player", "name", "")
 		for id in cfg.get_value("social", "muted", PackedStringArray()):
 			muted[String(id)] = true
@@ -91,6 +98,7 @@ func save_settings() -> void:
 	cfg.set_value("server", "host", host)
 	cfg.set_value("server", "port", port)
 	cfg.set_value("server", "scheme", scheme)
+	cfg.set_value("server", "default", AppInfo.SERVER_ADDRESS)
 	cfg.set_value("player", "name", display_name)
 	cfg.set_value("player", "provider", provider)
 	cfg.set_value("social", "muted", PackedStringArray(muted.keys()))

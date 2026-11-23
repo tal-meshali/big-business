@@ -334,9 +334,11 @@ func _draw_deltas(h: float, right: float) -> void:
 			stop = minf(stop, _chip_rects["gold"].position.x - 2.0 * s)
 		if x + w > stop:
 			continue
-		# WHY: a count swelling past its chip nudges the delta along (within
-		# the room it already had), so the two never overlap.
-		x = minf(x + CapitalChip.swell_reach(int(data.get(kind, 0)), _chip_words.get(kind, ""), h, float(_pop[kind])), stop - w)
+		# WHY: a count swelling past its chip nudges the delta along; where
+		# there is no room for that, the delta waits out the swell.
+		x += CapitalChip.swell_reach(int(data.get(kind, 0)), _chip_words.get(kind, ""), h, float(_pop[kind]))
+		if x + w > stop:
+			continue
 		var rise := 0.0 if reduce else ease(t, 0.3) * 3.0 * s
 		var at := Vector2(x, rect.get_center().y + px * 0.36 - rise)
 		var a := clampf((1.0 - t) / (1.0 - DELTA_HOLD), 0.0, 1.0)

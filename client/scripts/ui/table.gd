@@ -22,6 +22,10 @@ extends Control
 
 const FLY_TIME := 0.35
 const COIN_TIME := 0.3
+## Height of the bottom bar's buttons (before _px).
+const BUTTON_H := 50
+## How long your hand takes to close up after you play a card.
+const CLOSE_UP_TIME := 0.22
 ## Tilt of the hand cards per step from the middle, in degrees.
 const HAND_TILT_DEG := 7.0
 ## Seconds left on your own step when the table starts to glow and tick.
@@ -133,6 +137,8 @@ var _ready_ends_msec: int = 0
 var _ready_tween: Tween
 var _peek_layer: Control
 var _peek: CardView = null
+## The Market's share ids, in order, as the animation reaches each event.
+var _market_ids: Array = []
 ## What the other players did last, shown in the prompt while you wait.
 var _action_note := ""
 ## Where each opponent's kept shares lie on the felt (dp), by seat.
@@ -368,11 +374,16 @@ func _build_bottom_bar() -> void:
 	me_row.add_child(help)
 
 	_prompt = UiTheme.body("", _px(UiTheme.TYPE_BODY))
-	_prompt.custom_minimum_size = Vector2(0, _px(42))
+	# WHY two lines and a full button height: the felt and hand sit on top
+	# of this bar, so a bar that grew and shrank with the prompt's lines or
+	# with the buttons shown would shift the table between turns and right
+	# after a card lands.
 	column.add_child(_prompt)
+	_prompt.custom_minimum_size = Vector2(0, maxf(_px(38), _prompt_height(2)))
+	_prompt.resized.connect(_hold_prompt_height)
 	var buttons := HBoxContainer.new()
 	buttons.add_theme_constant_override("separation", _px(8))
-	buttons.custom_minimum_size = Vector2(0, _px(44))
+	buttons.custom_minimum_size = Vector2(0, _px(BUTTON_H))
 	column.add_child(buttons)
 	_draw_button = _make_button(buttons, "Draw from supply", _on_draw_pressed, "primary")
 	_keep_button = _make_button(buttons, "Keep", _on_keep_pressed, "primary")
@@ -800,7 +811,7 @@ func _on_connection_failed(reason: String) -> void:
 
 ## A move or dialog button, hidden until a step shows it.
 func _make_button(parent: Control, text: String, handler: Callable, kind := "") -> Button:
-	var b := UiTheme.button(text, _px(15), _px(50), kind)
+	var b := UiTheme.button(text, _px(15), _px(BUTTON_H), kind)
 	b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	b.pressed.connect(handler)
 	b.visible = false
@@ -812,6 +823,9 @@ func _make_button(parent: Control, text: String, handler: Callable, kind := "") 
 func enable_coach() -> void:
 	if coach != null:
 		return
+	# Tutorial hints go above the prompt, so leave room for a third line
+	# from the start rather than growing the bar on the first hint.
+	_prompt.custom_minimum_size.y = maxf(_prompt.custom_minimum_size.y, _prompt_height(3))
 	coach = Coach.new()
 	coach.spot_provider = coach_spot
 	add_child(coach)
@@ -929,6 +943,8 @@ func _on_play_again() -> void:
 		coach = null
 		_restriction = {}
 	_turns_announced = 0
+	# A new game starts with the usual two-line prompt again.
+	_prompt.custom_minimum_size.y = maxf(_px(38), _prompt_height(2))
 	_status.text = "Finding a new game…"
 	_result_backdrop.visible = false
 	var ok: bool = await Net.quick_play()
@@ -1162,7 +1178,10 @@ func _card_playable(card_id: int) -> bool:
 # ---------------------------------------------------------------------------
 
 func _render() -> void:
-	if view.is_empty():
+	# WHY: a render mid-animation (a resize, the coach closing, a view with
+	# no events) would draw the new table under the cards still in flight,
+	# so a played share shows twice. The animation renders when it ends.
+	if view.is_empty() or _animating:
 		return
 	var phase := String(view.get("phase", ""))
 	var seats: Array = view.get("seats", [])
@@ -1349,6 +1368,87 @@ static func _stacks_of(seat: Dictionary) -> Array:
 	return out
 
 
+## Your Portfolio as stacks, one per company you hold, in company order:
+## [[company, [card ids]], ...].
+static func _portfolio_groups(seat: Dictionary) -> Array:
+	var groups := []
+	for company in 6:
+		var ids := []
+		for card in seat.get("portfolio", []):
+			if int(card.get("company", -1)) == company:
+				ids.append(int(card.get("id", -1)))
+		if not ids.is_empty():
+			groups.append([company, ids])
+	return groups
+
+
+## Share j of stack gi of `count` stacks in your Portfolio (dp from the
+## felt's centre).
+static func _portfolio_pos(gi: int, count: int, j: int) -> Vector2:
+	return Vector2((gi - (count - 1) / 2.0) * 46.0, 92.0 + j * 10.0)
+
+
+## Glides the shares on the Market to their slots for the row as it now
+## stands (`_market_ids`, in order), as when a share joins or leaves it, so
+## the render after the flight draws them where they already are.
+func _slide_market() -> void:
+	for cv in _market_row.get_children():
+		if not cv is CardView:
+			continue
+		var k := _market_ids.find(cv.card_id)
+		if k < 0:
+			continue
+		var p := _market_pos(k, _market_ids.size())
+		var kk := _felt_scale(p, MARKET_CARD)
+		var tw := cv.create_tween().set_parallel().set_ease(Tween.EASE_IN_OUT).set_trans(Tween.TRANS_CUBIC)
+		tw.tween_property(cv, "position", _board.project(p) - cv.pivot_offset, FLY_TIME)
+		tw.tween_property(cv, "scale", Vector2(kk, kk), FLY_TIME)
+
+
+## Glides the shares (and token chips) already in your Portfolio to where
+## the current view puts them, as when a new stack makes room in the row,
+## so the render after the flight draws them where they already are.
+func _slide_portfolio() -> void:
+	var seats: Array = view.get("seats", [])
+	if _my_seat < 0 or _my_seat >= seats.size():
+		return
+	var groups := _portfolio_groups(seats[_my_seat])
+	for child in _portfolio_layer.get_children():
+		var p := Vector2.INF
+		if child is CardView:
+			for gi in groups.size():
+				var j: int = groups[gi][1].find(child.card_id)
+				if j >= 0:
+					p = _portfolio_pos(gi, groups.size(), j)
+		elif child.has_meta("company"):
+			for gi in groups.size():
+				if groups[gi][0] == child.get_meta("company"):
+					p = _portfolio_pos(gi, groups.size(), groups[gi][1].size() - 1) + Vector2(16.0, -22.0)
+		if p == Vector2.INF:
+			continue
+		var to_pos: Vector2 = _board.project(p)
+		var tw := child.create_tween().set_parallel().set_ease(Tween.EASE_IN_OUT).set_trans(Tween.TRANS_CUBIC)
+		if child is CardView:
+			var k := _felt_scale(p, PORTFOLIO_CARD)
+			tw.tween_property(child, "position", to_pos - child.pivot_offset, FLY_TIME)
+			tw.tween_property(child, "scale", Vector2(k, k), FLY_TIME)
+		else:
+			tw.tween_property(child, "position", to_pos, FLY_TIME)
+
+
+## Where share `card_id` sits in your Portfolio in the current view
+## (dp from the felt's centre), or the Portfolio's centre if it is not there.
+func _portfolio_spot(card_id: int) -> Vector2:
+	var seats: Array = view.get("seats", [])
+	if _my_seat >= 0 and _my_seat < seats.size():
+		var groups := _portfolio_groups(seats[_my_seat])
+		for gi in groups.size():
+			var j: int = groups[gi][1].find(card_id)
+			if j >= 0:
+				return _portfolio_pos(gi, groups.size(), j)
+	return TableBoard.zone_center(TableBoard.ZONE_PORTFOLIO)
+
+
 ## Where Market share `k` of `m` lies: rows of five, or two even rows
 ## squeezed together as the Market grows (dp from the felt's centre).
 ## WHY one pitch for both cases: a tighter second row hid half of each
@@ -1415,14 +1515,7 @@ func _render_portfolio(seats: Array) -> void:
 		child.queue_free()
 	if _my_seat < 0 or _my_seat >= seats.size():
 		return
-	var groups := []
-	for company in 6:
-		var ids := []
-		for card in seats[_my_seat].get("portfolio", []):
-			if int(card.get("company", -1)) == company:
-				ids.append(int(card.get("id", -1)))
-		if not ids.is_empty():
-			groups.append([company, ids])
+	var groups := _portfolio_groups(seats[_my_seat])
 	for gi in groups.size():
 		var company: int = groups[gi][0]
 		var ids: Array = groups[gi][1]
@@ -1433,15 +1526,16 @@ func _render_portfolio(seats: Array) -> void:
 			cv.card_held.connect(_on_card_held)
 			cv.card_released.connect(_on_card_released)
 			_portfolio_layer.add_child(cv)
-			_place_on_felt(cv, Vector2((gi - (groups.size() - 1) / 2.0) * 46.0, 92.0 + j * 10.0), PORTFOLIO_CARD)
+			_place_on_felt(cv, _portfolio_pos(gi, groups.size(), j), PORTFOLIO_CARD)
 		if Companies.tokens_of(seats[_my_seat]).has(company):
 			# On the top-right corner of the nearest share in the stack.
-			var p := Vector2((gi - (groups.size() - 1) / 2.0) * 46.0 + 16.0, 92.0 + (ids.size() - 1) * 10.0 - 22.0)
+			var p := _portfolio_pos(gi, groups.size(), ids.size() - 1) + Vector2(16.0, -22.0)
 			var chip := Control.new()
 			chip.mouse_filter = Control.MOUSE_FILTER_IGNORE
 			chip.position = _board.project(p)
 			var r := 11.0 * _board.depth(p) * _s
 			chip.draw.connect(func() -> void: TableBoard.draw_chip(chip, Vector2.ZERO, r, company))
+			chip.set_meta("company", company)
 			_portfolio_layer.add_child(chip)
 
 
@@ -1676,6 +1770,13 @@ func _play_events_then_render() -> void:
 		return
 	_animating = true
 	var events := _pending_events.duplicate()
+	# WHY not the view's Market: `view` is already the newest one, which may
+	# be several actions ahead; follow the row event by event instead (the
+	# server appends sold shares and takes shares out where they are).
+	_market_ids.clear()
+	for cv in _market_row.get_children():
+		if cv is CardView and cv.visible:
+			_market_ids.append(cv.card_id)
 	_pending_events.clear()
 	var supply_c := _center_of(_supply_pile)
 	var supply_k := _felt_scale(TableBoard.SUPPLY_AT, SUPPLY_CARD)
@@ -1690,7 +1791,7 @@ func _play_events_then_render() -> void:
 					sfx.play("coin")
 					var d := 0.0
 					for cv in _market_row.get_children():
-						if cv is CardView and not cv.blocked:
+						if cv is CardView and cv.visible and not cv.blocked:
 							_fly_coin(_seat_anchor(seat), _center_of(cv), false, d)
 							d = minf(d + 0.04, 0.12)
 					await get_tree().create_timer(COIN_TIME + d).timeout
@@ -1706,6 +1807,12 @@ func _play_events_then_render() -> void:
 				var company := int(card.get("company", 0))
 				sfx.play("coin" if coins > 0 else "deal")
 				var from := _market_card_anchor(int(card.get("id", -1)))
+				# The share leaves the Market as it flies, and the rest close up.
+				for cv in _market_row.get_children():
+					if cv is CardView and cv.card_id == int(card.get("id", -1)):
+						cv.visible = false
+				_market_ids.erase(int(card.get("id", -1)))
+				_slide_market()
 				_action_note = "" if mine else "%s takes a %s share from the Market%s." % [_seat_name(seat), Companies.name_of(company), " with %d capital on it" % coins if coins > 0 else ""]
 				for i in mini(coins, 8):
 					_fly_coin(from, _seat_anchor(seat), false, i * 0.07)
@@ -1723,21 +1830,34 @@ func _play_events_then_render() -> void:
 				var to := _seat_anchor(seat)
 				var to_k := small_k
 				if to_market:
-					var m: int = _market_row.get_child_count()
-					var p := _market_pos(m, m + 1)
+					# WHY its own slot in the view: the card lands where the
+					# render draws it, and the shares already there make room.
+					_market_ids.append(int(card.get("id", -1)))
+					var p := _market_pos(_market_ids.size() - 1, _market_ids.size())
 					to = _board.get_global_transform() * _board.project(p)
 					to_k = _felt_scale(p, MARKET_CARD)
+					_slide_market()
 				elif mine:
-					var p := TableBoard.zone_center(TableBoard.ZONE_PORTFOLIO)
+					# WHY its own spot, not the zone's centre: the card then
+					# lands where the next render draws it, with no jump.
+					var p := _portfolio_spot(int(card.get("id", -1)))
 					to = _board.get_global_transform() * _board.project(p)
 					to_k = _felt_scale(p, PORTFOLIO_CARD)
+					_slide_portfolio()
 				elif _portfolio_spots.has(seat):
 					var p: Vector2 = _portfolio_spots[seat]
 					to = _board.get_global_transform() * _board.project(p)
 					to_k = _felt_scale(p, 0.2)
 				if not mine:
 					_action_note = "%s %s %s%s." % [_seat_name(seat), "sells" if to_market else "keeps", Companies.name_of(company), " to the Market" if to_market else ""]
-				await _fly_card(from, to, company, true, from_k, to_k)
+					await _fly_card(from, to, company, true, from_k, to_k)
+				else:
+					_end_play_choice("You %s %s%s." % ["sell" if to_market else "keep", Companies.name_of(company), " to the Market" if to_market else ""])
+					var played := _take_from_hand(int(card.get("id", -1)))
+					if played != null:
+						await _fly_view(played, to, to_k)
+					else:
+						await _fly_card(from, to, company, true, from_k, to_k)
 				sfx.play("place")
 				if mine:
 					Sfx.buzz(25)
@@ -1825,12 +1945,14 @@ func _fly_to_hand(from: Vector2, from_k: float) -> void:
 	ghost.pivot_offset = Vector2(CardView.W / 2.0, CardView.H)
 	_fx_layer.add_child(ghost)
 	ghost.scale = Vector2(from_k, from_k)
-	var start := from - ghost.pivot_offset + Vector2(0, CardView.H / 2.0 * from_k)
-	var end: Vector2 = _hand_layer.global_position + slot["pos"]
-	ghost.global_position = start
+	# WHY position: see _fly_view. The pivot is the bottom centre, so the
+	# card's centre sits half a (scaled) card above position + pivot.
+	var start := _fx_point(from) - ghost.pivot_offset + Vector2(0, CardView.H / 2.0 * from_k)
+	var end: Vector2 = _fx_point(_hand_layer.global_position) + slot["pos"]
+	ghost.position = start
 	var tw := create_tween().set_parallel().set_ease(Tween.EASE_IN_OUT).set_trans(Tween.TRANS_CUBIC)
 	tw.tween_method(func(t: float) -> void:
-		ghost.global_position = start.lerp(end, t) + Vector2(0, -sin(t * PI) * 60.0 * _s), 0.0, 1.0, FLY_TIME)
+		ghost.position = start.lerp(end, t) + Vector2(0, -sin(t * PI) * 60.0 * _s), 0.0, 1.0, FLY_TIME)
 	tw.tween_property(ghost, "scale", Vector2(_hand_scale, _hand_scale), FLY_TIME)
 	tw.tween_property(ghost, "rotation", float(slot["rot"]), FLY_TIME)
 	await tw.finished
@@ -1846,16 +1968,93 @@ func _fly_card(from: Vector2, to: Vector2, company: int, face_up: bool, from_k: 
 	ghost.pivot_offset = Vector2(CardView.W, CardView.H) / 2.0
 	_fx_layer.add_child(ghost)
 	ghost.scale = Vector2(from_k, from_k)
-	var a := from - ghost.pivot_offset
-	var b := to - ghost.pivot_offset
-	ghost.global_position = a
+	ghost.position = _fx_point(from) - ghost.pivot_offset
+	await _fly_view(ghost, to, to_k)
+
+
+## Hops `card` (already in the effects layer, pivot at its centre) to
+## centre `to` on screen, scaling to `to_k` and levelling out, then frees it.
+func _fly_view(card: CardView, to: Vector2, to_k: float) -> void:
+	# WHY position, not global_position: on a scaled or tilted Control the
+	# global_position getter is the transformed corner, not what the setter
+	# takes, so mixing them makes the card jump. With the pivot at the
+	# centre, position + pivot is the centre whatever the scale and tilt.
+	var a := card.position
+	var b := _fx_point(to) - card.pivot_offset
 	var hop := 40.0 * _s
 	var tw := create_tween().set_parallel().set_ease(Tween.EASE_IN_OUT).set_trans(Tween.TRANS_CUBIC)
 	tw.tween_method(func(t: float) -> void:
-		ghost.global_position = a.lerp(b, t) + Vector2(0, -sin(t * PI) * hop), 0.0, 1.0, FLY_TIME)
-	tw.tween_property(ghost, "scale", Vector2(to_k, to_k), FLY_TIME)
+		card.position = a.lerp(b, t) + Vector2(0, -sin(t * PI) * hop), 0.0, 1.0, FLY_TIME)
+	tw.tween_property(card, "scale", Vector2(to_k, to_k), FLY_TIME)
+	tw.tween_property(card, "rotation", 0.0, FLY_TIME)
 	await tw.finished
-	ghost.queue_free()
+	card.queue_free()
+
+
+## Lifts the card you just played out of your hand so it can fly to the
+## table as itself, and closes the hand up behind it. Returns the card,
+## now in the effects layer with its pivot at its centre (null if it is
+## not in the hand on screen).
+func _take_from_hand(card_id: int) -> CardView:
+	var played: CardView = null
+	for cv in _hand_cards:
+		if cv.card_id == card_id:
+			played = cv
+	if played == null:
+		return null
+	_hand_cards.erase(played)
+	played.leave_hand()
+	# WHY: re-pivot about the centre without moving it on screen, so the
+	# flight can level it out and shrink it into place like a ghost card.
+	var center := _center_of(played)
+	played.reparent(_fx_layer, false)
+	played.pivot_offset = Vector2(CardView.W, CardView.H) / 2.0
+	played.position = _fx_point(center) - played.pivot_offset
+	var count := _hand_cards.size()
+	for i in count:
+		var slot := _hand_slot(i, count)
+		_hand_cards[i].slide_to(slot["pos"], slot["rot"], CLOSE_UP_TIME)
+	return played
+
+
+## Height of `lines` lines of prompt text, with the gaps between them and
+## a little headroom for names drawn from the taller fallback font
+## (Hebrew, Arabic, CJK).
+func _prompt_height(lines: int) -> float:
+	var line_h := UiTheme.body_font().get_height(_px(14))
+	return lines * line_h + (lines - 1) * _prompt.get_theme_constant("line_spacing") + _px(4)
+
+
+## The prompt only ever grows within a game (Play again resets it): a prompt longer than any so
+## far raises the bar once and it stays, so the felt and hand above it do
+## not move back and forth as the prompt changes.
+func _hold_prompt_height() -> void:
+	# WHY: before the first layout the label has next to no width and wraps
+	# every word onto its own line; holding that height would fill the
+	# screen with the bar (the table opens on the lobby's view that early).
+	if _prompt.size.x < maxf(_bar.size.x * 0.5, _px(160)):
+		return
+	# WHY lines, not size.y: when the label first gets its width it still
+	# reports the height it measured while narrow.
+	var h := _prompt_height(clampi(_prompt.get_line_count(), 1, 4))
+	if h > _prompt.custom_minimum_size.y:
+		_prompt.custom_minimum_size.y = h
+
+
+## Screen point `p` in the effects layer's own coordinates.
+func _fx_point(p: Vector2) -> Vector2:
+	return _fx_layer.get_global_transform().affine_inverse() * p
+
+
+## The play is made: the Keep / Sell choice and the zone glow go, and
+## `note` says what you did until the next player acts.
+func _end_play_choice(note: String) -> void:
+	_selected_card = -1
+	for b in [_keep_button, _sell_button, _cancel_button]:
+		b.visible = false
+	_board.glow = {}
+	_prompt.text = note
+	_action_note = note
 
 
 ## A bronze (or gold) coin hops from one point to another after `delay`.

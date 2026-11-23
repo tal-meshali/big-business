@@ -8,12 +8,13 @@ const SUPPORT_EMAIL := ""
 ## Public page with the privacy policy.
 const PRIVACY_URL := ""
 
-## The deployed server (docs/deploy.md), for builds handed to players:
+## The deployed server (docs/home-server.md: the home Windows PC through
+## Tailscale Funnel; Fly.io before that), for builds handed to players:
 ## the address the lobby starts with until the player types another one,
 ## and its NAKAMA_SERVER_KEY from .env (embedded in the app, not a secret).
 ## Empty keeps the local default, 127.0.0.1 with "defaultkey". Editor runs and
 ## tests always start on the local server.
-const SERVER_ADDRESS := "https://big-business-server.fly.dev"
+const SERVER_ADDRESS := "https://desktop-j5t74pv.taild5bda7.ts.net"
 const SERVER_KEY := "35bd519ec107d4960bf69ce4042b98e83d5d125cd146ce9dbacc29638de1cfed"
 
 

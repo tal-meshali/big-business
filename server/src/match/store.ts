@@ -56,9 +56,16 @@ export const DESIGNER = 'designer';
  * owned row keeps the expiry and readers drop it once passed.
  */
 export const PLUS = PLUS_OWNED_ID;
+/**
+ * Founder: the player's own companies (name, colour, logo) in the private
+ * rooms they host (founder.ts). A one-time unlock like Designer; Plus
+ * includes it.
+ */
+export const FOUNDER = 'founder';
 export const UNLOCKS: ReadonlyArray<Unlock> = [
   { id: DESIGNER, name: 'Designer', productId: 'bb_designer', entitlement: 'designer' },
   { id: PLUS, name: 'Plus', productId: 'bb_plus_monthly', entitlement: 'plus' },
+  { id: FOUNDER, name: 'Founder', productId: 'bb_founder', entitlement: 'founder' },
 ];
 
 /** Every product the server reads from RevenueCat: skins, then unlocks. */

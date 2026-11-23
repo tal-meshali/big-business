@@ -1,5 +1,6 @@
 /**
- * The look a room shows: custom card art (Designer) and, in a Plus host's
+ * The look a room shows: custom card art (Designer), the host's own
+ * companies (Founder) and, in a Plus host's
  * private room, the host's card back and table felt for every seat ("the
  * host unlocks the table"). Chosen once when the game starts and sent to the
  * seats as OP_DECK, and again to anyone rejoining.
@@ -14,6 +15,8 @@
 import { availableCosmetics, dropUnavailable } from './cosmetics';
 import { AGE_BRACKETS, deckHashes, deckManifest, STRIKES_TO_BAN } from './designer';
 import { designerAccess, readArt, readDecks, readStanding } from './designer_store';
+import { companiesManifest, pictureHashes } from './founder';
+import { ownsFounder, readCompanies } from './founder_store';
 import { loadProfile } from './profile';
 import { OP_DECK, type DeckMessage } from './protocol';
 import { readOwned } from './purchases';
@@ -37,6 +40,18 @@ function activeDeck(nk: nkruntime.Nakama, userId: string, needPublic: boolean): 
 export function hostDeck(nk: nkruntime.Nakama, hostId: string): DeckMessage | null {
   if (!readRemoteConfig(nk).designerEnabled) return null;
   return activeDeck(nk, hostId, false);
+}
+
+/**
+ * The host's custom companies for a private room (Founder), with only
+ * approved logo pictures, or null for the standard companies.
+ */
+export function hostCompanies(nk: nkruntime.Nakama, hostId: string): DeckMessage['companies'] | null {
+  if (!readRemoteConfig(nk).companiesEnabled || !ownsFounder(nk, hostId)) return null;
+  if (readStanding(nk, hostId).standing.strikes >= STRIKES_TO_BAN) return null;
+  const row = readCompanies(nk, hostId).row;
+  const arts = readArt(nk, pictureHashes(row));
+  return companiesManifest(row, (h) => !!arts[h] && arts[h].art.status === 'approved');
 }
 
 /**
@@ -76,8 +91,9 @@ export function chooseRoomDeck(s: MatchState, nk: nkruntime.Nakama, logger: nkru
     if (!host || s.seatByUser[host] === undefined) return;
     const deck = hostDeck(nk, host);
     const skins = hostSkins(nk, host);
-    if (!deck && !skins) return;
-    s.customDeck = { ...(deck || { owner: host, back: null, art: [null, null, null, null, null, null] }), ...(skins || {}) };
+    const companies = hostCompanies(nk, host);
+    if (!deck && !skins && !companies) return;
+    s.customDeck = { ...(deck || { owner: host, back: null, art: [null, null, null, null, null, null] }), ...(skins || {}), ...(companies ? { companies } : {}) };
   } catch (e) {
     logger.warn('room look failed: %s', String(e));
   }

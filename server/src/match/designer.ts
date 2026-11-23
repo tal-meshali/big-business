@@ -15,6 +15,13 @@
 
 /** Deck parts: the card back and one art window per company (0..5). */
 export const PARTS = ['back', 'c0', 'c1', 'c2', 'c3', 'c4', 'c5'];
+/**
+ * A custom company's logo picture (Founder unlock, founder.ts). Not a deck
+ * part: it uses the same checks, storage and review as card art.
+ */
+export const LOGO_PART = 'logo';
+/** Every kind of picture the art store takes. */
+export const ART_PARTS = PARTS.concat([LOGO_PART]);
 export type Part = string;
 
 /** Template size of each part's image in pixels. */
@@ -29,9 +36,11 @@ export interface Template {
  */
 export const BACK_TEMPLATE: Template = { width: 250, height: 350 };
 export const WINDOW_TEMPLATE: Template = { width: 324, height: 228 };
+/** A logo picture is square; it fills a circle about 64 points wide at 3x. */
+export const LOGO_TEMPLATE: Template = { width: 192, height: 192 };
 
 export function templateFor(part: Part): Template {
-  return part === 'back' ? BACK_TEMPLATE : WINDOW_TEMPLATE;
+  return part === 'back' ? BACK_TEMPLATE : part === LOGO_PART ? LOGO_TEMPLATE : WINDOW_TEMPLATE;
 }
 
 /** Largest encoded image accepted; a lossy WebP at these sizes is 10 to 40 KB. */
@@ -174,7 +183,7 @@ export function webpSize(b: number[]): Template | null {
  * the reason it is refused, or ''.
  */
 export function checkArt(part: Part, image: unknown): string {
-  if (PARTS.indexOf(part) < 0) return 'bad part';
+  if (ART_PARTS.indexOf(part) < 0) return 'bad part';
   if (typeof image !== 'string' || image.length < 40 || image.length % 4 !== 0 || !B64_RE.test(image)) return 'bad image';
   const bytes = base64Length(image);
   if (bytes > ART_MAX_BYTES) return 'image too large';

@@ -40,8 +40,9 @@ export const NAME_SHAPE = 'Start with a letter or number and use one space or ma
 export const NAME_DIGITS = `Use letters, and no more than ${DIGITS_MAX} numbers.`;
 export const NAME_NOT_ALLOWED = 'Pick a different name.';
 export const NAME_SAME = 'Another of your companies already has that name.';
-export const COLOR_SAME = 'Another of your companies already has that colour.';
-export const LOGO_SAME = 'Another of your companies already has that logo.';
+export const COLOR_SAME = 'Another of your companies already has that colour, or one too like it.';
+export const LOGO_SAME = 'Another of your companies already has that logo, or one too like it.';
+export const SHORT_SAME = 'Another of your companies would show the same name on its band. Change the first word.';
 
 /** One custom company: its typed name, colour id, drawn logo id and optional logo picture (art hash). */
 export interface Company {
@@ -93,24 +94,68 @@ function codePoints(s: string): number[] {
   return out;
 }
 
-/** Look-alike digits and marks read as the letters they imitate. */
-const LEET: { [c: string]: string } = { '0': 'o', '1': 'i', '3': 'e', '4': 'a', '5': 's', '7': 't', '@': 'a', '$': 's' };
+/**
+ * Look-alikes read as the Latin letters they imitate: digits, and Greek and
+ * Cyrillic letters that look Latin ("Fuсk" with a Cyrillic с).
+ */
+const LOOKALIKE: { [c: string]: string } = {
+  '0': 'o', '1': 'i', '3': 'e', '4': 'a', '5': 's', '7': 't',
+  'а': 'a', 'в': 'b', 'е': 'e', 'к': 'k', 'м': 'm', 'н': 'h', 'о': 'o', 'р': 'p', 'с': 'c', 'т': 't', 'у': 'y', 'х': 'x', 'і': 'i', 'ѕ': 's',
+  'α': 'a', 'β': 'b', 'ε': 'e', 'ι': 'i', 'κ': 'k', 'ν': 'v', 'ο': 'o', 'ρ': 'p', 'τ': 't', 'υ': 'u', 'χ': 'x',
+};
 
-/** Words refused anywhere in a name, even joined to others. */
-const BLOCKED_ANYWHERE = ['fuck', 'cunt', 'nigger', 'nigga', 'faggot', 'bitch', 'asshole', 'whore', 'pussy', 'hitler', 'shit', 'porn'];
-/** Words refused when they stand alone (they hide inside ordinary words). */
-const BLOCKED_WORDS = ['ass', 'sex', 'cum', 'tit', 'tits', 'nazi', 'kkk', 'rape', 'slut', 'penis', 'vagina', 'wank', 'twat', 'retard', 'kike', 'chink', 'bastard', 'dick', 'cock', 'dildo'];
+/** Words refused anywhere inside one word of a name ("Fuckco"). */
+const BLOCKED_INSIDE = ['fuck', 'cunt', 'nigger', 'nigga', 'faggot', 'bitch', 'asshole', 'whore', 'pussy', 'hitler', 'shit', 'porn', 'dildo', 'penis', 'vagina'];
+/** Ordinary words that contain a blocked one. */
+const ALLOWED_INSIDE = ['scunthorpe', 'shiitake', 'shitake', 'badminton', 'cockpit', 'peacock', 'hancock', 'woodcock', 'shuttlecock', 'cocktail', 'dickens', 'snigger', 'sniggers'];
+/** Words refused as a whole word, or as two words run together ("Fu Ck"), plurals included. */
+const BLOCKED_WORDS = ['ass', 'sex', 'cum', 'tit', 'tits', 'nazi', 'kkk', 'rape', 'slut', 'wank', 'twat', 'retard', 'kike', 'chink', 'bastard', 'dick', 'cock', 'fuk', 'fuc', 'phuck'].concat(BLOCKED_INSIDE);
 /** Names that could pass for the game or its staff. */
-const STAFF_ANYWHERE = ['admin', 'moderator', 'official', 'bigbusiness'];
+const STAFF_INSIDE = ['admin', 'moderator', 'official', 'bigbusiness'];
 
 /** Lower case, look-alikes replaced, everything but letters dropped. */
 export function fold(name: string): string {
   let out = '';
   for (const ch of Array.from(name.toLowerCase())) {
-    const mapped = LEET[ch] !== undefined ? LEET[ch] : ch;
+    const mapped = LOOKALIKE[ch] !== undefined ? LOOKALIKE[ch] : ch;
     if (isLetter(mapped.codePointAt(0) as number)) out += mapped;
   }
   return out;
+}
+
+/** The ways a folded word may be read: as written, "ph" as "f", "v" as "u", plural dropped. */
+function readings(word: string): string[] {
+  const out = [word, word.replace(/ph/g, 'f'), word.replace(/v/g, 'u')];
+  for (const w of out.slice()) {
+    if (w.length > 3 && w.endsWith('es')) out.push(w.slice(0, -2));
+    if (w.length > 2 && w.endsWith('s')) out.push(w.slice(0, -1));
+  }
+  return out;
+}
+
+/** True when a folded word is refused on its own. */
+function refusedWord(word: string): boolean {
+  for (const r of readings(word)) {
+    if (BLOCKED_WORDS.indexOf(r) >= 0) return true;
+    if (ALLOWED_INSIDE.indexOf(r) >= 0 || ALLOWED_INSIDE.indexOf(word) >= 0) continue;
+    for (const b of BLOCKED_INSIDE.concat(STAFF_INSIDE)) if (r.indexOf(b) >= 0) return true;
+  }
+  return false;
+}
+
+/**
+ * True when a name holds a refused word: inside any one word, or as two
+ * neighbouring words read together ("Fu Ck"). WHY not the whole name run
+ * together: that refuses ordinary names ("Push It Co", "Bit Chain").
+ */
+function refusedName(name: string): boolean {
+  const words = name.split(/[ &'.-]+/).map(fold).filter((w) => w !== '');
+  for (let i = 0; i < words.length; i++) {
+    if (refusedWord(words[i] as string)) return true;
+    const pair = (words[i] as string) + (words[i + 1] || '');
+    if (i + 1 < words.length && readings(pair).some((r) => BLOCKED_WORDS.indexOf(r) >= 0)) return true;
+  }
+  return fold(name).indexOf('bigbusiness') >= 0;
 }
 
 /**
@@ -154,12 +199,7 @@ export function nameProblem(raw: unknown): string | null {
   if (words[0] === '&') return NAME_SHAPE;
   for (const w of words) if (w === '' || !wordShapeOk(w)) return NAME_SHAPE;
   if (letters === 0 || digits > DIGITS_MAX) return NAME_DIGITS;
-  const whole = fold(name);
-  for (const w of BLOCKED_ANYWHERE.concat(STAFF_ANYWHERE)) if (whole.indexOf(w) >= 0) return NAME_NOT_ALLOWED;
-  for (const word of name.split(/[ &'.-]+/)) {
-    if (BLOCKED_WORDS.indexOf(fold(word)) >= 0) return NAME_NOT_ALLOWED;
-  }
-  return null;
+  return refusedName(name) ? NAME_NOT_ALLOWED : null;
 }
 
 // ---- The row ---------------------------------------------------------------
@@ -209,14 +249,47 @@ export function effective(row: CompaniesRow, i: number): { name: string; color: 
  */
 export function clashWith(row: CompaniesRow, i: number, company: Company): string {
   const lower = company.name.toLowerCase();
+  const short = shortName(company.name, i).toLowerCase();
   for (let j = 0; j < COMPANY_SLOTS; j++) {
     if (j === i) continue;
     const other = effective(row, j);
     if (other.name.toLowerCase() === lower) return NAME_SAME;
-    if (other.color === company.color) return COLOR_SAME;
-    if (other.logo === company.logo) return LOGO_SAME;
+    if (shortName(other.name, j).toLowerCase() === short) return SHORT_SAME;
+    if (family(COLOR_FAMILIES, other.color) === family(COLOR_FAMILIES, company.color)) return COLOR_SAME;
+    if (family(LOGO_FAMILIES, other.logo) === family(LOGO_FAMILIES, company.logo)) return LOGO_SAME;
   }
   return '';
+}
+
+/**
+ * Colours and logos too alike to sit at one table: a pair counts as one.
+ * WHY: chips on the felt show only the colour, and a mini logo shows only
+ * its outline; these pairs are hard to tell apart there.
+ */
+export const COLOR_FAMILIES = [['green', 'lime'], ['blue', 'navy'], ['orange', 'brown']];
+export const LOGO_FAMILIES = [['pine', 'mountain'], ['bolt', 'globe']];
+
+function family(families: string[][], id: string): string {
+  for (const f of families) if (f.indexOf(id) >= 0) return f[0] as string;
+  return id;
+}
+
+/** Words skipped when a long name is cut to its band name. Must match companies.gd STOP_WORDS. */
+const STOP_WORDS = ['the', 'a', 'an', 'my', 'our', 'big', 'little', 'new', 'old', 'el', 'la', 'le', 'los', 'las', 'les', 'de', 'di', 'da', 'and', '&', 'of'];
+/** The standard companies' band names, by company id. */
+const DEFAULT_SHORT = ['Solar', 'Foods', 'Freight', 'Robotics', 'Air', 'Motors'];
+
+/**
+ * The name on the share's colour band: the whole name when it is 10
+ * characters or fewer, else its first word that is not a stop word.
+ * Must match companies.gd `short_of_name`.
+ */
+export function shortName(name: string, i: number): string {
+  if (name === DEFAULT_NAMES[i]) return DEFAULT_SHORT[i] as string;
+  if (Array.from(name).length <= 10) return name;
+  const words = name.split(' ').filter((w) => w !== '');
+  for (const w of words) if (STOP_WORDS.indexOf(w.toLowerCase()) < 0) return w;
+  return words[0] || name;
 }
 
 /** The row with slot `i` set to `company` (or back to standard with null). */

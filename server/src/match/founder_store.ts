@@ -40,11 +40,18 @@ export interface CompanyQueueRow {
 
 /** Adds a report of `owner`'s company names to the queue (one row per owner). */
 export function enqueueCompanies(nk: nkruntime.Nakama, owner: string, names: string[], now: number): number {
-  const prev = nk.storageRead([{ collection: COMPANY_QUEUE_COLLECTION, key: owner, userId: SYSTEM_USER }])[0];
-  const before = prev && typeof (prev.value as { reports?: unknown }).reports === 'number' ? ((prev.value as { reports: number }).reports) : 0;
-  const row: CompanyQueueRow = { names, reports: before + 1, at: now };
-  nk.storageWrite([{ collection: COMPANY_QUEUE_COLLECTION, key: owner, userId: SYSTEM_USER, value: row, permissionRead: 0, permissionWrite: 0 }]);
-  return row.reports;
+  // Versioned, retried once: two reports at the same moment both count.
+  for (let attempt = 0; ; attempt++) {
+    const prev = nk.storageRead([{ collection: COMPANY_QUEUE_COLLECTION, key: owner, userId: SYSTEM_USER }])[0];
+    const before = prev && typeof (prev.value as { reports?: unknown }).reports === 'number' ? ((prev.value as { reports: number }).reports) : 0;
+    const row: CompanyQueueRow = { names, reports: before + 1, at: now };
+    try {
+      nk.storageWrite([{ collection: COMPANY_QUEUE_COLLECTION, key: owner, userId: SYSTEM_USER, value: row, version: prev ? prev.version : '*', permissionRead: 0, permissionWrite: 0 }]);
+      return row.reports;
+    } catch (e) {
+      if (attempt >= 1) throw e;
+    }
+  }
 }
 
 export function dequeueCompanies(nk: nkruntime.Nakama, owner: string): void {

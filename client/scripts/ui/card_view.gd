@@ -422,10 +422,8 @@ func _look() -> Dictionary:
 	if not preview_look.is_empty():
 		var cid := String(preview_look.get("color", "yellow"))
 		var n := String(preview_look.get("name", ""))
-		# The standard company keeps its own band name ("Solar", not "Sunny").
-		var std: Dictionary = Companies.DATA[clampi(company, 0, 5)]
 		return {
-			"name": n, "short": String(std["short"]) if n == String(std["name"]) else Companies.short_of_name(n),
+			"name": n, "short": Companies.short_of_name(n, company),
 			"color": Companies.PALETTE.get(cid, Companies.GOLD), "text": Companies.text_on(cid),
 			"logo": String(preview_look.get("logo", "sun")), "picture": preview_look.get("picture"),
 		}

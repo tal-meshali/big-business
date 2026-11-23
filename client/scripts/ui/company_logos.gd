@@ -98,19 +98,9 @@ static func draw(ci: CanvasItem, logo: String, center: Vector2, box: float, fill
 			ci.draw_polyline(_pts(at, [[3, 10.5], [9, 6.5], [12.5, 8], [19.5, 2.8]]), ink, w * 1.1, true)
 			ci.draw_colored_polygon(_pts(at, [[21.5, 1.5], [16.6, 2.4], [19.9, 5.6]]), ink)
 		"flame":
-			var flame: Array = []
-			for i in 25:
-				var t := TAU * float(i) / 24.0
-				# A teardrop pointing up: round bottom, narrow tip.
-				var r := 7.0
-				flame.append([12 + r * sin(t) * (1.0 - 0.45 * (1.0 + cos(t)) / 2.0), 14 - r * cos(t) * (1.55 if cos(t) > 0 else 1.0)])
-			_shape(ci, at, flame, fill, w)
-			var inner: Array = []
-			for i in 25:
-				var t := TAU * float(i) / 24.0
-				var r := 3.0
-				inner.append([12 + r * sin(t) * (1.0 - 0.45 * (1.0 + cos(t)) / 2.0), 17.2 - r * cos(t) * (1.55 if cos(t) > 0 else 1.0)])
-			_shape(ci, at, inner, face, w * 0.8)
+			# A flame with a lick on the left, so it never reads as a drop.
+			_shape(ci, at, [[12.5, 1.5], [15.2, 5.6], [18.2, 9.4], [19.2, 13.8], [17.8, 18.4], [14.4, 21.6], [9.6, 21.6], [6.2, 18.4], [4.8, 14.2], [5.6, 9.2], [8.4, 12.2], [8.8, 7.6], [10.8, 4.4]], fill, w)
+			_shape(ci, at, [[12.4, 11], [14.6, 14.6], [15, 17.4], [13.4, 19.8], [10.6, 19.8], [9, 17.6], [9.6, 14.6]], face, w * 0.8)
 		"key":
 			_shape(ci, at, [[11, 10.5], [21.5, 10.5], [21.5, 13.5], [20, 13.5], [20, 16.5], [17.6, 16.5], [17.6, 13.5], [16, 13.5], [16, 15.5], [13.8, 15.5], [13.8, 13.5], [11, 13.5]], fill, w)
 			_disc(ci, at.call(7.5, 12), 5.2 * k, fill, w)

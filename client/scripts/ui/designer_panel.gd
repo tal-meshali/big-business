@@ -148,7 +148,7 @@ func _init() -> void:
 	editor_buttons.add_child(cancel)
 
 	_show_toggle = CheckButton.new()
-	_show_toggle.text = "Show other players' custom cards"
+	_show_toggle.text = "Show other players' custom cards and companies"
 	_show_toggle.custom_minimum_size = Vector2(0, ROW_HEIGHT)
 	_show_toggle.button_pressed = CardArt.show_custom
 	_show_toggle.toggled.connect(func(on: bool) -> void:

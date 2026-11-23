@@ -5,7 +5,7 @@ import { rpcFounderState, rpcReportCompanies, rpcSaveCompany, rpcSetCompaniesAct
 import { rpcCompanyQueue, rpcModerateCompanies } from './rpc_founder_moderation';
 import { rpcSetRemoteConfig } from './rpc_config';
 import { rpcStoreCatalog } from './rpc_store';
-import { chooseRoomDeck } from './room_deck';
+import { chooseRoomDeck, sendDeck } from './room_deck';
 import { COMPANIES_COLLECTION, COMPANIES_KEY } from './founder_store';
 import { touchesServerCollection } from './reports';
 import type { MatchState } from './state';
@@ -82,6 +82,12 @@ describe('Founder RPCs', () => {
     call(rpcSetRemoteConfig, serverCtx, nk, { companiesEnabled: false });
     chooseRoomDeck(s, nk, logger);
     expect(s.customDeck).toBeNull();
+    // A rematch without a look tells every seat to drop the last one, once.
+    const sent: unknown[] = [];
+    const d = { broadcastMessage: (_op: number, data: string) => sent.push(JSON.parse(data)) } as unknown as nkruntime.MatchDispatcher;
+    sendDeck(s, nk, d);
+    sendDeck(s, nk, d);
+    expect(sent).toEqual([{}]);
     call(rpcSetRemoteConfig, serverCtx, nk, { companiesEnabled: true });
     // A refund hides them.
     grant(nk, ALICE, []);
@@ -126,6 +132,10 @@ describe('Founder RPCs', () => {
     call(rpcSaveCompany, userCtx(ALICE), nk, ROCKET);
     call(rpcSetCompaniesActive, userCtx(ALICE), nk, { on: true });
     expect(() => call(rpcReportCompanies, userCtx(ALICE), nk, { userId: ALICE })).toThrow('invalid user');
+    call(rpcSetCompaniesActive, userCtx(ALICE), nk, { on: false });
+    call(rpcReportCompanies, userCtx(BOB), nk, { userId: ALICE, matchId: 'm' });
+    expect(call(rpcCompanyQueue, serverCtx, nk, {}).items).toEqual([]);
+    call(rpcSetCompaniesActive, userCtx(ALICE), nk, { on: true });
     call(rpcReportCompanies, userCtx(BOB), nk, { userId: ALICE, matchId: 'm' });
     const q = call(rpcCompanyQueue, serverCtx, nk, {});
     expect(q.items[0]).toMatchObject({ userId: ALICE, names: ['Rocket Mail'], reports: 1 });

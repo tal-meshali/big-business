@@ -30,8 +30,13 @@ const PICTURE_STATUS := {
 var state: Dictionary = {}
 ## Company being edited (0..5).
 var selected: int = 0
-## The editor's working copy: {name, color, logo, picture_hash, picture: Texture2D}.
+## The editor's working copy of the selected company:
+## {name, color, logo, picture_hash, picture_status}.
 var draft: Dictionary = {}
+## Working copies by company index, so switching company keeps unsaved edits.
+var drafts: Dictionary = {}
+var _editor_note: Label
+var _age_box: VBoxContainer
 var _status: Label
 var _locked_box: VBoxContainer
 var _buy_button: Button
@@ -161,6 +166,9 @@ func _build_studio(parent: Control) -> void:
 		mini.card_pressed.connect(func(_id: int) -> void: select_company(index))
 		holder.add_child(mini)
 		_minis.append(mini)
+	var hint := _text("Tap a share to make it yours.", 17, UiTheme.LILAC)
+	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_studio_box.add_child(hint)
 
 	var editor := _plate()
 	_studio_box.add_child(editor)
@@ -189,6 +197,7 @@ func _build_studio(parent: Control) -> void:
 	_name_edit.add_theme_font_size_override("font_size", 22)
 	_name_edit.text_changed.connect(func(t: String) -> void:
 		draft["name"] = t
+		_editor_note.text = ""
 		_refresh_editor())
 	right.add_child(_name_edit)
 	_share_note = _text("", 17, UiTheme.LILAC)
@@ -225,11 +234,27 @@ func _build_studio(parent: Control) -> void:
 	logos.add_child(_picture_tile)
 	_picture_note = _text("", 17, UiTheme.LILAC)
 	stack.add_child(_picture_note)
+	_age_box = VBoxContainer.new()
+	_age_box.add_theme_constant_override("separation", 8)
+	_age_box.visible = false
+	stack.add_child(_age_box)
+	_age_box.add_child(_text("How old are you?", 20, CREAM))
+	var ages := HBoxContainer.new()
+	ages.add_theme_constant_override("separation", 8)
+	_age_box.add_child(ages)
+	for answer in [["Under 13", "under13"], ["13 to 15", "13to15"], ["16 or older", "16plus"]]:
+		var bracket: String = answer[1]
+		var b := UiTheme.button(answer[0], 18, ROW_HEIGHT)
+		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		b.pressed.connect(func() -> void: _on_age(bracket))
+		ages.add_child(b)
+	_editor_note = _text("", 18, UiTheme.GOLD_PALE)
+	stack.add_child(_editor_note)
 
 	var buttons := HBoxContainer.new()
 	buttons.add_theme_constant_override("separation", 10)
 	stack.add_child(buttons)
-	_reset_button = UiTheme.button("Standard", 20, ROW_HEIGHT, "ghost")
+	_reset_button = UiTheme.button("Use standard", 20, ROW_HEIGHT, "ghost")
 	_reset_button.pressed.connect(_on_reset)
 	buttons.add_child(_reset_button)
 	_save_button = UiTheme.button("Save company", 22, ROW_HEIGHT, "primary")
@@ -300,38 +325,55 @@ func _heading(text: String) -> Label:
 ## Shows the panel and loads the player's companies.
 func open() -> void:
 	visible = true
+	drafts = {}
 	close_crop()
 	await refresh()
 
 
 func refresh() -> void:
-	_status.text = "Loading..."
+	if state.is_empty():
+		_status.text = "Loading your companies..."
 	var data: Dictionary = await FounderApi.state()
 	if data.is_empty():
 		apply_state({})
-		_status.text = "Connect to found your companies."
+		_status.text = "Connect to the internet to edit your companies."
 		return
 	apply_state(data)
-	_status.text = ""
 	await _fetch_own_pictures()
+	if not data.get("owned", false):
+		await _load_price()
 
 
-## Feeds a founder_state answer: the unlock page or the studio.
+## Feeds a founder_state answer: the unlock page or the studio. With no
+## answer yet (loading, offline) neither shows, so an owner never sees the
+## buy page flash.
 func apply_state(data: Dictionary) -> void:
 	state = data
+	var known := not data.is_empty()
+	var enabled: bool = data.get("enabled", true)
 	var owned: bool = data.get("owned", false)
-	_locked_box.visible = not owned and not _crop_box.visible
-	_studio_box.visible = owned and not _crop_box.visible
+	_locked_box.visible = known and enabled and not owned and not _crop_box.visible
+	_studio_box.visible = known and enabled and owned and not _crop_box.visible
 	_buy_button.disabled = not Purchases.available()
-	if not data.get("enabled", true):
-		_studio_box.visible = false
+	if known and not enabled:
 		_status.text = "Custom companies are taking a short break. Yours are safe."
-	elif not owned and not data.is_empty():
+	elif known and not owned:
 		_status.text = "A one-time unlock." if Purchases.available() else "Unlocking needs the App Store or Google Play app on a phone."
-	elif owned:
+	elif known:
 		_status.text = ""
 	_use_toggle.set_pressed_no_signal(data.get("active", false))
+	_age_box.visible = false
 	select_company(selected)
+
+
+## Puts the store price on the unlock button when the store plugin gives one.
+func _load_price() -> void:
+	if not Purchases.available():
+		return
+	var product := String(state.get("productId", "bb_founder"))
+	var prices: Dictionary = await Purchases.prices(PackedStringArray([product]))
+	var price := String(prices.get(product, ""))
+	_buy_button.text = "Unlock Founder  %s" % price if not price.is_empty() else "Unlock Founder"
 
 
 ## The saved company `i` ({name, color, logo, picture, pictureStatus}) or {} for the standard one.
@@ -340,10 +382,9 @@ func saved(i: int) -> Dictionary:
 	return list[i] if i < list.size() and list[i] is Dictionary else {}
 
 
-## What company `i` looks like with the saved row (custom or standard).
+## What company `i` looks like as saved (custom or standard): what the
+## server checks a new company against.
 func effective(i: int) -> Dictionary:
-	if i == selected and not draft.is_empty():
-		return draft
 	var c := saved(i)
 	if not c.is_empty():
 		return {"name": String(c["name"]), "color": String(c["color"]), "logo": String(c["logo"])}
@@ -351,30 +392,52 @@ func effective(i: int) -> Dictionary:
 	return {"name": String(std["name"]), "color": Companies.DEFAULT_COLOR_IDS[i], "logo": Companies.LOGOS[i]}
 
 
-## Opens company `i` in the editor, starting from what is saved.
+## The editor's copy of company `i`: unsaved edits when there are some.
+func _draft_of(i: int) -> Dictionary:
+	if drafts.has(i):
+		return drafts[i]
+	var c := saved(i)
+	var base := effective(i)
+	return {
+		"name": base["name"], "color": base["color"], "logo": base["logo"],
+		"picture_hash": String(c["picture"]) if c.get("picture") is String else "",
+		"picture_status": String(c["pictureStatus"]) if c.get("pictureStatus") is String else "",
+	}
+
+
+## True when the editor's copy of company `i` differs from what is saved.
+func is_dirty(i: int) -> bool:
+	if not drafts.has(i):
+		return false
+	var d: Dictionary = drafts[i]
+	var base := effective(i)
+	var c := saved(i)
+	var saved_pic := String(c["picture"]) if c.get("picture") is String else ""
+	return d["name"] != base["name"] or d["color"] != base["color"] or d["logo"] != base["logo"] or d["picture_hash"] != saved_pic
+
+
+## Opens company `i` in the editor. Unsaved edits of each company are kept
+## while the player looks at another one.
 func select_company(i: int) -> void:
 	selected = clampi(i, 0, 5)
-	draft = {}
-	var c := saved(selected)
-	var base := effective(selected)
-	var pic_hash := String(c.get("picture", "")) if c.get("picture") is String else ""
-	draft = {"name": base["name"], "color": base["color"], "logo": base["logo"], "picture_hash": pic_hash, "picture_status": String(c.get("pictureStatus", "")) if c.get("pictureStatus") is String else ""}
+	draft = _draft_of(selected)
+	drafts[selected] = draft
 	_name_edit.text = draft["name"]
+	_editor_note.text = ""
 	_refresh_minis()
 	_refresh_editor()
 
 
 func _refresh_minis() -> void:
 	for i in _minis.size():
-		var e := effective(i)
-		var look := {"name": e["name"], "color": e["color"], "logo": e["logo"], "picture": _picture_texture(i)}
-		_minis[i].preview_look = look
+		var d := _draft_of(i)
+		_minis[i].preview_look = {"name": d["name"], "color": d["color"], "logo": d["logo"], "picture": _picture_texture(i)}
 		_minis[i].highlight = i == selected
 
 
-## The logo picture texture for company `i` (the draft's for the selected one), or null.
+## The logo picture texture of company `i` in the editor, or null.
 func _picture_texture(i: int) -> Texture2D:
-	var h := String(draft.get("picture_hash", "")) if i == selected else (String(saved(i).get("picture", "")) if saved(i).get("picture") is String else "")
+	var h := String(_draft_of(i).get("picture_hash", ""))
 	return CardArt.texture(h) if not h.is_empty() else null
 
 
@@ -386,17 +449,18 @@ func _refresh_editor() -> void:
 	_preview.preview_look = {"name": draft["name"] if not String(draft["name"]).strip_edges().is_empty() else "Your company", "color": draft["color"], "logo": draft["logo"], "picture": _picture_texture(selected)}
 	_minis[selected].preview_look = _preview.preview_look
 	_share_note.text = "%d shares, in the place of %s." % [int(std["shares"]), String(std["name"])]
+	# Taken: what another company has saved, counting too-alike pairs.
 	var taken_colors := {}
 	var taken_logos := {}
 	for j in 6:
 		if j != selected:
 			var e := effective(j)
-			taken_colors[e["color"]] = true
-			taken_logos[e["logo"]] = true
+			taken_colors[Companies.family_of(Companies.COLOR_FAMILIES, e["color"])] = true
+			taken_logos[Companies.family_of(Companies.LOGO_FAMILIES, e["logo"])] = true
 	for id in _swatches:
 		var sw: Swatch = _swatches[id]
 		sw.chosen = id == draft["color"]
-		sw.taken = taken_colors.has(id)
+		sw.taken = taken_colors.has(Companies.family_of(Companies.COLOR_FAMILIES, id))
 		sw.disabled = sw.taken
 		sw.queue_redraw()
 	var fill: Color = Companies.PALETTE.get(draft["color"], Companies.GOLD)
@@ -404,22 +468,24 @@ func _refresh_editor() -> void:
 	for id in _logo_tiles:
 		var t: LogoTile = _logo_tiles[id]
 		t.fill = fill
-		t.chosen = id == draft["logo"] and not has_picture
-		t.taken = taken_logos.has(id)
+		# The drawn logo stays chosen under a picture: it is what others see until review.
+		t.chosen = id == draft["logo"]
+		t.taken = taken_logos.has(Companies.family_of(Companies.LOGO_FAMILIES, id))
 		t.disabled = t.taken
 		t.modulate = Color(1, 1, 1, 0.55) if t.taken else Color.WHITE
 		t.queue_redraw()
-	# The drawn logo is the fallback under a picture, so it stays chosen too.
-	if has_picture and _logo_tiles.has(draft["logo"]):
-		_logo_tiles[draft["logo"]].chosen = true
 	var blocker := String(state.get("uploadBlocker", ""))
 	_picture_tile.texture = _picture_texture(selected)
 	_picture_tile.chosen = has_picture
 	_picture_tile.visible = blocker != "too_young"
 	_picture_tile.disabled = blocker == "banned"
+	_picture_tile.queue_redraw()
 	_picture_note.text = _picture_text(blocker, has_picture)
 	_picture_note.visible = not _picture_note.text.is_empty()
 	_reset_button.disabled = saved(selected).is_empty()
+	_reset_button.text = "Use standard"
+	var n := String(draft["name"]).strip_edges()
+	_save_button.disabled = n.length() < 2 or not is_dirty(selected)
 
 
 func _picture_text(blocker: String, has_picture: bool) -> String:
@@ -438,14 +504,18 @@ func _picture_text(blocker: String, has_picture: bool) -> String:
 
 func _pick_color(id: String) -> void:
 	draft["color"] = id
+	_editor_note.text = ""
+	_refresh_minis()
 	_refresh_editor()
 
 
 func _pick_logo(id: String) -> void:
 	draft["logo"] = id
-	# Picking a drawn logo drops the picture when the company is saved.
+	# Picking a drawn logo stops using the picture (saved with the company).
 	draft["picture_hash"] = ""
 	draft["picture_status"] = ""
+	_editor_note.text = ""
+	_refresh_minis()
 	_refresh_editor()
 
 
@@ -453,16 +523,19 @@ func _on_save() -> void:
 	var n := String(draft.get("name", "")).strip_edges()
 	_save_button.disabled = true
 	_status.text = "Saving..."
-	var had_picture := not String(saved(selected).get("picture", "")).is_empty() if saved(selected).get("picture") is String else false
+	var c := saved(selected)
+	var had_picture := c.get("picture") is String and not String(c["picture"]).is_empty()
 	var drop := had_picture and String(draft["picture_hash"]).is_empty()
 	var res: Dictionary = await FounderApi.save(selected, n, String(draft["color"]), String(draft["logo"]), drop)
-	_save_button.disabled = false
 	if res.is_empty():
-		_status.text = FounderApi.last_error if not FounderApi.last_error.is_empty() else "Could not save. Try again."
+		_status.text = ""
+		# The reason sits right above the button, next to what it is about.
+		_editor_note.text = FounderApi.last_error if not FounderApi.last_error.is_empty() else "Could not save. Try again."
+		_refresh_editor()
 		return
 	var keep := selected
+	drafts.erase(keep)
 	await refresh()
-	selected = keep
 	select_company(keep)
 	_pop(_minis[keep])
 	_status.text = "%s is saved." % n if state.get("active", false) else "%s is saved. Switch on \"Use my companies\" to play with it." % n
@@ -479,11 +552,13 @@ func _on_reset() -> void:
 	_status.text = "Saving..."
 	if await FounderApi.reset(selected):
 		var keep := selected
+		drafts.erase(keep)
 		await refresh()
 		select_company(keep)
 		_status.text = "Back to %s." % String(Companies.DATA[keep]["name"])
 	else:
-		_status.text = FounderApi.last_error
+		_editor_note.text = FounderApi.last_error
+		_status.text = ""
 
 
 func _on_use_toggled(on: bool) -> void:
@@ -527,10 +602,12 @@ func _fetch_own_pictures() -> void:
 func _on_picture_tile() -> void:
 	var blocker := String(state.get("uploadBlocker", ""))
 	if blocker == "age_unknown":
-		_status.text = "Answer the age question in Designer first, then add your picture."
+		# The neutral age question (D4), asked here so a Founder-only player
+		# never has to find it in Designer.
+		_age_box.visible = true
 		return
 	if saved(selected).is_empty():
-		_status.text = "Save the company first, then add your logo picture."
+		_editor_note.text = "Save the company first, then add your logo picture."
 		return
 	var filters := PackedStringArray(["*.png, *.jpg, *.jpeg, *.webp ; Pictures"])
 	if DisplayServer.has_feature(DisplayServer.FEATURE_NATIVE_DIALOG_FILE):
@@ -547,6 +624,20 @@ func _on_picture_tile() -> void:
 		_file_dialog.file_selected.connect(_load_picture)
 		add_child(_file_dialog)
 	_file_dialog.popup_centered_ratio(0.9)
+
+
+## The age answer: refreshes the upload blocker and keeps the player's edits.
+func _on_age(bracket: String) -> void:
+	var res: Dictionary = await DesignerApi.set_age(bracket)
+	if res.is_empty():
+		_editor_note.text = DesignerApi.last_error
+		return
+	_age_box.visible = false
+	var keep := selected
+	await refresh()
+	select_company(keep)
+	if String(state.get("uploadBlocker", "")) == "":
+		_on_picture_tile()
 
 
 func _load_picture(path: String) -> void:
@@ -618,7 +709,14 @@ func _on_upload() -> void:
 		return
 	close_crop()
 	var keep := selected
+	# The picture is saved; unsaved name, colour or logo edits stay unsaved.
+	var edits: Dictionary = draft.duplicate()
 	await refresh()
+	drafts.erase(keep)
+	var fresh := _draft_of(keep)
+	edits["picture_hash"] = fresh["picture_hash"]
+	edits["picture_status"] = fresh["picture_status"]
+	drafts[keep] = edits
 	select_company(keep)
 	_status.text = "Your logo is live." if res.get("status") == "approved" else "Saved. Others see your picture once it has been reviewed; until then they see the drawn logo."
 

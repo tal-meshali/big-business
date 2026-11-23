@@ -152,7 +152,8 @@ export const rpcReportCompanies: nkruntime.RpcFunction = (ctx, logger, nk, paylo
   checkRate(nk, reporter, 'report_companies', now);
   const row = readCompanies(nk, owner as string).row;
   const names = row.companies.filter((c): c is Company => c !== null).map((c) => c.name);
-  if (names.length === 0) return JSON.stringify({ ok: true });
+  // Only names other players can see: switched on and still unlocked.
+  if (names.length === 0 || !row.active || !ownsFounder(nk, owner as string)) return JSON.stringify({ ok: true });
   const reports = enqueueCompanies(nk, owner as string, names, now);
   logger.info('companies of %s reported by %s in %s (x%d)', owner, reporter, matchId || '-', reports);
   return JSON.stringify({ ok: true });

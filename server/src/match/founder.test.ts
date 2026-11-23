@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { clashWith, COLOR_SAME, companiesManifest, emptyRow, LOGO_SAME, NAME_SAME, nameProblem, normalizeCompaniesRow, setCompany } from './founder';
+import { clashWith, COLOR_SAME, companiesManifest, emptyRow, LOGO_SAME, NAME_SAME, nameProblem, normalizeCompaniesRow, setCompany, shortName, SHORT_SAME } from './founder';
 
 describe('company names', () => {
   it('takes ordinary business names in several alphabets', () => {
@@ -26,6 +26,15 @@ describe('company names', () => {
     expect(nameProblem('Classic Glass')).toBeNull();
     expect(nameProblem('Peacock Air')).toBeNull();
   });
+
+  it('reads through look-alikes and split words without refusing ordinary names', () => {
+    for (const n of ['Fuсk Co', 'Phuck Inc', 'Fvck Inc', 'Fu Ck Corp', 'Cocks & Co', 'Nazis', 'Admins Ltd', 'Shitty Air']) {
+      expect(nameProblem(n), n).toBe('Pick a different name.');
+    }
+    for (const n of ['Badminton Club', 'Scunthorpe United', 'Push It Co', 'Wash It Co', 'Cogs Hit', 'Shiitake Co', 'Bit Chain', 'Pass Hole', 'Snigger Co', 'Essex Foods', 'Title Deeds']) {
+      expect(nameProblem(n), n).toBeNull();
+    }
+  });
 });
 
 describe('company set rules', () => {
@@ -35,6 +44,13 @@ describe('company set rules', () => {
     expect(clashWith(row, 2, { name: 'nimbus air', color: 'teal', logo: 'rocket', picture: null })).toBe(NAME_SAME);
     expect(clashWith(row, 2, { name: 'Rocket Mail', color: 'red', logo: 'rocket', picture: null })).toBe(COLOR_SAME);
     expect(clashWith(row, 2, { name: 'Rocket Mail', color: 'teal', logo: 'sun', picture: null })).toBe(LOGO_SAME);
+    // Too-alike colours and logos count as taken; so does the same band name.
+    expect(clashWith(row, 2, { name: 'Rocket Mail', color: 'lime', logo: 'rocket', picture: null })).toBe(COLOR_SAME);
+    expect(clashWith(row, 2, { name: 'Rocket Mail', color: 'teal', logo: 'mountain', picture: null })).toBe(LOGO_SAME);
+    expect(clashWith(row, 2, { name: 'The Solar Shop Co', color: 'teal', logo: 'rocket', picture: null })).toBe(SHORT_SAME);
+    expect(shortName('The Rocket Shop', 2)).toBe('Rocket');
+    expect(shortName('Acme Co', 2)).toBe('Acme Co');
+    expect(shortName('Sunny Side Solar', 0)).toBe('Solar');
     // A slot may reuse its own standard colour and logo.
     expect(clashWith(row, 2, { name: 'Rocket Mail', color: 'blue', logo: 'anchor', picture: null })).toBe('');
   });

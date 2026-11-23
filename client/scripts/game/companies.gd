@@ -22,7 +22,7 @@ const DATA := [
 const PALETTE := {
 	"yellow": Color("#F2C230"), "green": Color("#3F9E4F"), "blue": Color("#2E6FD8"),
 	"orange": Color("#F07A1E"), "purple": Color("#7B4FC6"), "red": Color("#D6262C"),
-	"teal": Color("#119C93"), "pink": Color("#DE4F98"), "navy": Color("#28367E"),
+	"teal": Color("#0E8178"), "pink": Color("#C2367C"), "navy": Color("#28367E"),
 	"brown": Color("#8A5A2E"), "lime": Color("#9BC53D"), "slate": Color("#5B6779"),
 }
 const PALETTE_ORDER: Array[String] = ["yellow", "green", "blue", "orange", "purple", "red", "teal", "pink", "navy", "brown", "lime", "slate"]
@@ -33,11 +33,19 @@ const INK_ON := ["yellow", "lime"]
 const LOGOS: Array[String] = ["sun", "pine", "anchor", "gear", "cloud", "bolt", "rocket", "crown", "leaf", "diamond", "heart", "star", "chart", "flame", "key", "mountain", "cup", "globe"]
 const DEFAULT_COLOR_IDS: Array[String] = ["yellow", "green", "blue", "orange", "purple", "red"]
 const NAME_MAX := 18
+## Colours and logos too alike to sit at one table: a pair counts as one.
+## Must match founder.ts COLOR_FAMILIES / LOGO_FAMILIES.
+const COLOR_FAMILIES := [["green", "lime"], ["blue", "navy"], ["orange", "brown"]]
+const LOGO_FAMILIES := [["pine", "mountain"], ["bolt", "globe"]]
+## Words skipped when a long name is cut to its band name (founder.ts STOP_WORDS).
+const STOP_WORDS := ["the", "a", "an", "my", "our", "big", "little", "new", "old", "el", "la", "le", "los", "las", "les", "de", "di", "da", "and", "&", "of"]
 
 ## The host's custom companies in the current private room (Founder), one
 ## per company id: {name, color, logo, picture} or null for the standard
 ## company. Empty when the room uses the standard six.
 static var room_companies: Array = []
+## get_company answers for this room, by id (rebuilt when the room changes).
+static var _merged: Dictionary = {}
 
 ## Board-green table, like the centre of a classic property board.
 const TABLE_BG := Color("#C7DFC9")
@@ -64,11 +72,14 @@ static func get_company(id: int) -> Dictionary:
 	var custom := custom_of(id)
 	if custom.is_empty():
 		return DATA[id]
-	var out: Dictionary = DATA[id].duplicate()
-	out["name"] = custom["name"]
-	out["short"] = short_of_name(custom["name"])
-	out["color"] = PALETTE.get(custom["color"], DATA[id]["color"])
-	return out
+	# WHY cached: cards ask on every draw; the room's companies rarely change.
+	if not _merged.has(id):
+		var out: Dictionary = DATA[id].duplicate()
+		out["name"] = custom["name"]
+		out["short"] = short_of_name(custom["name"], id)
+		out["color"] = PALETTE.get(custom["color"], DATA[id]["color"])
+		_merged[id] = out
+	return _merged[id]
 
 
 ## The room's custom company `id` ({name, color, logo, picture}), or {} for
@@ -83,6 +94,7 @@ static func custom_of(id: int) -> Dictionary:
 ## Takes the OP_DECK `companies` list; anything malformed keeps the standard company.
 static func set_room_companies(list) -> void:
 	room_companies = []
+	_merged = {}
 	if not (list is Array) or list.size() != DATA.size():
 		return
 	var any := false
@@ -99,6 +111,7 @@ static func set_room_companies(list) -> void:
 
 static func clear_room_companies() -> void:
 	room_companies = []
+	_merged = {}
 
 
 ## Logo picture hashes the room uses, for fetching and reporting.
@@ -110,13 +123,28 @@ static func picture_hashes() -> Array[String]:
 	return out
 
 
-## The short band name for a typed company name: the whole name when it is
-## short, else its first word (the band shrinks it further to fit).
-static func short_of_name(full: String) -> String:
+## The band name for company `id` called `full`: the standard short name for
+## the standard company, the whole name when it is 10 characters or fewer,
+## else its first word that is not a stop word ("The Rocket Shop" -> "Rocket").
+## Must match founder.ts `shortName`; the band shrinks it further to fit.
+static func short_of_name(full: String, id: int) -> String:
+	if id >= 0 and id < DATA.size() and full == String(DATA[id]["name"]):
+		return DATA[id]["short"]
 	if full.length() <= 10:
 		return full
-	var first := full.split(" ", false)
-	return first[0] if first.size() > 0 else full
+	var words := full.split(" ", false)
+	for w in words:
+		if not STOP_WORDS.has(w.to_lower()):
+			return w
+	return words[0] if words.size() > 0 else full
+
+
+## The family a colour or logo id belongs to (itself when it has none).
+static func family_of(families: Array, id: String) -> String:
+	for f in families:
+		if f.has(id):
+			return f[0]
+	return id
 
 
 ## The drawn logo id of company `id` in this room.

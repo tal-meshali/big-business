@@ -28,7 +28,11 @@ export const RATE_LIMITS = {
   set_age_bracket: 6,
   upload_card_art: 10,
   get_card_art: 30,
-  report_card_art: 5,
+  /** One report of a host covers their deck and logo pictures: up to 13 hashes. */
+  report_card_art: 15,
+  save_company: 20,
+  upload_company_logo: 10,
+  report_companies: 5,
   club_list: 20,
   club_create: 3,
   club_join: 6,

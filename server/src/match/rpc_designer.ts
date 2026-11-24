@@ -4,11 +4,10 @@
  * fetching art by hash, and reporting a custom card. designer.ts holds the
  * rules, designer_store.ts the storage.
  */
-import { scanArt } from './art_scan';
+import { storeArt } from './art_upload';
 import {
   answerAge,
   BACK_TEMPLATE,
-  checkArt,
   deckSlotsFor,
   isArtHash,
   PARTS,
@@ -20,15 +19,14 @@ import {
 import {
   deckSlots,
   designerAccess,
-  enqueueArt,
   ownsDesigner,
   readArt,
   readDecks,
+  enqueueArt,
   readStanding,
   writeArt,
   writeDecks,
   writeStanding,
-  type ArtRow,
 } from './designer_store';
 import { MATCH_ID_MAX, parseBody, readString, reject, requireUser, type Body } from './input';
 import { checkRate } from './ratelimit';
@@ -37,12 +35,12 @@ import { UNLOCKS } from './store';
 
 /** An upload payload: a 64 KB image in base64 plus a few fields. */
 const UPLOAD_MAX_CHARS = 90_000;
-/** Hashes one get_card_art call may ask for: one deck. */
-const FETCH_MAX = PARTS.length;
+/** Hashes one get_card_art call may ask for: one deck and six company logos. */
+const FETCH_MAX = PARTS.length + 6;
 /** Reports that hide an approved picture until a person looks at it again. */
 export const REPORTS_TO_HIDE = 3;
 
-const BLOCKER_TEXT: { [k: string]: string } = {
+export const BLOCKER_TEXT: { [k: string]: string } = {
   not_owned: 'Designer is not unlocked',
   age_unknown: 'age not set',
   too_young: 'uploads are not available at your age',
@@ -127,28 +125,7 @@ export const rpcUploadCardArt: nkruntime.RpcFunction = (ctx, logger, nk, payload
   if (blocker) reject(BLOCKER_TEXT[blocker] || 'not allowed');
   const slot = readSlot(req, deckSlots(nk, userId));
   const part = readPart(req);
-  const image = req['image'];
-  const problem = checkArt(part, image);
-  if (problem) reject(problem);
-  const data = image as string;
-  const hash = nk.sha256Hash(data).toLowerCase();
-
-  let existing = readArt(nk, [hash])[hash];
-  if (!existing) {
-    const scan = scanArt(nk, logger, ctx.env, data);
-    const art: ArtRow = { owner: userId, part, data: scan.status === 'rejected' ? '' : data, status: scan.status, createdAt: now, reports: 0 };
-    try {
-      writeArt(nk, hash, art, '*');
-      if (scan.status === 'pending') enqueueArt(nk, hash, { reason: scan.scanned ? 'scan' : 'unscanned', owner: userId, at: now, reports: 0 });
-      existing = { art, version: '' };
-    } catch (e) {
-      // Someone uploaded the same picture at the same moment: use their row.
-      existing = readArt(nk, [hash])[hash];
-      if (!existing) reject('try again');
-    }
-    logger.info('card art %s by %s: %s', hash.slice(0, 12), userId, existing.art.status);
-  }
-  if (existing.art.status === 'rejected') reject('this picture cannot be used');
+  const { hash, status } = storeArt(nk, logger, ctx.env, userId, part, req['image'], now);
 
   const decks = readDecks(nk, userId);
   try {
@@ -156,7 +133,7 @@ export const rpcUploadCardArt: nkruntime.RpcFunction = (ctx, logger, nk, payload
   } catch (e) {
     reject('try again');
   }
-  return JSON.stringify({ hash, status: existing.art.status });
+  return JSON.stringify({ hash, status });
 };
 
 /** RPC clear_deck_part {slot, part}: back to the default drawing for that part. */

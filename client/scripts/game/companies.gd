@@ -16,6 +16,37 @@ const DATA := [
 	{"id": 5, "key": "motors", "name": "Redline Motors", "short": "Motors", "shares": 10, "color": Color("#D6262C")},
 ]
 
+## Colours a custom company may use (Founder unlock), by the id the server
+## stores (server/src/match/founder.ts COLORS). The first six are the
+## standard companies' colours.
+const PALETTE := {
+	"yellow": Color("#F2C230"), "green": Color("#3F9E4F"), "blue": Color("#2E6FD8"),
+	"orange": Color("#F07A1E"), "purple": Color("#7B4FC6"), "red": Color("#D6262C"),
+	"teal": Color("#0E8178"), "pink": Color("#C2367C"), "navy": Color("#28367E"),
+	"brown": Color("#8A5A2E"), "lime": Color("#9BC53D"), "slate": Color("#5B6779"),
+}
+const PALETTE_ORDER: Array[String] = ["yellow", "green", "blue", "orange", "purple", "red", "teal", "pink", "navy", "brown", "lime", "slate"]
+## Light colours carry ink text on the band instead of white.
+const INK_ON := ["yellow", "lime"]
+## Drawn logos (CompanyLogos), in picker order; the first six are the
+## standard companies' art. Must match founder.ts LOGOS.
+const LOGOS: Array[String] = ["sun", "pine", "anchor", "gear", "cloud", "bolt", "rocket", "crown", "leaf", "diamond", "heart", "star", "chart", "flame", "key", "mountain", "cup", "globe"]
+const DEFAULT_COLOR_IDS: Array[String] = ["yellow", "green", "blue", "orange", "purple", "red"]
+const NAME_MAX := 18
+## Colours and logos too alike to sit at one table: a pair counts as one.
+## Must match founder.ts COLOR_FAMILIES / LOGO_FAMILIES.
+const COLOR_FAMILIES := [["green", "lime"], ["blue", "navy"], ["orange", "brown"], ["red", "pink"]]
+const LOGO_FAMILIES := [["pine", "mountain"], ["bolt", "globe"]]
+## Words skipped when a long name is cut to its band name (founder.ts STOP_WORDS).
+const STOP_WORDS := ["the", "a", "an", "my", "our", "big", "little", "new", "old", "el", "la", "le", "los", "las", "les", "de", "di", "da", "and", "&", "of"]
+
+## The host's custom companies in the current private room (Founder), one
+## per company id: {name, color, logo, picture} or null for the standard
+## company. Empty when the room uses the standard six.
+static var room_companies: Array = []
+## get_company answers for this room, by id (rebuilt when the room changes).
+static var _merged: Dictionary = {}
+
 ## Board-green table, like the centre of a classic property board.
 const TABLE_BG := Color("#C7DFC9")
 const TABLE_EDGE := Color("#9BBE9F")
@@ -35,8 +66,110 @@ const ALERT := Color("#D6262C")
 const HIGHLIGHT := Color("#FFF1B8")
 
 
+## The company as the current room shows it: the standard entry, with the
+## host's custom name and colour over it when the room has them.
 static func get_company(id: int) -> Dictionary:
-	return DATA[id]
+	var custom := custom_of(id)
+	if custom.is_empty():
+		return DATA[id]
+	# WHY cached: cards ask on every draw; the room's companies rarely change.
+	if not _merged.has(id):
+		var out: Dictionary = DATA[id].duplicate()
+		out["name"] = custom["name"]
+		out["short"] = short_of_name(custom["name"], id)
+		out["color"] = PALETTE.get(custom["color"], DATA[id]["color"])
+		_merged[id] = out
+	return _merged[id]
+
+
+## The room's custom company `id` ({name, color, logo, picture}), or {} for
+## the standard one. Honours the "show custom cards" setting.
+static func custom_of(id: int) -> Dictionary:
+	if room_companies.is_empty() or not CardArt.show_custom or id < 0 or id >= room_companies.size():
+		return {}
+	var c = room_companies[id]
+	return c if c is Dictionary else {}
+
+
+## Takes the OP_DECK `companies` list; anything malformed keeps the standard company.
+static func set_room_companies(list) -> void:
+	room_companies = []
+	_merged = {}
+	if not (list is Array) or list.size() != DATA.size():
+		return
+	var any := false
+	for c in list:
+		if c is Dictionary and c.get("name") is String and PALETTE.has(c.get("color")) and LOGOS.has(c.get("logo")):
+			var pic = c.get("picture")
+			room_companies.append({"name": String(c["name"]), "color": String(c["color"]), "logo": String(c["logo"]), "picture": pic if pic is String else ""})
+			any = true
+		else:
+			room_companies.append(null)
+	if not any:
+		room_companies = []
+
+
+static func clear_room_companies() -> void:
+	room_companies = []
+	_merged = {}
+
+
+## Logo picture hashes the room uses, for fetching and reporting.
+static func picture_hashes() -> Array[String]:
+	var out: Array[String] = []
+	for c in room_companies:
+		if c is Dictionary and not String(c["picture"]).is_empty() and not out.has(c["picture"]):
+			out.append(String(c["picture"]))
+	return out
+
+
+## The band name for company `id` called `full`: the standard short name for
+## the standard company, the whole name when it is 10 characters or fewer,
+## else its first word that is not a stop word ("The Rocket Shop" -> "Rocket").
+## Must match founder.ts `shortName`; the band shrinks it further to fit.
+static func short_of_name(full: String, id: int) -> String:
+	if id >= 0 and id < DATA.size() and full == String(DATA[id]["name"]):
+		return DATA[id]["short"]
+	if full.length() <= 10:
+		return full
+	var words := full.split(" ", false)
+	for w in words:
+		if not STOP_WORDS.has(w.to_lower()):
+			return w
+	return words[0] if words.size() > 0 else full
+
+
+## The family a colour or logo id belongs to (itself when it has none).
+static func family_of(families: Array, id: String) -> String:
+	for f in families:
+		if f.has(id):
+			return f[0]
+	return id
+
+
+## The drawn logo id of company `id` in this room.
+static func logo_of(id: int) -> String:
+	var custom := custom_of(id)
+	return String(custom["logo"]) if not custom.is_empty() else LOGOS[id]
+
+
+## The approved logo picture of company `id` in this room, or null.
+static func picture_of(id: int) -> Texture2D:
+	var custom := custom_of(id)
+	if custom.is_empty() or String(custom["picture"]).is_empty():
+		return null
+	return CardArt.texture(String(custom["picture"]))
+
+
+## The colour id of company `id` in this room.
+static func color_id_of(id: int) -> String:
+	var custom := custom_of(id)
+	return String(custom["color"]) if not custom.is_empty() else DEFAULT_COLOR_IDS[id]
+
+
+## Ink or white for text on a band of palette colour `color_id`.
+static func text_on(color_id: String) -> Color:
+	return INK if INK_ON.has(color_id) else Color.WHITE
 
 
 ## The companies whose regulator token a seat holds, as ints.
@@ -49,17 +182,17 @@ static func tokens_of(seat: Dictionary) -> Array[int]:
 
 
 static func color_of(id: int) -> Color:
-	return DATA[id]["color"]
+	return get_company(id)["color"]
 
 
 static func name_of(id: int) -> String:
-	return DATA[id]["name"]
+	return get_company(id)["name"]
 
 
 static func short_name_of(id: int) -> String:
-	return DATA[id]["short"]
+	return get_company(id)["short"]
 
 
-## White reads better on dark bands, ink on the yellow band.
+## White reads better on dark bands, ink on the light (yellow, lime) ones.
 static func band_text_color(id: int) -> Color:
-	return INK if id == 0 else Color.WHITE
+	return text_on(color_id_of(id))

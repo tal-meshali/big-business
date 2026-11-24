@@ -53,6 +53,7 @@ import {
 // function name in the bundle (which Nakama needs), while the graph sees one
 // dependency instead of one per RPC, keeping main.ts under the god-node limit.
 import * as social from './match/guarded_social';
+import * as founder from './match/guarded_founder';
 import { beforeChannelJoin, beforeGroupChange } from './match/rpc_clubs';
 import * as names from './match/rpc_names';
 
@@ -95,6 +96,11 @@ function InitModule(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkrunt
   initializer.registerRpc('get_card_art', guardedGetCardArt);
   initializer.registerRpc('report_card_art', guardedReportCardArt);
   initializer.registerRpc('get_stats', guardedGetStats);
+  initializer.registerRpc('founder_state', founder.guardedFounderState);
+  initializer.registerRpc('save_company', founder.guardedSaveCompany);
+  initializer.registerRpc('upload_company_logo', founder.guardedUploadCompanyLogo);
+  initializer.registerRpc('set_companies_active', founder.guardedSetCompaniesActive);
+  initializer.registerRpc('report_companies', founder.guardedReportCompanies);
   initializer.registerRpc('club_state', social.guardedClubState);
   initializer.registerRpc('club_list', social.guardedClubList);
   initializer.registerRpc('club_create', social.guardedClubCreate);
@@ -112,6 +118,8 @@ function InitModule(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkrunt
   initializer.registerRpc('analytics_report', guardedAnalyticsReport);
   initializer.registerRpc('moderation_queue', guardedModerationQueue);
   initializer.registerRpc('moderate_card_art', guardedModerateCardArt);
+  initializer.registerRpc('company_queue', founder.guardedCompanyQueue);
+  initializer.registerRpc('moderate_companies', founder.guardedModerateCompanies);
   initializer.registerBeforeAddFriends(beforeAddFriends);
   initializer.registerBeforeAuthenticateDevice(names.beforeAuthenticateDevice);
   initializer.registerBeforeAuthenticateApple(names.beforeAuthenticateApple);

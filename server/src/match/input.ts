@@ -23,6 +23,20 @@ export function reject(message: string): never {
   throw e;
 }
 
+/**
+ * Rejects with `problem` when a rule returned one ('' or null means fine).
+ * WHY: rule modules (founder.ts, designer.ts) return the reason as text, so
+ * an RPC checks several rules through this one call.
+ */
+export function refuse(problem: string | null | undefined): void {
+  if (problem) reject(problem);
+}
+
+/** Rejects with `message` unless `value` is present, and narrows it. */
+export function required<T>(value: T | null | undefined, message: string): asserts value is T {
+  if (value === null || value === undefined) reject(message);
+}
+
 export function isClientError(e: unknown): boolean {
   return typeof e === 'object' && e !== null && (e as { [key: string]: unknown })[CLIENT_ERROR] === true;
 }

@@ -86,8 +86,8 @@ describe('Plus in rooms', () => {
   it('lists Plus in the shop only while it is offered', () => {
     const { nk } = fakeNk();
     const ids = () => call(rpcStoreCatalog, userCtx(ALICE), nk, {}).unlocks.map((u: { id: string }) => u.id);
-    expect(ids()).toEqual(['designer']);
+    expect(ids()).toEqual(['designer', 'founder']);
     call(rpcSetRemoteConfig, serverCtx, nk, { plusEnabled: true });
-    expect(ids()).toEqual(['designer', 'plus']);
+    expect(ids()).toEqual(['designer', 'plus', 'founder']);
   });
 });

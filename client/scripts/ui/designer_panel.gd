@@ -149,7 +149,7 @@ func _init() -> void:
 	cancel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	editor_buttons.add_child(cancel)
 
-	_show_toggle = _switch("Show other players' custom cards")
+	_show_toggle = _switch("Show other players' custom cards and companies")
 	_show_toggle.button_pressed = CardArt.show_custom
 	_show_toggle.toggled.connect(func(on: bool) -> void:
 		CardArt.show_custom = on

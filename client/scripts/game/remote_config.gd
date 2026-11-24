@@ -9,6 +9,7 @@ const DEFAULTS := {
 	"tutorialAutoRoute": false,
 	"designerEnabled": true,
 	"plusEnabled": false,
+	"companiesEnabled": true,
 }
 
 static var shop_enabled: bool = DEFAULTS["shopEnabled"]
@@ -19,6 +20,8 @@ static var tutorial_auto_route: bool = DEFAULTS["tutorialAutoRoute"]
 static var designer_enabled: bool = DEFAULTS["designerEnabled"]
 ## Plus subscription offered in the shop (off at launch, decision D5).
 static var plus_enabled: bool = DEFAULTS["plusEnabled"]
+## Founder unlock (custom companies) offered in the shop.
+static var companies_enabled: bool = DEFAULTS["companiesEnabled"]
 
 
 ## Applies a server answer; keys that are missing or of the wrong type keep
@@ -34,6 +37,8 @@ static func apply(data: Dictionary) -> void:
 		designer_enabled = data["designerEnabled"]
 	if data.get("plusEnabled") is bool:
 		plus_enabled = data["plusEnabled"]
+	if data.get("companiesEnabled") is bool:
+		companies_enabled = data["companiesEnabled"]
 
 
 static func reset() -> void:
@@ -42,3 +47,4 @@ static func reset() -> void:
 	tutorial_auto_route = DEFAULTS["tutorialAutoRoute"]
 	designer_enabled = DEFAULTS["designerEnabled"]
 	plus_enabled = DEFAULTS["plusEnabled"]
+	companies_enabled = DEFAULTS["companiesEnabled"]

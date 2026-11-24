@@ -44,6 +44,12 @@ export interface DeckMessage {
   table?: string;
   /** A Plus member's deck in a quick play game (clients show it only if opted in). */
   public?: boolean;
+  /**
+   * The host's custom companies (Founder, founder.ts), one per company id;
+   * null keeps the standard company. `picture` is an approved logo art hash
+   * (fetched with get_card_art) or null for the drawn logo. Private rooms only.
+   */
+  companies?: Array<{ name: string; color: string; logo: string; picture: string | null } | null>;
 }
 
 /** OP_VIEW payload: the seat's PlayerView plus match timing. */

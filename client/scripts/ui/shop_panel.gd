@@ -6,7 +6,8 @@ extends PanelContainer
 ## code on a night panel and fed by `Net.store_catalog()` through
 ## `apply_catalog`. Buying goes through `Purchases` (the store plugin);
 ## what the player owns always comes back from the server. The Designer
-## unlock (custom card art) and the stats open their own panels over this
+## unlock (custom card art), the Founder unlock (custom companies) and the
+## stats open their own panels over this
 ## one; the Plus subscription row shows only while Remote Config offers it.
 
 signal closed
@@ -22,7 +23,9 @@ var _list: VBoxContainer
 var _status: Label
 var _restore_button: Button
 var _designer_button: Button
+var _founder_button: Button
 var designer_panel: DesignerPanel
+var founder_panel: FounderPanel
 var stats_panel: StatsPanel
 var _plus_box: VBoxContainer
 var _plus_label: Label
@@ -47,6 +50,11 @@ func _init() -> void:
 	_designer_button.visible = RemoteConfig.designer_enabled
 	_designer_button.pressed.connect(_on_open_designer)
 	column.add_child(_designer_button)
+
+	_founder_button = _button("Founder: your own companies")
+	_founder_button.visible = RemoteConfig.companies_enabled
+	_founder_button.pressed.connect(_on_open_founder)
+	column.add_child(_founder_button)
 
 	_plus_box = VBoxContainer.new()
 	_plus_box.add_theme_constant_override("separation", UiTheme.dp(6))
@@ -94,6 +102,10 @@ func _init() -> void:
 	_deed_panel = deed["panel"]
 	designer_panel.closed.connect(func() -> void: _deed_panel.visible = true)
 	add_child(designer_panel)
+	founder_panel = FounderPanel.new()
+	founder_panel.visible = false
+	founder_panel.closed.connect(func() -> void: _deed_panel.visible = true)
+	add_child(founder_panel)
 	stats_panel = StatsPanel.new()
 	stats_panel.visible = false
 	stats_panel.closed.connect(func() -> void: _deed_panel.visible = true)
@@ -108,12 +120,18 @@ func _button(text: String, kind := "") -> Button:
 func open() -> void:
 	visible = true
 	_designer_button.visible = RemoteConfig.designer_enabled
+	_founder_button.visible = RemoteConfig.companies_enabled
 	await refresh()
 
 
 func _on_open_designer() -> void:
 	_deed_panel.visible = false
 	await designer_panel.open()
+
+
+func _on_open_founder() -> void:
+	_deed_panel.visible = false
+	await founder_panel.open()
 
 
 func _on_open_stats() -> void:

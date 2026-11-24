@@ -25,6 +25,8 @@ export interface RemoteConfig {
   quickPlayWaitSeconds: number;
   /** Designer unlock: uploads and custom decks in private rooms (kill switch). */
   designerEnabled: boolean;
+  /** Founder unlock: custom companies in private rooms (kill switch). */
+  companiesEnabled: boolean;
   /**
    * Offer the Plus subscription in the shop. Off by default: decision D5
    * launches without a subscription. Members keep their benefits either way.
@@ -39,6 +41,7 @@ export const DEFAULT_CONFIG: RemoteConfig = {
   tutorialAutoRoute: false,
   quickPlayWaitSeconds: 20,
   designerEnabled: true,
+  companiesEnabled: true,
   plusEnabled: false,
 };
 

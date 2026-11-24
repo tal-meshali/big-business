@@ -11,12 +11,17 @@ extends PanelContainer
 
 signal closed
 
-const ROW_HEIGHT := 48.0
 const PART_NAMES := {"back": "Card back"}
 const STATUS_TEXT := {
 	"approved": "Live",
 	"pending": "Waiting for review",
 	"rejected": "Not allowed",
+}
+## What each state means at a glance: live, waiting, refused.
+const STATUS_COLOR := {
+	"Live": UiTheme.MINT,
+	"Waiting for review": UiTheme.GOLD,
+	"Not allowed": Color("#FF8A9A"),
 }
 
 ## The last designer_state answer.
@@ -49,35 +54,36 @@ var _file_dialog: FileDialog
 
 func _init() -> void:
 	add_theme_stylebox_override("panel", StyleBoxEmpty.new())
-	var deed := UiTheme.deed_panel(Companies.CHANCE, "Designer", Color.WHITE)
-	deed["title"].add_theme_font_size_override("font_size", 28)
+	var deed := UiTheme.panel(UiTheme.VIOLET, "Designer")
 	deed["panel"].size_flags_vertical = Control.SIZE_EXPAND_FILL
 	add_child(deed["panel"])
-	var body: MarginContainer = deed["body"]
-	body.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	# Close stays under the scrolling page, in reach however long it grows.
+	var frame := VBoxContainer.new()
+	frame.add_theme_constant_override("separation", UiTheme.dp(8))
+	deed["body"].add_child(frame)
 	var scroll := ScrollContainer.new()
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	body.add_child(scroll)
+	frame.add_child(scroll)
 	var column := VBoxContainer.new()
 	column.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	column.add_theme_constant_override("separation", 12)
+	column.add_theme_constant_override("separation", UiTheme.dp(8))
 	scroll.add_child(column)
 
 	var intro := _label("Put your own pictures on the cards in private rooms you host. The card frame, company and share count always stay the same, so the game reads the same for everyone.")
 	column.add_child(intro)
 
 	_unlock_box = VBoxContainer.new()
-	_unlock_box.add_theme_constant_override("separation", 8)
+	_unlock_box.add_theme_constant_override("separation", UiTheme.dp(6))
 	column.add_child(_unlock_box)
-	_buy_button = _button("Unlock Designer", _on_buy)
+	_buy_button = _button("Unlock Designer", _on_buy, "primary")
 	_unlock_box.add_child(_buy_button)
 	_unlock_box.add_child(_button("Restore purchases", _on_restore))
 
 	_age_box = VBoxContainer.new()
-	_age_box.add_theme_constant_override("separation", 8)
+	_age_box.add_theme_constant_override("separation", UiTheme.dp(6))
 	column.add_child(_age_box)
-	_age_box.add_child(_label("How old are you?"))
+	_age_box.add_child(UiTheme.title("How old are you?", UiTheme.dp(UiTheme.TYPE_HEADING)))
 	for answer in [["Under 13", "under13"], ["13 to 15", "13to15"], ["16 or older", "16plus"]]:
 		var bracket: String = answer[1]
 		_age_box.add_child(_button(answer[0], func() -> void: _on_age(bracket)))
@@ -86,36 +92,32 @@ func _init() -> void:
 	column.add_child(_blocked_label)
 
 	_deck_box = VBoxContainer.new()
-	_deck_box.add_theme_constant_override("separation", 8)
+	_deck_box.add_theme_constant_override("separation", UiTheme.dp(6))
 	column.add_child(_deck_box)
 	var slots_row := HFlowContainer.new()
-	slots_row.add_theme_constant_override("h_separation", 8)
-	slots_row.add_theme_constant_override("v_separation", 8)
+	slots_row.add_theme_constant_override("h_separation", UiTheme.dp(6))
+	slots_row.add_theme_constant_override("v_separation", UiTheme.dp(6))
 	_deck_box.add_child(slots_row)
 	for i in 10:
 		var index := i
 		var b := _button("Deck %d" % (i + 1), func() -> void: _on_slot(index))
 		b.toggle_mode = true
-		b.custom_minimum_size = Vector2(196, ROW_HEIGHT)
+		b.custom_minimum_size.x = UiTheme.dp(96)
 		slots_row.add_child(b)
 		_slot_buttons.append(b)
-	_use_toggle = CheckButton.new()
-	_use_toggle.text = "Use this deck in rooms I create"
-	_use_toggle.custom_minimum_size = Vector2(0, ROW_HEIGHT)
+	_use_toggle = _switch("Use this deck in rooms I create")
 	_use_toggle.toggled.connect(_on_use_toggled)
 	_deck_box.add_child(_use_toggle)
-	_public_toggle = CheckButton.new()
-	_public_toggle.text = "Also use it in quick play (Plus)"
-	_public_toggle.custom_minimum_size = Vector2(0, ROW_HEIGHT)
+	_public_toggle = _switch("Also use it in quick play (Plus)")
 	_public_toggle.toggled.connect(_on_public_toggled)
 	_deck_box.add_child(_public_toggle)
 	_parts_list = VBoxContainer.new()
-	_parts_list.add_theme_constant_override("separation", 6)
+	_parts_list.add_theme_constant_override("separation", UiTheme.dp(6))
 	_deck_box.add_child(_parts_list)
-	_deck_box.add_child(_label("Pictures are checked before other players see them. Only use pictures you made or have the right to use; pictures that break the rules are removed, and repeat breaks end uploads."))
+	_deck_box.add_child(_label("Pictures are checked before other players see them. Only use pictures you made or have the right to use; pictures that break the rules are removed, and repeat breaks end uploads.", UiTheme.TEXT_SOFT))
 
 	_editor = VBoxContainer.new()
-	_editor.add_theme_constant_override("separation", 10)
+	_editor.add_theme_constant_override("separation", UiTheme.dp(8))
 	_editor.visible = false
 	column.add_child(_editor)
 	_editor.add_child(_label("Drag the card to move the picture; use the slider to zoom."))
@@ -134,60 +136,58 @@ func _init() -> void:
 	_zoom.min_value = 1.0
 	_zoom.max_value = 4.0
 	_zoom.step = 0.05
-	_zoom.custom_minimum_size = Vector2(0, ROW_HEIGHT)
+	_zoom.custom_minimum_size = Vector2(0, UiTheme.dp(44))
 	_zoom.value_changed.connect(func(_v: float) -> void: _render_preview())
 	_editor.add_child(_zoom)
 	var editor_buttons := HBoxContainer.new()
-	editor_buttons.add_theme_constant_override("separation", 8)
+	editor_buttons.add_theme_constant_override("separation", UiTheme.dp(8))
 	_editor.add_child(editor_buttons)
-	_upload_button = _button("Save", _on_upload)
+	_upload_button = _button("Save", _on_upload, "primary")
 	_upload_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	editor_buttons.add_child(_upload_button)
 	var cancel := _button("Cancel", close_editor)
 	cancel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	editor_buttons.add_child(cancel)
 
-	_show_toggle = CheckButton.new()
-	_show_toggle.text = "Show other players' custom cards"
-	_show_toggle.custom_minimum_size = Vector2(0, ROW_HEIGHT)
+	_show_toggle = _switch("Show other players' custom cards")
 	_show_toggle.button_pressed = CardArt.show_custom
 	_show_toggle.toggled.connect(func(on: bool) -> void:
 		CardArt.show_custom = on
 		CardArt.save_settings())
 	column.add_child(_show_toggle)
-	_show_public_toggle = CheckButton.new()
-	_show_public_toggle.text = "Show custom cards in quick play"
-	_show_public_toggle.custom_minimum_size = Vector2(0, ROW_HEIGHT)
+	_show_public_toggle = _switch("Show custom cards in quick play")
 	_show_public_toggle.button_pressed = CardArt.show_public
 	_show_public_toggle.toggled.connect(func(on: bool) -> void:
 		CardArt.show_public = on
 		CardArt.save_settings())
 	column.add_child(_show_public_toggle)
 
-	_status = _label("")
-	_status.add_theme_color_override("font_color", Companies.INK_SOFT)
+	_status = _label("", UiTheme.TEXT_SOFT)
 	column.add_child(_status)
-	column.add_child(_button("Close", func() -> void:
+	frame.add_child(_button("Close", func() -> void:
 		close_editor()
 		visible = false
-		closed.emit()))
+		closed.emit(), "ghost"))
 	apply_state({})
 
 
-func _label(text: String) -> Label:
-	var l := Label.new()
-	l.text = text
-	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	l.add_theme_font_size_override("font_size", 18)
-	return l
+func _label(text: String, color: Color = UiTheme.TEXT) -> Label:
+	return UiTheme.body(text, UiTheme.dp(UiTheme.TYPE_LABEL), color)
 
 
-func _button(text: String, handler: Callable) -> Button:
-	var b := Button.new()
-	b.text = text
-	b.custom_minimum_size = Vector2(0, ROW_HEIGHT)
+func _button(text: String, handler: Callable, kind := "") -> Button:
+	var b := UiTheme.button(text, UiTheme.dp(UiTheme.TYPE_LABEL), UiTheme.dp(44), kind)
 	b.pressed.connect(handler)
 	return b
+
+
+## A setting with a switch: the words on the left, the switch on the right.
+func _switch(text: String) -> CheckButton:
+	var c := CheckButton.new()
+	c.text = text
+	c.custom_minimum_size = Vector2(0, UiTheme.dp(44))
+	c.add_theme_font_size_override("font_size", UiTheme.dp(UiTheme.TYPE_LABEL))
+	return c
 
 
 ## Shows the panel and loads the player's Designer state.
@@ -197,7 +197,7 @@ func open() -> void:
 
 
 func refresh() -> void:
-	_status.text = "Loading..."
+	_status.text = "Loading…"
 	var data: Dictionary = await DesignerApi.state()
 	if data.is_empty():
 		apply_state({})
@@ -230,7 +230,9 @@ func apply_state(data: Dictionary) -> void:
 
 func _refresh_deck() -> void:
 	for i in _slot_buttons.size():
-		_slot_buttons[i].button_pressed = i == slot
+		_slot_buttons[i].set_pressed_no_signal(i == slot)
+		# The deck being edited is gold, as the item in use is elsewhere.
+		_slot_buttons[i].theme_type_variation = "PrimaryButton" if i == slot else ""
 		_slot_buttons[i].visible = i < int(state.get("slots", 0))
 	_use_toggle.set_pressed_no_signal(int(state.get("active", -1)) == slot)
 	_public_toggle.visible = state.get("plus", false)
@@ -247,20 +249,34 @@ func _refresh_deck() -> void:
 		_add_part_row(part, hash if hash is String else "", st if st is String else "")
 
 
+## One part of the deck in a well: its name over its state (coloured by
+## what it means), then Picture and Clear.
 func _add_part_row(part: String, hash: String, status: String) -> void:
-	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 8)
+	var row := UiTheme.well()
 	_parts_list.add_child(row)
-	var name_label := _label("%s\n%s" % [part_name(part), STATUS_TEXT.get(status, "Standard") if not hash.is_empty() else "Standard"])
-	name_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	row.add_child(name_label)
+	var line := HBoxContainer.new()
+	line.add_theme_constant_override("separation", UiTheme.dp(6))
+	row.add_child(line)
+	var names := VBoxContainer.new()
+	names.add_theme_constant_override("separation", 0)
+	names.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	names.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	line.add_child(names)
+	var name_label := UiTheme.label(part_name(part), UiTheme.dp(UiTheme.TYPE_BODY), UiTheme.TEXT)
+	name_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	names.add_child(name_label)
+	var state_text: String = STATUS_TEXT.get(status, "Standard") if not hash.is_empty() else "Standard"
+	var state_label := _label(state_text, STATUS_COLOR.get(state_text, UiTheme.TEXT_SOFT))
+	state_label.add_theme_font_size_override("font_size", UiTheme.dp(UiTheme.TYPE_LABEL))
+	state_label.autowrap_mode = TextServer.AUTOWRAP_OFF
+	names.add_child(state_label)
 	var pick := _button("Picture", func() -> void: _pick_picture(part))
-	pick.custom_minimum_size = Vector2(120, ROW_HEIGHT)
-	row.add_child(pick)
+	pick.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	line.add_child(pick)
 	var clear := _button("Clear", func() -> void: _on_clear(part))
-	clear.custom_minimum_size = Vector2(96, ROW_HEIGHT)
+	clear.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	clear.disabled = hash.is_empty()
-	row.add_child(clear)
+	line.add_child(clear)
 
 
 static func part_name(part: String) -> String:
@@ -316,14 +332,14 @@ func _on_age(bracket: String) -> void:
 
 func _on_buy() -> void:
 	var product := String(state.get("productId", "bb_designer"))
-	_status.text = "Opening the store..."
+	_status.text = "Opening the store…"
 	if await Purchases.purchase(product):
 		await Net.sync_purchases()
 	await refresh()
 
 
 func _on_restore() -> void:
-	_status.text = "Restoring purchases..."
+	_status.text = "Restoring purchases…"
 	if Purchases.available():
 		await Purchases.restore()
 	await Net.sync_purchases()
@@ -428,7 +444,7 @@ func _on_upload() -> void:
 		_status.text = "That picture is too detailed to save. Try zooming in."
 		return
 	_upload_button.disabled = true
-	_status.text = "Saving..."
+	_status.text = "Saving…"
 	var res: Dictionary = await DesignerApi.upload(slot, _part, bytes)
 	_upload_button.disabled = false
 	if res.is_empty():

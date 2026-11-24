@@ -67,7 +67,9 @@ Phase 3 Designer unlock, server and client code: a one-time unlock for custom ca
 
 Phase 3 Plus, built and switched off (decision D12): a monthly subscription with ten Designer decks, the deck in quick play for players who opt in, a Plus skin each month, full lifetime stats, and the host's card back and felt on every seat of their private rooms. The operator turns it on with Remote Config `plusEnabled`.
 
-Phase 3 clubs (decision D13): start or join a club from the lobby; names come from word lists and there is no chat, so clubs are open to every age. Season points from games with people also count for the player's club in a weekly league. Friends can send each other a daily gift of track points and watch each other's games (decision D14).
+Phase 3 clubs (decision D13): start or join a club from the lobby; names come from word lists and there is no chat, so clubs are open to every age. Season points from games with people also count for the player's club in a weekly league. Friends can send each other a daily gift of XP and watch each other's games (decision D14).
+
+Engagement plan, Phase 1 start (`docs/design/engagement-plan.md`, decision D23): XP after a game follows the capital you end with (20 for finishing plus 2 per coin; half against bots only), quests and gifts pay XP and the free cosmetic track reads it, and after Dividend day an earnings report shows what the game paid, the level bar, season points and the quests it moved.
 
 Code conventions (acyclic, layered dependency graph checked with graphify on every push and in CI) are in `docs/conventions.md`.
 

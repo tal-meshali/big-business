@@ -12,6 +12,8 @@ signal server_error(message: String)
 signal match_left
 signal emote_shown(seat: int, emote: String)
 signal player_forfeited(seat: int)
+## What the finished game paid you; arrives shortly after its last view.
+signal earnings_received(earnings: Dictionary)
 signal reconnecting(attempt: int)
 signal reconnected
 ## A friend invited us to a private room, live over the socket or found as a
@@ -47,6 +49,10 @@ var room_code: String = ""
 ## otherwise miss it and sit empty until the first move, or until the
 ## timer ran out when you move first.
 var last_view: Dictionary = {}
+## The earnings receipt of the current match once it has ended ({} before).
+## WHY kept: it can arrive while the dividends are still animating, before
+## the table is ready to offer it.
+var last_earnings: Dictionary = {}
 var user_id: String = ""
 var display_name: String = ""
 ## False until the server has said the player picked the account's name
@@ -313,6 +319,7 @@ func _join_match(id: String, code: String = "", watch: bool = false) -> bool:
 	match_id = id
 	room_code = code
 	last_view = {}
+	last_earnings = {}
 	return true
 
 
@@ -341,6 +348,7 @@ func leave_match() -> void:
 	match_id = ""
 	room_code = ""
 	last_view = {}
+	last_earnings = {}
 	tutorial_mode = false
 	_set_room_deck({})
 	match_left.emit()
@@ -378,7 +386,7 @@ func send_emote(emote_id: String) -> void:
 	socket.send_match_state_async(match_id, Protocol.OP_EMOTE, JSON.stringify({"emote": emote_id}))
 
 
-## Progression: {progress: {...}, dailyAvailable: bool, quests, trackPoints,
+## Progression: {progress: {...}, dailyAvailable: bool, quests, trackXp,
 ## unlocked, equipped, track}, or {} on failure. Applies the equipped cosmetics.
 func get_profile() -> Dictionary:
 	var rpc: NakamaAPI.ApiRpc = await client.rpc_async(session, "get_profile", "{}")
@@ -466,6 +474,10 @@ func _on_match_state(state: NakamaRTAPI.MatchData) -> void:
 			emote_shown.emit(int(data.get("seat", -1)), String(data.get("emote", "")))
 		Protocol.OP_FORFEITED:
 			player_forfeited.emit(int(data.get("seat", -1)))
+		Protocol.OP_EARNINGS:
+			if data is Dictionary:
+				last_earnings = data
+				earnings_received.emit(data)
 		Protocol.OP_DECK:
 			# A Plus member's deck in quick play shows only to players who opted in.
 			if data is Dictionary and not is_blocked(String(data.get("owner", ""))) and (not data.get("public", false) or CardArt.show_public):
@@ -751,7 +763,7 @@ func _fetch_pending_invites() -> void:
 		await client.delete_notifications_async(session, ids)
 
 
-## Claims a completed quest: {ok, trackPoints, unlocked}, or {} on failure.
+## Claims a completed quest: {ok, progress, trackXp, unlocked}, or {} on failure.
 func claim_quest(id: String) -> Dictionary:
 	if client == null or session == null:
 		return {}

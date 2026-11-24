@@ -103,6 +103,16 @@ var _result_panel: PanelContainer
 var _result_backdrop: ColorRect
 var _result_rows: VBoxContainer
 var _result_label: Label
+var _result_away: Label
+var _result_again: Button
+var _result_leave: Button
+var _result_continue: Button
+## What the game paid you, shown after the standings (see EarningsReport).
+var _earnings_report: EarningsReport
+var _report_open := false
+## True from a tap on Play again or Leave until the match is left, so a
+## second tap cannot start a second game.
+var _leaving := false
 
 var _selected_card: int = -1
 var _pending_events: Array = []
@@ -160,6 +170,7 @@ func _ready() -> void:
 	Net.reconnected.connect(_on_reconnected)
 	Net.player_forfeited.connect(_on_player_forfeited)
 	Net.custom_deck_changed.connect(_on_room_look)
+	Net.earnings_received.connect(func(_e: Dictionary) -> void: _sync_result_buttons())
 	get_viewport().size_changed.connect(_on_resized)
 	# The lobby opened this scene on the game's first view; render it now.
 	if not Net.last_view.is_empty():
@@ -416,13 +427,62 @@ func _build_result_panel() -> void:
 	# Who collected what, company by company, in the quieter second voice.
 	_result_label = UiTheme.body("", _px(UiTheme.TYPE_LABEL), UiTheme.TEXT_SOFT)
 	result_box.add_child(_result_label)
+	# Why there is no earnings report: said once, plainly (see _render_result).
+	_result_away = UiTheme.body("You were away, so a bot finished this game for you. It paid no XP.", _px(UiTheme.TYPE_LABEL), UiTheme.TEXT)
+	_result_away.visible = false
+	result_box.add_child(_result_away)
 	var result_buttons := HBoxContainer.new()
 	result_buttons.add_theme_constant_override("separation", _px(8))
 	result_box.add_child(result_buttons)
-	_make_button(result_buttons, "Play again", _on_play_again, "primary").visible = true
-	var leave := _make_button(result_buttons, "Leave", _on_leave, "ghost")
-	leave.visible = true
-	leave.size_flags_horizontal = Control.SIZE_FILL
+	# With a receipt to show, the gold button leads on to the earnings
+	# report, which has its own Play again; otherwise (the tutorial, a
+	# watcher, a seat a bot finished) Play again is here. Leave is always
+	# one tap away.
+	_result_continue = _make_button(result_buttons, "Continue", _on_result_continue, "primary")
+	_result_again = _make_button(result_buttons, "Play again", _on_play_again, "primary")
+	_result_again.visible = true
+	_result_leave = _make_button(result_buttons, "Leave", _on_leave, "ghost")
+	_result_leave.visible = true
+	_result_leave.size_flags_horizontal = Control.SIZE_FILL
+	# The same width as the standings, so the sheet's edge holds at the swap.
+	_earnings_report = EarningsReport.new()
+	_earnings_report.setup()
+	_earnings_report.custom_minimum_size = Vector2(_result_panel.custom_minimum_size.x, 0)
+	_earnings_report.visible = false
+	_earnings_report.play_again.connect(_on_play_again)
+	_earnings_report.leave.connect(_on_leave)
+	center.add_child(_earnings_report)
+
+
+## True when the server sent a receipt for the game that just ended.
+func _has_earnings() -> bool:
+	return not Net.last_earnings.is_empty() and not Net.tutorial_mode and _my_seat >= 0
+
+
+func _sync_result_buttons() -> void:
+	if _result_continue == null:
+		return
+	var onward := _has_earnings()
+	_result_continue.visible = onward
+	_result_again.visible = not onward
+
+
+## Standings to earnings report: the sheet swaps in over a night shade.
+func _on_result_continue() -> void:
+	if not _has_earnings() or _report_open:
+		return
+	_report_open = true
+	_result_panel.visible = false
+	_earnings_report.show_report(Net.last_earnings)
+
+
+## Back to the standings for the next game's Dividend day.
+func _close_report() -> void:
+	_report_open = false
+	if _earnings_report != null:
+		_earnings_report.finish_motion()
+		_earnings_report.visible = false
+	_result_panel.visible = true
 
 
 func _on_resized() -> void:
@@ -904,6 +964,9 @@ func _on_cancel_pressed() -> void:
 
 
 func _on_leave() -> void:
+	if _leaving:
+		return
+	_leaving = true
 	await Net.leave_match()
 	get_tree().change_scene_to_file("res://scenes/main.tscn")
 
@@ -922,6 +985,9 @@ func _on_leave_pressed() -> void:
 
 func _on_forfeit_confirmed() -> void:
 	_forfeit_overlay.visible = false
+	if _leaving:
+		return
+	_leaving = true
 	await Net.forfeit()
 	get_tree().change_scene_to_file("res://scenes/main.tscn")
 
@@ -935,7 +1001,11 @@ func _on_player_forfeited(seat: int) -> void:
 
 
 func _on_play_again() -> void:
+	if _leaving:
+		return
+	_leaving = true
 	await Net.leave_match()
+	_leaving = false
 	# WHY: the next game reuses this scene; a tutorial coach left attached
 	# would keep restricting moves and showing cards in a timed real game.
 	if coach != null:
@@ -947,6 +1017,7 @@ func _on_play_again() -> void:
 	_prompt.custom_minimum_size.y = maxf(_px(38), _prompt_height(2))
 	_status.text = "Finding a new game…"
 	_result_backdrop.visible = false
+	_close_report()
 	var ok: bool = await Net.quick_play()
 	if not ok:
 		get_tree().change_scene_to_file("res://scenes/main.tscn")
@@ -1698,7 +1769,14 @@ func _render_result(seats: Array) -> void:
 	var result = view.get("result")
 	_result_backdrop.visible = result != null
 	if result == null:
+		if _report_open:
+			_close_report()
 		return
+	_sync_result_buttons()
+	# A seat left to time out is finished by a bot and paid nothing (the
+	# server's awards.ts); the standings say so in place of the report.
+	var mine: Dictionary = seats[_my_seat] if _my_seat >= 0 and _my_seat < seats.size() else {}
+	_result_away.visible = bool(mine.get("isBot", false)) and not Net.tutorial_mode
 	for child in _result_rows.get_children():
 		_result_rows.remove_child(child)
 		child.queue_free()

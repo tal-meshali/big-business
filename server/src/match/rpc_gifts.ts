@@ -1,14 +1,14 @@
 /**
- * Gift RPCs: send a mutual friend a gift of track points once a day, see
+ * Gift RPCs: send a mutual friend a gift of XP once a day, see
  * what is waiting, and collect it. Both rows are server-only (reports.ts
  * SERVER_COLLECTIONS); each RPC writes its rows in one storage call with
  * their versions, so a race is refused as a whole and never pays twice.
  */
 import { availableCosmetics } from './cosmetics';
-import { addGift, claimGifts, claimsLeft, GIFT_COLLECTION, GIFT_POINTS, GIFTS_SEND_PER_DAY, normalizeInbox, normalizeSent, sendBlocker, waiting } from './gifts';
+import { addGift, claimGifts, claimsLeft, GIFT_COLLECTION, GIFT_XP, GIFTS_SEND_PER_DAY, normalizeInbox, normalizeSent, sendBlocker, waiting } from './gifts';
 import { isUserId, parseBody, reject, requireUser } from './input';
 import { loadProfile } from './profile';
-import { PROFILE_COLLECTION, PROFILE_KEY } from './progression';
+import { addXp, PROFILE_COLLECTION, PROFILE_KEY } from './progression';
 import { readOwned } from './purchases';
 import { checkRate } from './ratelimit';
 import { areMutualFriends } from './social';
@@ -51,7 +51,7 @@ export const rpcGiftState: nkruntime.RpcFunction = (ctx, logger, nk, payload) =>
     claimLeft: claimsLeft(inbox, now),
     sentToday: sent.to,
     sendLeft: Math.max(0, GIFTS_SEND_PER_DAY - sent.to.length),
-    points: GIFT_POINTS,
+    xp: GIFT_XP,
   });
 };
 
@@ -76,7 +76,7 @@ export const rpcSendGift: nkruntime.RpcFunction = (ctx, logger, nk, payload) => 
   return JSON.stringify({ sent: target, sendLeft: Math.max(0, GIFTS_SEND_PER_DAY - nextSent.to.length) });
 };
 
-/** RPC claim_gifts: collects waiting gifts (up to today's cap) as track points. */
+/** RPC claim_gifts: collects waiting gifts (up to today's cap) as XP. */
 export const rpcClaimGifts: nkruntime.RpcFunction = (ctx, logger, nk, payload) => {
   void logger; void payload;
   const userId = requireUser(ctx);
@@ -85,7 +85,7 @@ export const rpcClaimGifts: nkruntime.RpcFunction = (ctx, logger, nk, payload) =
   const inboxRow = readRow(nk, INBOX_KEY, userId);
   const result = claimGifts(normalizeInbox(inboxRow.value), now);
   const profile = loadProfile(nk, userId);
-  const progress = { ...profile.progress, trackPoints: profile.progress.trackPoints + result.points };
+  const progress = addXp(profile.progress, result.xp);
   if (result.count > 0) {
     writeAll(nk, [
       req(INBOX_KEY, userId, result.inbox, inboxRow.version),
@@ -94,9 +94,10 @@ export const rpcClaimGifts: nkruntime.RpcFunction = (ctx, logger, nk, payload) =
   }
   return JSON.stringify({
     claimed: result.count,
-    points: result.points,
-    trackPoints: progress.trackPoints,
-    unlocked: availableCosmetics(progress.trackPoints, readOwned(nk, userId).owned),
+    xp: result.xp,
+    progress,
+    trackXp: progress.trackXp,
+    unlocked: availableCosmetics(progress.trackXp, readOwned(nk, userId).owned),
     waiting: result.inbox.pending.length,
   });
 };

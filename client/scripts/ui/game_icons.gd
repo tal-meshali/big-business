@@ -9,6 +9,16 @@ const INK := Color("#1A1238")
 static func draw(ci: CanvasItem, kind: String, c: Vector2, k: float, fill := Color.WHITE) -> void:
 	var o := maxf(2.0, k * 0.16)
 	match kind:
+		"check":
+			# A mint disc with a white tick: something done or collected.
+			ci.draw_circle(c, k, INK, true, -1.0, true)
+			ci.draw_circle(c, k - o, UiTheme.MINT, true, -1.0, true)
+			var tick := PackedVector2Array([c + Vector2(-k * 0.42, k * 0.02), c + Vector2(-k * 0.1, k * 0.34), c + Vector2(k * 0.44, -k * 0.3)])
+			ci.draw_polyline(tick, Color.WHITE, o * 1.5, true)
+		"star":
+			_star(ci, c, k, UiTheme.GOLD if fill == Color.WHITE else fill, o)
+		"coin":
+			coin_face(ci, c, k, Color("#B8722E"), o)
 		"friends":
 			_person(ci, c + Vector2(k * 0.38, -k * 0.05), k * 0.78, fill.darkened(0.15), o)
 			_person(ci, c + Vector2(-k * 0.28, k * 0.05), k * 0.9, fill, o)

@@ -37,8 +37,8 @@ export function readProgress(nk: nkruntime.Nakama, userId: string): Progress {
  * never write it). With `version` from loadProfile the write only succeeds
  * when the row is unchanged since it was read, so two concurrent claims
  * cannot both be paid; the loser is told to try again. Without `version` the
- * write is unconditional (the awards step uses that: XP must never be lost
- * because a claim raced it).
+ * write is unconditional (the awards step ends on that after its versioned
+ * tries: a finished game must be paid even while claims keep racing it).
  */
 export function saveProfile(nk: nkruntime.Nakama, userId: string, p: Progress, version?: string | null): void {
   const req: nkruntime.StorageWriteRequest = { collection: PROFILE_COLLECTION, key: PROFILE_KEY, userId, value: p, permissionRead: 1, permissionWrite: 0 };

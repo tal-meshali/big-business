@@ -12,12 +12,12 @@ import type { Progress } from './progression';
 export { readProgress, writeProgress } from './profile';
 export { requireUser } from './input';
 
-/** Quest rows, track points, unlocked (track and owned skins) and equipped cosmetics for get_profile. */
+/** Quest rows, track XP, unlocked (track and owned skins) and equipped cosmetics for get_profile. */
 export function profileExtras(p: Progress, nowMs: number, owned: ReadonlyArray<string> = []): ReturnType<typeof questProfile> {
   return questProfile(p, nowMs, owned);
 }
 
-/** RPC claim_quest {id}: adds a completed quest's points to the track, once. */
+/** RPC claim_quest {id}: pays a completed quest's XP, once. */
 export const rpcClaimQuest: nkruntime.RpcFunction = (ctx, logger, nk, payload) => {
   void logger;
   const userId = requireUser(ctx);
@@ -25,7 +25,7 @@ export const rpcClaimQuest: nkruntime.RpcFunction = (ctx, logger, nk, payload) =
   const row = loadProfile(nk, userId);
   const result = claimQuest(row.progress, readString(req, 'id', 32), Date.now());
   if (result.ok) saveProfile(nk, userId, result.progress, row.version);
-  return JSON.stringify({ ok: result.ok, trackPoints: result.progress.trackPoints, unlocked: availableCosmetics(result.progress.trackPoints, readOwned(nk, userId).owned) });
+  return JSON.stringify({ ok: result.ok, progress: result.progress, trackXp: result.progress.trackXp, unlocked: availableCosmetics(result.progress.trackXp, readOwned(nk, userId).owned) });
 };
 
 /** RPC equip_cosmetic {slot, id}: selects an unlocked or purchased card back or table felt. */
@@ -35,7 +35,7 @@ export const rpcEquipCosmetic: nkruntime.RpcFunction = (ctx, logger, nk, payload
   const req = parseBody(payload);
   const row = loadProfile(nk, userId);
   const p = row.progress;
-  const result = equipCosmetic(p.equipped, p.trackPoints, readString(req, 'slot', 16), readString(req, 'id', 32), readOwned(nk, userId).owned);
+  const result = equipCosmetic(p.equipped, p.trackXp, readString(req, 'slot', 16), readString(req, 'id', 32), readOwned(nk, userId).owned);
   if (result.ok) saveProfile(nk, userId, { ...p, equipped: result.equipped }, row.version);
   return JSON.stringify({ ok: result.ok, equipped: result.equipped });
 };

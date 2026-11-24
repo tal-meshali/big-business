@@ -104,7 +104,7 @@ func _run() -> void:
 		{"userId": "u-cara", "name": "Cara-with-a-long-name", "online": false, "state": 2},
 		{"userId": "u-dev", "name": "Dev", "online": false, "state": 1},
 	])
-	main._friends_panel.set_extras({"waiting": 2, "names": ["Cara", "Dev"], "claimLeft": 5, "sentToday": [], "sendLeft": 9, "points": 5}, ["u-bo"])
+	main._friends_panel.set_extras({"waiting": 2, "names": ["Cara", "Dev"], "claimLeft": 5, "sentToday": [], "sendLeft": 9, "xp": 15}, ["u-bo"])
 	main._friends_panel.show_invite("Cara", "XYZ789")
 	main._friends_panel._status.text = "Request sent to Dev. You're friends once they add you back."
 	await _shot(out_dir, "friends")
@@ -246,23 +246,23 @@ func _shot(out_dir: String, name: String) -> void:
 
 func _profile() -> Dictionary:
 	return {
-		"trackPoints": 40,
+		"trackXp": 480,
 		"unlocked": ["back_classic", "table_green", "back_midnight"],
 		"equipped": {"cardBack": "back_classic", "table": "table_green"},
 		"track": [
-			{"points": 30, "cosmeticId": "back_midnight"}, {"points": 70, "cosmeticId": "table_navy"},
-			{"points": 120, "cosmeticId": "back_sunrise"}, {"points": 200, "cosmeticId": "table_burgundy"},
-			{"points": 300, "cosmeticId": "back_pinstripe"},
+			{"xp": 360, "cosmeticId": "back_midnight"}, {"xp": 840, "cosmeticId": "table_navy"},
+			{"xp": 1440, "cosmeticId": "back_sunrise"}, {"xp": 2400, "cosmeticId": "table_burgundy"},
+			{"xp": 3600, "cosmeticId": "back_pinstripe"},
 		],
 		"quests": {
 			"daily": [
-				{"id": "d_play_3", "text": "Play 3 games", "target": 3, "points": 10, "progress": 3, "claimable": true, "claimed": false},
-				{"id": "d_win_1", "text": "Win a game", "target": 1, "points": 15, "progress": 0, "claimable": false, "claimed": false},
-				{"id": "d_people", "text": "Play a game with other people", "target": 1, "points": 10, "progress": 1, "claimable": false, "claimed": true},
+				{"id": "d_play_3", "text": "Play 3 games", "target": 3, "xp": 30, "progress": 3, "claimable": true, "claimed": false},
+				{"id": "d_win_1", "text": "Win a game", "target": 1, "xp": 45, "progress": 0, "claimable": false, "claimed": false},
+				{"id": "d_people", "text": "Play a game with other people", "target": 1, "xp": 30, "progress": 1, "claimable": false, "claimed": true},
 			],
 			"weekly": [
-				{"id": "w_win_3", "text": "Win 3 games this week", "target": 3, "points": 40, "progress": 1, "claimable": false, "claimed": false},
-				{"id": "w_coins_25", "text": "Collect 25 coins from Market shares", "target": 25, "points": 30, "progress": 25, "claimable": true, "claimed": false},
+				{"id": "w_win_3", "text": "Win 3 games this week", "target": 3, "xp": 160, "progress": 1, "claimable": false, "claimed": false},
+				{"id": "w_coins_25", "text": "Collect 25 coins from Market shares", "target": 25, "xp": 120, "progress": 25, "claimable": true, "claimed": false},
 			],
 		},
 	}

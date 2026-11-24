@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { addGift, claimGifts, GIFT_POINTS, GIFTS_CLAIM_PER_DAY, GIFTS_SEND_PER_DAY, INBOX_MAX, normalizeInbox, normalizeSent, sendBlocker } from './gifts';
+import { addGift, claimGifts, GIFT_XP, GIFTS_CLAIM_PER_DAY, GIFTS_SEND_PER_DAY, INBOX_MAX, normalizeInbox, normalizeSent, sendBlocker } from './gifts';
 import { rpcClaimGifts, rpcGiftState, rpcSendGift } from './rpc_gifts';
 import { ALICE, BOB, call, fakeNk, userCtx } from './test_support';
 
@@ -32,7 +32,7 @@ describe('gift rules', () => {
     let inbox = normalizeInbox(null);
     for (let i = 0; i < 7; i++) inbox = addGift(inbox, { from: 'u' + i, name: '', at: NOON }, NOON);
     const first = claimGifts(inbox, NOON);
-    expect([first.count, first.points, first.inbox.pending.length]).toEqual([GIFTS_CLAIM_PER_DAY, GIFTS_CLAIM_PER_DAY * GIFT_POINTS, 2]);
+    expect([first.count, first.xp, first.inbox.pending.length]).toEqual([GIFTS_CLAIM_PER_DAY, GIFTS_CLAIM_PER_DAY * GIFT_XP, 2]);
     expect(claimGifts(first.inbox, NOON + 1000).count).toBe(0);
     expect(claimGifts(first.inbox, NOON + DAY).count).toBe(2);
   });
@@ -54,7 +54,7 @@ function giftNk(friends: Array<[string, string]>, blocks: Array<[string, string]
 }
 
 describe('gift RPCs', () => {
-  it('a mutual friend sends, the other collects track points', () => {
+  it('a mutual friend sends, the other collects XP', () => {
     const { nk } = giftNk([[ALICE, BOB]]);
     call(rpcSendGift, userCtx(ALICE), nk, { userId: BOB });
     expect(() => call(rpcSendGift, userCtx(ALICE), nk, { userId: BOB })).toThrow('already sent today');
@@ -63,7 +63,8 @@ describe('gift RPCs', () => {
     expect([state.waiting, state.names, state.claimLeft]).toEqual([1, ['u0f'], GIFTS_CLAIM_PER_DAY]);
     expect(call(rpcGiftState, userCtx(ALICE), nk, {}).sentToday).toEqual([BOB]);
     const claim = call(rpcClaimGifts, userCtx(BOB), nk, {});
-    expect([claim.claimed, claim.trackPoints, claim.waiting]).toEqual([1, GIFT_POINTS, 0]);
+    expect([claim.claimed, claim.xp, claim.trackXp, claim.waiting]).toEqual([1, GIFT_XP, GIFT_XP, 0]);
+    expect([claim.progress.xp, claim.progress.level]).toEqual([GIFT_XP, 1]);
     expect(call(rpcClaimGifts, userCtx(BOB), nk, {}).claimed).toBe(0);
   });
 

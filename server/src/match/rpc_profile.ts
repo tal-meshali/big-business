@@ -16,7 +16,7 @@ export const rpcGetProfile: nkruntime.RpcFunction = (ctx, logger, nk, payload) =
   const stored = readProgress(nk, userId);
   const owned = readOwned(nk, userId).owned;
   // A lapsed Plus (or a refund the webhook missed) shows the default skin.
-  const p = { ...stored, equipped: dropUnavailable(stored.equipped, availableCosmetics(stored.trackPoints, owned, now)) };
+  const p = { ...stored, equipped: dropUnavailable(stored.equipped, availableCosmetics(stored.trackXp, owned, now)) };
   return JSON.stringify({ progress: p, dailyAvailable: p.lastDailyClaim !== utcDate(now), ...profileExtras(p, now, owned) });
 };
 

@@ -84,6 +84,13 @@ describe('remote config', () => {
     expect(Object.keys(next)).not.toContain('extra');
   });
 
+  it('tunes the game XP rates inside their ranges', () => {
+    expect([DEFAULT_CONFIG.xpGameBase, DEFAULT_CONFIG.xpPerCoin]).toEqual([20, 2]);
+    const next = mergeConfig(DEFAULT_CONFIG, { xpGameBase: 30, xpPerCoin: 99 });
+    expect([next.xpGameBase, next.xpPerCoin]).toEqual([30, 20]);
+    expect(mergeConfig(DEFAULT_CONFIG, { xpGameBase: -5, xpPerCoin: 'lots' })).toEqual({ ...DEFAULT_CONFIG, xpGameBase: 0 });
+  });
+
   it('falls back to the base for junk', () => {
     expect(mergeConfig(DEFAULT_CONFIG, null)).toEqual(DEFAULT_CONFIG);
     expect(mergeConfig(DEFAULT_CONFIG, [1, 2])).toEqual(DEFAULT_CONFIG);

@@ -1,6 +1,7 @@
 /**
- * Daily and weekly quests that feed the free cosmetic track. Pure functions
- * over Progress; storage is handled by the RPCs and the awards step.
+ * Daily and weekly quests. They pay XP (decision D23), collected for the
+ * player when the game that completes them ends. Pure functions over
+ * Progress; storage is handled by the RPCs and the awards step.
  *
  * Runs in goja: ES2016 only, no Math.random (picks are seeded by the date so
  * every player sees the same quests and the server never has to store the
@@ -8,7 +9,8 @@
  */
 import type { Action, GameState } from '../engine';
 import { availableCosmetics, TRACK } from './cosmetics';
-import { emptyQuestState, utcDate, type Progress, type QuestProgress, type QuestState } from './progression';
+import { addXp, emptyQuestState, utcDate, type Progress, type QuestProgress, type QuestState } from './progression';
+import type { EarningsQuest } from './protocol';
 
 /** How a quest accumulates: `sum` adds each game's stat, `best` keeps the highest single game. */
 export type QuestKind = 'sum' | 'best';
@@ -21,28 +23,29 @@ export interface QuestDef {
   stat: StatKey;
   kind: QuestKind;
   target: number;
-  points: number;
+  /** XP paid when collected: 30 to 45 for a daily, 120 to 160 for a weekly. */
+  xp: number;
 }
 
 export const DAILY_POOL: ReadonlyArray<QuestDef> = [
-  { id: 'd_play_3', text: 'Play 3 games', stat: 'games', kind: 'sum', target: 3, points: 10 },
-  { id: 'd_win_1', text: 'Win a game', stat: 'wins', kind: 'sum', target: 1, points: 15 },
-  { id: 'd_market_4', text: 'Take 4 shares from the Market', stat: 'marketTakes', kind: 'sum', target: 4, points: 10 },
-  { id: 'd_coins_5', text: 'Collect 5 coins from Market shares', stat: 'marketCoins', kind: 'sum', target: 5, points: 10 },
-  { id: 'd_token', text: 'Hold a regulator token at the end of a game', stat: 'tokensEnd', kind: 'best', target: 1, points: 10 },
-  { id: 'd_gold_4', text: 'Finish a game with 4 or more gold coins', stat: 'goldEnd', kind: 'best', target: 4, points: 10 },
-  { id: 'd_majority_2', text: 'Be the majority holder of 2 companies in one game', stat: 'majorities', kind: 'best', target: 2, points: 15 },
-  { id: 'd_people', text: 'Play a game with other people', stat: 'withPeople', kind: 'sum', target: 1, points: 10 },
+  { id: 'd_play_3', text: 'Play 3 games', stat: 'games', kind: 'sum', target: 3, xp: 30 },
+  { id: 'd_win_1', text: 'Win a game', stat: 'wins', kind: 'sum', target: 1, xp: 45 },
+  { id: 'd_market_4', text: 'Take 4 shares from the Market', stat: 'marketTakes', kind: 'sum', target: 4, xp: 30 },
+  { id: 'd_coins_5', text: 'Collect 5 coins from Market shares', stat: 'marketCoins', kind: 'sum', target: 5, xp: 30 },
+  { id: 'd_token', text: 'Hold a regulator token at the end of a game', stat: 'tokensEnd', kind: 'best', target: 1, xp: 30 },
+  { id: 'd_gold_4', text: 'Finish a game with 4 or more gold coins', stat: 'goldEnd', kind: 'best', target: 4, xp: 30 },
+  { id: 'd_majority_2', text: 'Be the majority holder of 2 companies in one game', stat: 'majorities', kind: 'best', target: 2, xp: 45 },
+  { id: 'd_people', text: 'Play a game with other people', stat: 'withPeople', kind: 'sum', target: 1, xp: 30 },
 ];
 
 export const WEEKLY_POOL: ReadonlyArray<QuestDef> = [
-  { id: 'w_play_12', text: 'Play 12 games this week', stat: 'games', kind: 'sum', target: 12, points: 30 },
-  { id: 'w_win_3', text: 'Win 3 games this week', stat: 'wins', kind: 'sum', target: 3, points: 40 },
-  { id: 'w_market_15', text: 'Take 15 shares from the Market', stat: 'marketTakes', kind: 'sum', target: 15, points: 30 },
-  { id: 'w_coins_25', text: 'Collect 25 coins from Market shares', stat: 'marketCoins', kind: 'sum', target: 25, points: 30 },
-  { id: 'w_people_5', text: 'Play 5 games with other people', stat: 'withPeople', kind: 'sum', target: 5, points: 35 },
-  { id: 'w_majority_3', text: 'Be the majority holder of 3 companies in one game', stat: 'majorities', kind: 'best', target: 3, points: 40 },
-  { id: 'w_gold_8', text: 'Finish a game with 8 or more gold coins', stat: 'goldEnd', kind: 'best', target: 8, points: 35 },
+  { id: 'w_play_12', text: 'Play 12 games this week', stat: 'games', kind: 'sum', target: 12, xp: 120 },
+  { id: 'w_win_3', text: 'Win 3 games this week', stat: 'wins', kind: 'sum', target: 3, xp: 160 },
+  { id: 'w_market_15', text: 'Take 15 shares from the Market', stat: 'marketTakes', kind: 'sum', target: 15, xp: 120 },
+  { id: 'w_coins_25', text: 'Collect 25 coins from Market shares', stat: 'marketCoins', kind: 'sum', target: 25, xp: 120 },
+  { id: 'w_people_5', text: 'Play 5 games with other people', stat: 'withPeople', kind: 'sum', target: 5, xp: 140 },
+  { id: 'w_majority_3', text: 'Be the majority holder of 3 companies in one game', stat: 'majorities', kind: 'best', target: 3, xp: 160 },
+  { id: 'w_gold_8', text: 'Finish a game with 8 or more gold coins', stat: 'goldEnd', kind: 'best', target: 8, xp: 140 },
 ];
 
 export const DAILY_COUNT = 3;
@@ -198,8 +201,9 @@ function copyEntries(src: { [id: string]: QuestProgress }): { [id: string]: Ques
 }
 
 /**
- * Starts a new day or week when the calendar moved on. Unclaimed points from
- * a finished period are lost, which is what keeps the daily rhythm.
+ * Starts a new day or week when the calendar moved on. Finished quests are
+ * collected when their game ends (collectQuests), so nothing a player
+ * completed is lost at midnight; only unfinished progress starts over.
  */
 export function rolloverQuests(q: QuestState | undefined, nowMs: number): QuestState {
   const state = q || emptyQuestState();
@@ -235,7 +239,7 @@ export interface QuestRow {
   id: string;
   text: string;
   target: number;
-  points: number;
+  xp: number;
   progress: number;
   claimable: boolean;
   claimed: boolean;
@@ -248,7 +252,7 @@ function rows(entries: { [id: string]: QuestProgress }, defs: QuestDef[]): Quest
       id: def.id,
       text: def.text,
       target: def.target,
-      points: def.points,
+      xp: def.xp,
       progress: e.progress,
       claimable: !e.claimed && e.progress >= def.target,
       claimed: e.claimed,
@@ -262,7 +266,11 @@ export function questView(q: QuestState | undefined, nowMs: number): { daily: Qu
   return { daily: rows(state.daily, dailyQuests(state.day)), weekly: rows(state.weekly, weeklyQuests(state.week)) };
 }
 
-/** Claims a completed quest once, adding its points to the track. */
+/**
+ * Claims a completed quest once and pays its XP. Normally collectQuests has
+ * already done it when the game ended; this pays one it did not reach (the
+ * player's row was finished by a game on an older server).
+ */
 export function claimQuest(p: Progress, id: string, nowMs: number): { ok: boolean; progress: Progress } {
   const def = questById(id);
   if (!def) return { ok: false, progress: p };
@@ -274,7 +282,58 @@ export function claimQuest(p: Progress, id: string, nowMs: number): { ok: boolea
   const e = entries[id];
   if (!listed || !e || e.claimed || e.progress < def.target) return { ok: false, progress: { ...p, quests } };
   e.claimed = true;
-  return { ok: true, progress: { ...p, quests, trackPoints: p.trackPoints + def.points } };
+  return { ok: true, progress: addXp({ ...p, quests }, def.xp) };
+}
+
+/**
+ * Collects every finished, uncollected quest of today and this week: marks
+ * each claimed and pays its XP. Called when a game ends, so the earnings
+ * report can list them and the player never has to come back to claim.
+ */
+export function collectQuests(p: Progress, nowMs: number): { progress: Progress; collected: QuestDef[] } {
+  const quests = rolloverQuests(p.quests, nowMs);
+  const collected: QuestDef[] = [];
+  const take = (entries: { [id: string]: QuestProgress }, defs: QuestDef[]): void => {
+    for (const def of defs) {
+      const e = entries[def.id];
+      if (!e || e.claimed || e.progress < def.target) continue;
+      e.claimed = true;
+      collected.push(def);
+    }
+  };
+  take(quests.daily, dailyQuests(quests.day));
+  take(quests.weekly, weeklyQuests(quests.week));
+  let xp = 0;
+  for (const def of collected) xp += def.xp;
+  return { progress: addXp({ ...p, quests }, xp), collected };
+}
+
+/**
+ * The open quests worth showing after a game: those the game moved first,
+ * then the nearest to done; at most `limit`. `before` is the quest state the
+ * game started from (any day; a stale one counts as no progress).
+ */
+export function openQuests(before: QuestState | undefined, after: QuestState, nowMs: number, limit: number = 2): EarningsQuest[] {
+  const was = rolloverQuests(before, nowMs);
+  const now = rolloverQuests(after, nowMs);
+  const found: Array<{ q: EarningsQuest; moved: boolean; left: number }> = [];
+  const scan = (entries: { [id: string]: QuestProgress }, old: { [id: string]: QuestProgress }, defs: QuestDef[], weekly: boolean): void => {
+    for (const def of defs) {
+      const e = entries[def.id];
+      if (!e || e.claimed || e.progress >= def.target) continue;
+      const prev = old[def.id];
+      found.push({
+        q: { id: def.id, text: def.text, progress: e.progress, target: def.target, xp: def.xp, weekly },
+        moved: e.progress > (prev ? prev.progress : 0),
+        left: 1 - e.progress / def.target,
+      });
+    }
+  };
+  scan(now.daily, was.daily, dailyQuests(now.day), false);
+  scan(now.weekly, was.weekly, weeklyQuests(now.week), true);
+  // Stable order without relying on Array.prototype.sort stability in goja.
+  found.sort((a, b) => (a.moved === b.moved ? (a.left === b.left ? (a.q.id < b.q.id ? -1 : 1) : a.left - b.left) : a.moved ? -1 : 1));
+  return found.slice(0, Math.max(0, limit)).map((f) => f.q);
 }
 
 /**
@@ -283,16 +342,16 @@ export function claimQuest(p: Progress, id: string, nowMs: number): { ok: boolea
  */
 export function questProfile(p: Progress, nowMs: number, owned: ReadonlyArray<string> = []): {
   quests: { daily: QuestRow[]; weekly: QuestRow[] };
-  trackPoints: number;
+  trackXp: number;
   unlocked: string[];
   equipped: { cardBack: string; table: string };
-  track: Array<{ points: number; cosmeticId: string }>;
+  track: Array<{ xp: number; cosmeticId: string }>;
 } {
   return {
     quests: questView(p.quests, nowMs),
-    trackPoints: p.trackPoints,
-    unlocked: availableCosmetics(p.trackPoints, owned),
+    trackXp: p.trackXp,
+    unlocked: availableCosmetics(p.trackXp, owned),
     equipped: p.equipped,
-    track: TRACK.map((t) => ({ points: t.points, cosmeticId: t.cosmeticId })),
+    track: TRACK.map((t) => ({ xp: t.xp, cosmeticId: t.cosmeticId })),
   };
 }

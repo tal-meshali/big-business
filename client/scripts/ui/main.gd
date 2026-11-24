@@ -197,6 +197,10 @@ func _build() -> void:
 	_quests_panel.visible = false
 	_quests_panel.visibility_changed.connect(func() -> void: quests_shade.visible = _quests_panel.visible)
 	_quests_panel.cosmetic_changed.connect(_on_cosmetic_changed)
+	# A quest collected by hand pays XP: the HUD's level and bar follow.
+	_quests_panel.progress_changed.connect(func(p: Dictionary) -> void:
+		_apply_progress(p, not _daily_button.disabled)
+		_refresh_quest_badge())
 	add_child(_quests_panel)
 
 	_shop_panel = ShopPanel.new()

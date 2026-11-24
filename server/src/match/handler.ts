@@ -15,7 +15,7 @@ import { handleForfeits } from './forfeit';
 import { botThinkMs, GET_READY_MS, label, lobbyJoinError, lobbyMessage, nowMs, readLobbyMessages, send, type MatchState } from './state';
 import { chooseRoomDeck, sendDeck } from './room_deck';
 import { pushTurnIfAway } from './turn_push';
-import { sendViews } from './views';
+import { sendEarnings, sendViews } from './views';
 import { answerSignal, mayWatch, recordPlaying } from './watch';
 
 const TICK_RATE = 4; // ticks per second
@@ -100,6 +100,7 @@ export const matchInit: nkruntime.MatchInitFunction<MatchState> = (ctx, logger, 
     endedAt: 0,
     botActAt: 0,
     awarded: false,
+    earnings: {},
     lastEmoteAt: {},
     log: [],
     pushTurnKey: '',
@@ -164,6 +165,8 @@ export const matchJoin: nkruntime.MatchJoinFunction<MatchState> = (ctx, logger, 
   state.lastActivity = nowMs();
   if (state.game) {
     sendViews(state, dispatcher);
+    // A player who comes back while the result is up gets their receipt again.
+    sendEarnings(state, dispatcher, presences);
   } else {
     // Public lobbies count down from the first human's arrival.
     if (!state.params.isPrivate && state.lobby.length > 0 && state.startsAt === 0) {
@@ -237,7 +240,7 @@ export const matchLoop: nkruntime.MatchLoopFunction<MatchState> = (ctx, logger, 
 
   // ---- Ended -------------------------------------------------------------
   if (state.game.phase === 'ended') {
-    awardProgress(state, nk, logger);
+    if (awardProgress(state, nk, logger)) sendEarnings(state, dispatcher);
     if (now - state.endedAt > END_LINGER_MS || Object.keys(state.presences).length === 0) return null;
     return { state };
   }

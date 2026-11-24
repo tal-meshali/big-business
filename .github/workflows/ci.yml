@@ -42,7 +42,15 @@ jobs:
       - name: Import project
         run: ./godot --headless --path client --import
       - name: Smoke test
-        run: ./godot --headless --path client --script res://tests/smoke.gd
+        # WHY the grep: a GDScript error stops only the function it is in and
+        # leaves the exit code alone, so a crash would pass unseen.
+        run: |
+          set -o pipefail
+          ./godot --headless --path client --script res://tests/smoke.gd 2>&1 | tee smoke.log
+          if grep -q "SCRIPT ERROR" smoke.log; then
+            echo "::error::The smoke test hit a script error (see the log above)."
+            exit 1
+          fi
 
   e2e:
     name: End-to-end (Nakama + Node client + Godot client)

@@ -1,6 +1,6 @@
 /** Match state shared by the handler and its helper modules. */
 import type { Action, GameState } from '../engine';
-import { OP_READY, OP_START_NOW, type DeckMessage, type LobbyMessage, type LobbySeat, type MatchParams } from './protocol';
+import { OP_READY, OP_START_NOW, type DeckMessage, type EarningsMessage, type LobbyMessage, type LobbySeat, type MatchParams } from './protocol';
 
 export const BOT_THINK_MS = 900;
 export const TUTORIAL_BOT_THINK_MS = 1800;
@@ -39,6 +39,8 @@ export interface MatchState {
   botActAt: number;
   /** Progression and leaderboard written once after the game ends. */
   awarded: boolean;
+  /** The earnings receipt per user id, written by the awards step; resent to a player who rejoins. */
+  earnings: { [userId: string]: EarningsMessage };
   /** Last emote time per user id, for the cooldown. */
   lastEmoteAt: { [userId: string]: number };
   /** Append-only log of accepted actions for replay / reconnection. `coins` is what a Market share paid (quest stats). */

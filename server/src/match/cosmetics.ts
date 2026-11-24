@@ -1,5 +1,5 @@
 /**
- * Cosmetics: card backs and table felts. Most are unlocked by quest points on
+ * Cosmetics: card backs and table felts. Most are unlocked by XP on
  * the free track; a few curated skins are sold a la carte for real money
  * through the stores (store.ts maps them to RevenueCat entitlements). Ids are
  * shared with the client (client/scripts/game/cosmetics.gd). No virtual
@@ -28,7 +28,8 @@ export interface Equipped {
 }
 
 export interface TrackStep {
-  points: number;
+  /** Track XP (progression.ts trackXp) at which the cosmetic unlocks. */
+  xp: number;
   cosmeticId: string;
 }
 
@@ -60,16 +61,18 @@ export function plusCosmetics(nowMs: number): string[] {
 export const DEFAULT_EQUIPPED: Equipped = { cardBack: 'back_classic', table: 'table_green' };
 
 /**
- * Track thresholds in quest points. Three dailies a day are worth about 30
- * points, so the whole track takes roughly ten active days: long enough to
- * matter, short enough that a casual player finishes it.
+ * Track thresholds in XP. A normal day of two or three games with the
+ * dailies earns about 370 XP (docs/design/engagement-plan.md section 3), so
+ * the whole track takes roughly ten active days. Each is a multiple of
+ * TRACK_XP_PER_POINT, so a profile stored in track points (progression.ts
+ * normalizeProgress) lands exactly on the step it had reached.
  */
 export const TRACK: ReadonlyArray<TrackStep> = [
-  { points: 30, cosmeticId: 'back_midnight' },
-  { points: 70, cosmeticId: 'table_navy' },
-  { points: 120, cosmeticId: 'back_sunrise' },
-  { points: 200, cosmeticId: 'table_burgundy' },
-  { points: 300, cosmeticId: 'back_pinstripe' },
+  { xp: 360, cosmeticId: 'back_midnight' },
+  { xp: 840, cosmeticId: 'table_navy' },
+  { xp: 1440, cosmeticId: 'back_sunrise' },
+  { xp: 2400, cosmeticId: 'table_burgundy' },
+  { xp: 3600, cosmeticId: 'back_pinstripe' },
 ];
 
 export function cosmeticById(id: string): Cosmetic | null {
@@ -77,18 +80,18 @@ export function cosmeticById(id: string): Cosmetic | null {
   return null;
 }
 
-/** Ids owned at this many track points: the defaults plus every reached step. */
-export function unlockedCosmetics(trackPoints: number): string[] {
+/** Ids owned at this much track XP: the defaults plus every reached step. */
+export function unlockedCosmetics(trackXp: number): string[] {
   const out: string[] = [DEFAULT_EQUIPPED.cardBack, DEFAULT_EQUIPPED.table];
   for (const step of TRACK) {
-    if (trackPoints >= step.points && out.indexOf(step.cosmeticId) < 0) out.push(step.cosmeticId);
+    if (trackXp >= step.xp && out.indexOf(step.cosmeticId) < 0) out.push(step.cosmeticId);
   }
   return out;
 }
 
 /** The first step not yet reached, or null when the track is complete. */
-export function nextUnlock(trackPoints: number): TrackStep | null {
-  for (const step of TRACK) if (trackPoints < step.points) return step;
+export function nextUnlock(trackXp: number): TrackStep | null {
+  for (const step of TRACK) if (trackXp < step.xp) return step;
   return null;
 }
 
@@ -99,8 +102,8 @@ export function nextUnlock(trackPoints: number): TrackStep | null {
  * that are not paid skins are ignored, so a purchase row can never unlock a
  * track item early.
  */
-export function availableCosmetics(trackPoints: number, owned: ReadonlyArray<string>, nowMs: number = Date.now()): string[] {
-  const out = unlockedCosmetics(trackPoints);
+export function availableCosmetics(trackXp: number, owned: ReadonlyArray<string>, nowMs: number = Date.now()): string[] {
+  const out = unlockedCosmetics(trackXp);
   for (const id of owned) {
     const c = cosmeticById(id);
     if (c && c.paid && out.indexOf(id) < 0) out.push(id);
@@ -110,9 +113,9 @@ export function availableCosmetics(trackPoints: number, owned: ReadonlyArray<str
 }
 
 /** Equips `id` into `slot` when it exists, fits the slot and is unlocked or owned. */
-export function equipCosmetic(equipped: Equipped, trackPoints: number, slot: string, id: string, owned: ReadonlyArray<string> = []): { ok: boolean; equipped: Equipped } {
+export function equipCosmetic(equipped: Equipped, trackXp: number, slot: string, id: string, owned: ReadonlyArray<string> = []): { ok: boolean; equipped: Equipped } {
   const c = cosmeticById(id);
-  if (!c || c.slot !== slot || availableCosmetics(trackPoints, owned).indexOf(id) < 0) return { ok: false, equipped };
+  if (!c || c.slot !== slot || availableCosmetics(trackXp, owned).indexOf(id) < 0) return { ok: false, equipped };
   const next: Equipped = { cardBack: equipped.cardBack, table: equipped.table };
   next[c.slot] = id;
   return { ok: true, equipped: next };

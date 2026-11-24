@@ -5,9 +5,11 @@ import { emptyProgress, normalizeProgress, type Progress } from './progression';
 import {
   applyGameToQuests,
   claimQuest,
+  collectQuests,
   DAILY_POOL,
   dailyQuests,
   gameStats,
+  openQuests,
   questView,
   rolloverQuests,
   utcWeek,
@@ -15,6 +17,7 @@ import {
   weeklyQuests,
   type GameStats,
   type LogEntry,
+  type QuestDef,
 } from './quests';
 
 const day = 86_400_000;
@@ -55,7 +58,7 @@ describe('quest picks', () => {
 });
 
 describe('progress and claims', () => {
-  it('advances sum and best quests, then claims points once', () => {
+  it('advances sum and best quests, then pays a claim once', () => {
     let p: Progress = emptyProgress();
     const wide = stats({ wins: 1, marketTakes: 20, marketCoins: 30, tokensEnd: 3, goldEnd: 9, majorities: 3, withPeople: 1, rank: 1 });
     p = { ...p, quests: applyGameToQuests(p.quests, wide, t0) };
@@ -71,10 +74,11 @@ describe('progress and claims', () => {
     expect(target).toBeDefined();
     const first = claimQuest(p, (target as { id: string }).id, t0);
     expect(first.ok).toBe(true);
-    expect(first.progress.trackPoints).toBe((target as { points: number }).points);
+    expect(first.progress.xp).toBe((target as { xp: number }).xp);
+    expect(first.progress.trackXp).toBe((target as { xp: number }).xp);
     const again = claimQuest(first.progress, (target as { id: string }).id, t0);
     expect(again.ok).toBe(false);
-    expect(again.progress.trackPoints).toBe(first.progress.trackPoints);
+    expect(again.progress.xp).toBe(first.progress.xp);
     expect(questView(first.progress.quests, t0).daily.find((r) => r.id === (target as { id: string }).id)?.claimed).toBe(true);
   });
 
@@ -182,33 +186,118 @@ describe('game stats', () => {
 describe('cosmetic track', () => {
   it('unlocks in threshold order and equips only what is unlocked', () => {
     expect(unlockedCosmetics(0)).toEqual(['back_classic', 'table_green']);
-    expect(unlockedCosmetics(30)).toContain('back_midnight');
-    expect(unlockedCosmetics(69)).not.toContain('table_navy');
-    expect(unlockedCosmetics(1000).length).toBe(2 + TRACK.length);
+    expect(unlockedCosmetics(360)).toContain('back_midnight');
+    expect(unlockedCosmetics(839)).not.toContain('table_navy');
+    expect(unlockedCosmetics(3600).length).toBe(2 + TRACK.length);
     expect(nextUnlock(0)?.cosmeticId).toBe('back_midnight');
-    expect(nextUnlock(300)).toBeNull();
+    expect(nextUnlock(3599)?.cosmeticId).toBe('back_pinstripe');
+    expect(nextUnlock(3600)).toBeNull();
     const base = { cardBack: 'back_classic', table: 'table_green' };
-    expect(equipCosmetic(base, 10, 'cardBack', 'back_midnight').ok).toBe(false);
-    const ok = equipCosmetic(base, 30, 'cardBack', 'back_midnight');
+    expect(equipCosmetic(base, 359, 'cardBack', 'back_midnight').ok).toBe(false);
+    const ok = equipCosmetic(base, 360, 'cardBack', 'back_midnight');
     expect(ok.ok).toBe(true);
     expect(ok.equipped).toEqual({ cardBack: 'back_midnight', table: 'table_green' });
-    expect(equipCosmetic(base, 30, 'table', 'back_midnight').ok).toBe(false); // wrong slot
-    expect(equipCosmetic(base, 30, 'table', 'table_green').ok).toBe(true);
+    expect(equipCosmetic(base, 360, 'table', 'back_midnight').ok).toBe(false); // wrong slot
+    expect(equipCosmetic(base, 360, 'table', 'table_green').ok).toBe(true);
   });
 
   it('claims feed the track through progress', () => {
     let p: Progress = emptyProgress();
-    let pts = 0;
-    for (let i = 0; i < 6 && pts < 30; i++) {
+    for (let i = 0; i < 12 && p.trackXp < 360; i++) {
       const now = t0 + i * day;
       p = { ...p, quests: applyGameToQuests(p.quests, stats({ wins: 1, marketTakes: 9, marketCoins: 9, tokensEnd: 2, goldEnd: 9, majorities: 3, withPeople: 1, rank: 1 }), now) };
       p = { ...p, quests: applyGameToQuests(p.quests, stats({ games: 1 }), now) };
       p = { ...p, quests: applyGameToQuests(p.quests, stats({ games: 1 }), now) };
       for (const row of questView(p.quests, now).daily) if (row.claimable) p = claimQuest(p, row.id, now).progress;
-      pts = p.trackPoints;
     }
-    expect(p.trackPoints).toBeGreaterThanOrEqual(30);
-    expect(unlockedCosmetics(p.trackPoints)).toContain('back_midnight');
+    expect(p.trackXp).toBeGreaterThanOrEqual(360);
+    expect(p.xp).toBe(p.trackXp);
+    expect(unlockedCosmetics(p.trackXp)).toContain('back_midnight');
+  });
+
+  it('keeps every cosmetic a player had unlocked with points', () => {
+    for (const points of [0, 29, 30, 70, 119, 120, 200, 299, 300, 450]) {
+      const oldUnlocks = [30, 70, 120, 200, 300].filter((t) => points >= t).length;
+      const migrated = normalizeProgress({ trackPoints: points } as never);
+      expect(unlockedCosmetics(migrated.trackXp).length).toBe(2 + oldUnlocks);
+    }
+  });
+});
+
+describe('collecting at the end of a game', () => {
+  const wide = stats({ wins: 1, marketTakes: 20, marketCoins: 30, tokensEnd: 3, goldEnd: 9, majorities: 3, withPeople: 1, rank: 1 });
+
+  it('pays every finished quest once and leaves unfinished ones open', () => {
+    let p: Progress = emptyProgress();
+    p = { ...p, quests: applyGameToQuests(p.quests, wide, t0) };
+    const done = questView(p.quests, t0);
+    const expected = done.daily.concat(done.weekly).filter((r) => r.claimable);
+    expect(expected.length).toBeGreaterThan(0);
+    const got = collectQuests(p, t0);
+    expect(got.collected.map((d) => d.id).sort()).toEqual(expected.map((r) => r.id).sort());
+    const sum = expected.reduce((n, r) => n + r.xp, 0);
+    expect(got.progress.xp).toBe(sum);
+    expect(got.progress.trackXp).toBe(sum);
+    const after = questView(got.progress.quests, t0);
+    for (const r of after.daily.concat(after.weekly)) expect(r.claimable).toBe(false);
+    // A second pass has nothing left to pay.
+    const again = collectQuests(got.progress, t0);
+    expect(again.collected).toEqual([]);
+    expect(again.progress.xp).toBe(sum);
+    // And a manual claim of a collected quest is refused.
+    expect(claimQuest(got.progress, expected[0]!.id, t0).ok).toBe(false);
+  });
+
+  it('does not mutate the progress it was given', () => {
+    let p: Progress = emptyProgress();
+    p = { ...p, quests: applyGameToQuests(p.quests, wide, t0) };
+    const snapshot = JSON.stringify(p);
+    collectQuests(p, t0);
+    expect(JSON.stringify(p)).toBe(snapshot);
+  });
+
+  it('pays nothing for a quest finished on a day that is over', () => {
+    let p: Progress = emptyProgress();
+    p = { ...p, quests: applyGameToQuests(p.quests, wide, t0) };
+    const weeklyDone = questView(p.quests, t0).weekly.filter((r) => r.claimable);
+    // Next day, same week: the dailies started over, the weeklies are still there.
+    const got = collectQuests(p, t0 + day);
+    expect(got.collected.map((d) => d.id).sort()).toEqual(weeklyDone.map((r) => r.id).sort());
+  });
+
+  it('lists open quests, the ones the game moved first and the nearest to done first', () => {
+    const before = rolloverQuests(undefined, t0);
+    const after = applyGameToQuests(before, stats({ games: 1, marketTakes: 1 }), t0);
+    const open = openQuests(before, after, t0, 10);
+    const view = questView(after, t0);
+    const all = view.daily.concat(view.weekly);
+    expect(open.length).toBe(all.filter((r) => !r.claimable && !r.claimed).length);
+    const moved = open.filter((q) => q.progress > 0);
+    // Every moved quest comes before every untouched one.
+    expect(open.slice(0, moved.length).every((q) => q.progress > 0)).toBe(true);
+    for (let i = 1; i < moved.length; i++) {
+      expect(moved[i - 1]!.progress / moved[i - 1]!.target).toBeGreaterThanOrEqual(moved[i]!.progress / moved[i]!.target);
+    }
+    expect(openQuests(before, after, t0).length).toBeLessThanOrEqual(2);
+    expect(openQuests(before, after, t0, 0)).toEqual([]);
+    for (const q of open) expect(q.weekly).toBe(q.id.startsWith('w_'));
+  });
+
+  it('lists a quest the game moved before one that is merely close to done', () => {
+    const base = rolloverQuests(undefined, t0);
+    const [close, far] = weeklyQuests(base.week) as [QuestDef, QuestDef];
+    const before = { ...base, weekly: { [close.id]: { progress: close.target - 1, claimed: false }, [far.id]: { progress: 0, claimed: false } } };
+    const after = { ...before, weekly: { ...before.weekly, [far.id]: { progress: 1, claimed: false } } };
+    expect(openQuests(before, after, t0, 10).filter((q) => q.weekly).map((q) => q.id)).toEqual([far.id, close.id]);
+    // With nothing moved, the nearest to done leads.
+    expect(openQuests(after, after, t0, 10).filter((q) => q.weekly).map((q) => q.id)).toEqual([close.id, far.id]);
+  });
+
+  it('treats quest progress from an earlier day as no progress', () => {
+    const yesterday = applyGameToQuests(undefined, stats({ games: 1 }), t0 - day * 7);
+    const after = applyGameToQuests(yesterday, stats({ games: 1 }), t0);
+    const open = openQuests(yesterday, after, t0, 10);
+    for (const q of open) expect(q.progress).toBeLessThanOrEqual(1);
   });
 });
 
@@ -216,7 +305,7 @@ describe('stored rows', () => {
   it('normalise old profiles without quest fields', () => {
     const old = { xp: 120, level: 2, gamesPlayed: 3, wins: 1, streak: 4, lastDailyClaim: '2026-09-27', bestRank: 1 };
     const p = normalizeProgress(old as Partial<Progress>);
-    expect(p.trackPoints).toBe(0);
+    expect(p.trackXp).toBe(0);
     expect(p.quests.day).toBe('');
     expect(p.equipped).toEqual({ cardBack: 'back_classic', table: 'table_green' });
     expect(p.xp).toBe(120);

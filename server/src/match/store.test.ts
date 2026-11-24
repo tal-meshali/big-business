@@ -53,7 +53,7 @@ describe('normalizeOwned', () => {
 });
 
 describe('paid skins and the cosmetic picker', () => {
-  it('are never unlocked by track points', () => {
+  it('are never unlocked by track XP', () => {
     expect(unlockedCosmetics(100000)).not.toContain('back_gilded');
   });
 
@@ -70,7 +70,7 @@ describe('paid skins and the cosmetic picker', () => {
 
   it('go back to the default when the purchase is gone', () => {
     const eq = { cardBack: 'back_gilded', table: 'table_navy' };
-    expect(dropUnavailable(eq, availableCosmetics(70, []))).toEqual({ cardBack: 'back_classic', table: 'table_navy' });
+    expect(dropUnavailable(eq, availableCosmetics(840, []))).toEqual({ cardBack: 'back_classic', table: 'table_navy' });
     const kept = { cardBack: 'back_gilded', table: 'table_green' };
     expect(dropUnavailable(kept, availableCosmetics(0, ['back_gilded']))).toBe(kept);
   });

@@ -36,7 +36,7 @@ const CONSOLE_USER = process.env.NAKAMA_CONSOLE_USER || 'admin';
 const CONSOLE_PASSWORD = process.env.NAKAMA_CONSOLE_PASSWORD || 'password';
 const WEBHOOK_AUTH = process.env.REVENUECAT_WEBHOOK_AUTH || 'local-webhook-secret';
 
-const OP_ACTION = 1, OP_READY = 2, OP_EMOTE = 3, OP_FORFEIT = 4, OP_START_NOW = 5, OP_VIEW = 10, OP_EVENTS = 11, OP_LOBBY = 12, OP_ERROR = 13, OP_EMOTE_SHOWN = 14, OP_FORFEITED = 15, OP_DECK = 16;
+const OP_ACTION = 1, OP_READY = 2, OP_EMOTE = 3, OP_FORFEIT = 4, OP_START_NOW = 5, OP_VIEW = 10, OP_EVENTS = 11, OP_LOBBY = 12, OP_ERROR = 13, OP_EMOTE_SHOWN = 14, OP_FORFEITED = 15, OP_DECK = 16, OP_EARNINGS = 17;
 const INVITE_CODE = 100; // notification code, see src/match/protocol.ts
 const STARTING_COINS = 10;
 
@@ -70,6 +70,7 @@ async function makePlayer(name) {
     else if (m.op_code === OP_EMOTE_SHOWN) p.emotes.push(data);
     else if (m.op_code === OP_FORFEITED) p.forfeits.push(data);
     else if (m.op_code === OP_DECK) p.deck = data;
+    else if (m.op_code === OP_EARNINGS) p.earnings = data;
   };
   socket.ondisconnect = () => { p.disconnected = true; };
   return p;
@@ -254,6 +255,21 @@ async function testPrivateRoom() {
   await sleep(800);
   const prof = await rpc(a, 'get_profile');
   if (prof.progress.gamesPlayed !== 1 || prof.progress.xp <= 0) fail(`profile not awarded: ${JSON.stringify(prof)}`);
+  // The earnings receipt: every seat gets its own, and it adds up to the profile.
+  for (const p of [a, b, c]) {
+    const mine = final.result.scores.find((s) => final.seats[s.seat].id === p.userId);
+    const e = p.earnings;
+    if (!e) fail(`${p.session.username} got no earnings receipt`);
+    const capital = e.lines.find((l) => l.kind === 'capital');
+    const finish = e.lines.find((l) => l.kind === 'finish');
+    const sum = e.lines.reduce((n, l) => n + l.xp, 0);
+    if (e.rank !== mine.rank || e.seats !== 3 || e.capital !== mine.score || e.botsOnly) fail(`receipt does not match the result: ${JSON.stringify(e)}`);
+    if (capital.xp !== 2 * mine.score || finish.xp !== 20 || sum !== e.xp || e.xpBefore !== 0 || e.xpAfter !== e.xp) fail(`receipt XP wrong: ${JSON.stringify(e)}`);
+    const after = await rpc(p, 'get_profile');
+    if (after.progress.xp !== e.xpAfter || after.trackXp !== e.xp) fail(`profile ${JSON.stringify(after.progress)} does not match receipt ${JSON.stringify(e)}`);
+    for (const q of [...after.quests.daily, ...after.quests.weekly]) if (q.claimable) fail(`a finished quest should be collected at game end: ${JSON.stringify(q)}`);
+  }
+  log('earnings receipts: capital', [a, b, c].map((p) => `${p.earnings.capital} -> +${p.earnings.xp} XP`).join(', '));
   const winner = final.result.scores.find((s) => s.rank === 1);
   const winnerPlayer = [a, b, c].find((p) => p.userId === final.seats[winner.seat].id);
   const wp = await rpc(winnerPlayer, 'get_profile');
@@ -452,7 +468,7 @@ async function testRejections() {
   // Server-owned storage: a client can neither pre-seed nor delete it.
   let seedRefused = false;
   try {
-    await p.client.writeStorageObjects(p.session, [{ collection: 'profile', key: 'progress', value: { xp: 1e9, trackPoints: 1e6 }, permission_read: 1, permission_write: 0 }]);
+    await p.client.writeStorageObjects(p.session, [{ collection: 'profile', key: 'progress', value: { xp: 1e9, trackXp: 1e6 }, permission_read: 1, permission_write: 0 }]);
   } catch (e) { seedRefused = true; }
   if (!seedRefused) fail('a client write to the profile collection must be refused');
   const seeded = await rpc(p, 'get_profile');
@@ -785,19 +801,21 @@ async function testClubs() {
 }
 
 async function testGiftsAndWatching() {
-  log('--- Gifts and watching: friends only, track points, a seatless view');
+  log('--- Gifts and watching: friends only, XP, a seatless view');
   const [a, b, c, stranger] = await Promise.all([makePlayer('GiftA'), makePlayer('GiftB'), makePlayer('GiftC'), makePlayer('Nosy')]);
   await rpcRejected(a, 'send_gift', { userId: b.userId }, 'a gift before being friends');
   await a.client.addFriends(a.session, [b.userId]);
   await b.client.addFriends(b.session, [a.userId]);
   await rpc(a, 'send_gift', { userId: b.userId });
   await rpcRejected(a, 'send_gift', { userId: b.userId }, 'a second gift the same day');
-  const before = (await rpc(b, 'get_profile')).trackPoints || 0;
+  const before = await rpc(b, 'get_profile');
   const st = await rpc(b, 'gift_state');
   if (st.waiting !== 1 || st.names[0] !== a.session.username) fail(`gift_state: ${JSON.stringify(st)}`);
   const claim = await rpc(b, 'claim_gifts');
-  if (claim.claimed !== 1 || claim.trackPoints !== before + st.points) fail(`claim_gifts: ${JSON.stringify(claim)} (before ${before})`);
-  log(`gifts: friends only, once a day, +${st.points} track points collected`);
+  if (st.xp !== 15 || claim.claimed !== 1 || claim.xp !== st.xp || claim.trackXp !== before.trackXp + st.xp || claim.progress.xp !== before.progress.xp + st.xp) {
+    fail(`claim_gifts: ${JSON.stringify(claim)} (before ${JSON.stringify(before.progress)})`);
+  }
+  log(`gifts: friends only, once a day, +${st.xp} XP collected`);
 
   const created = await rpc(a, 'create_room', { stepSeconds: 5, maxSeats: 2 });
   await join(a, created.matchId, created.code);

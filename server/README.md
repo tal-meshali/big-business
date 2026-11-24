@@ -47,6 +47,7 @@ Payloads are JSON strings.
 | server -> client | 12 `OP_LOBBY` | `LobbyMessage` while waiting to start |
 | server -> client | 13 `OP_ERROR` | `{message, action?}` |
 | server -> client | 14 `OP_EMOTE_SHOWN` | `{seat, emote}` relayed to everyone at the table |
+| server -> client | 17 `OP_EARNINGS` | `EarningsMessage` (`src/match/protocol.ts`): what the game that just ended paid this player, line by line, with the level before and after, season points, open quests and newly unlocked looks. Sent once after the last view, and again to a player who rejoins the ended match |
 
 ## RPCs
 
@@ -55,9 +56,9 @@ Payloads are JSON strings.
 | `quick_play` | `{}` or `{"tutorial": true}` | `{matchId}` (open public lobby or a new one; tutorial match when asked); 12 per minute per user |
 | `create_room` | `{stepSeconds?, maxSeats?}` | `{code, matchId}`; `stepSeconds` 0 (no timer) or clamped to 5..120 (default 30), `maxSeats` to 2..7 (default 7); 6 per minute per user |
 | `join_room` | `{code}` | `{code, matchId}`; error `invalid code` or `room not found` (a code whose match has ended is removed). Join the match with `{code}` as join metadata: a private room refuses a join without its code |
-| `get_profile` | `{}` | `{progress: {xp, level, gamesPlayed, wins, streak, lastDailyClaim, bestRank, trackPoints, quests, equipped}, dailyAvailable, quests: {daily: [...], weekly: [...]}, trackPoints, unlocked, equipped: {cardBack, table}, track: [{points, cosmeticId}]}`; each quest row is `{id, text, target, points, progress, claimable, claimed}` |
+| `get_profile` | `{}` | `{progress: {xp, level, gamesPlayed, wins, streak, lastDailyClaim, bestRank, trackXp, quests, equipped}, dailyAvailable, quests: {daily: [...], weekly: [...]}, trackXp, unlocked, equipped: {cardBack, table}, track: [{xp, cosmeticId}]}`; each quest row is `{id, text, target, xp, progress, claimable, claimed}` |
 | `claim_daily` | `{}` | `{claimed, xpAwarded, progress}`; once per UTC day, streak grows on consecutive days |
-| `claim_quest` | `{id}` | `{ok, trackPoints, unlocked}`; adds a completed quest's points to the free cosmetic track, once (a concurrent claim or daily claim of the same row fails with `try again`) |
+| `claim_quest` | `{id}` | `{ok, progress, trackXp, unlocked}`; pays a completed quest's XP, once. Quests are normally collected when the game that finishes them ends; this is for a leftover (a concurrent claim or daily claim of the same row fails with `try again`) |
 | `equip_cosmetic` | `{slot, id}` | `{ok, equipped}`; `slot` is `cardBack` or `table`, `id` must be unlocked on the track or an owned shop skin |
 | `store_catalog` | `{}` | `{configured, skins: [{id, slot, name, productId, owned}], owned}`; `configured` is false until `REVENUECAT_API_KEY` is set. Prices come from the store plugin on the device |
 | `sync_purchases` | `{}` | `{configured, owned, equipped, unlocked}`; re-reads the caller's RevenueCat entitlements (after a purchase, and for Restore Purchases), stores them in the server-only `purchases/owned` row and puts a refunded skin that was equipped back to the default; 6 per minute per user; `store unavailable, try again` when RevenueCat cannot be reached |
@@ -84,11 +85,11 @@ Storage permissions: `profile/progress` and `purchases/owned` are readable by th
 
 Match labels carry the mode, open flag and seat counts, never the room code: any client can list matches.
 
-Progression (`src/match/progression.ts`, pure and unit-tested) is applied by the match handler once when a game ends: XP for participation, placement and wins (halved for games against bots only), and season points on the `season` leaderboard (monthly reset, only for games with at least two humans). Adding, accepting, removing and blocking friends use Nakama's friends API from the client; the social RPCs (`src/match/social.ts`, invite rules unit-tested) only look players up and deliver room invites as Nakama in-app notifications (no push).
+Progression (`src/match/progression.ts`, pure and unit-tested) is applied by the match handler once when a game ends: XP that follows the capital the player ends with (`xpGameBase` 20 plus `xpPerCoin` 2 per coin of final score, both in Remote Config; halved for games against bots only; decision D23), and season points on the `season` leaderboard (monthly reset, only for games with at least two humans). Adding, accepting, removing and blocking friends use Nakama's friends API from the client; the social RPCs (`src/match/social.ts`, invite rules unit-tested) only look players up and deliver room invites as Nakama in-app notifications (no push).
 
 Shop, analytics, Remote Config and push: curated skins are cosmetics with `paid: true` (`src/match/cosmetics.ts`), owned only through RevenueCat entitlements read by the server (`src/match/store.ts`, `purchases.ts`). Analytics (`src/match/analytics.ts`, `metrics.ts`) count installs, D1 / D7 and the funnel per install day from `get_profile` and game ends. Remote Config (`src/match/remote_config.ts`) holds switches the server and client both read. "Your turn" pushes (`src/match/push.ts`, `push_sender.ts`, `turn_push.ts`) go through FCM HTTP v1 when a turn starts for a player who is away from the match. Without their `.env` keys the shop reports `configured: false` and no push is sent.
 
-Quests (`src/match/quests.ts`): three daily quests picked deterministically from the UTC date and two weekly ones from the ISO week (seeded, so every player sees the same list and nothing is stored per selection). The handler advances them from each finished game's stats (Market takes and their coins from the action log, gold, majorities and tokens at the end, human count, rank). Claimed points feed the free cosmetic track (`src/match/cosmetics.ts`): card backs and table felts unlock at point thresholds; nothing on the track is sold (decision D5).
+Quests (`src/match/quests.ts`): three daily quests picked deterministically from the UTC date and two weekly ones from the ISO week (seeded, so every player sees the same list and nothing is stored per selection). The handler advances them from each finished game's stats (Market takes and their coins from the action log, gold, majorities and tokens at the end, human count, rank). A finished quest pays its XP when the game ends (`awards.ts` `settleGame`, which also builds the earnings receipt). All XP also counts toward the free cosmetic track (`src/match/cosmetics.ts`): card backs and table felts unlock at XP thresholds, and a profile from before the change keeps its place (old track points count 12 XP each); nothing on the track is sold (decision D5).
 
 ## Match lifecycle
 

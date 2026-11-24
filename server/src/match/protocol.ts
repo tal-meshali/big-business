@@ -28,6 +28,56 @@ export const OP_EMOTE_SHOWN = 14;
 export const OP_FORFEITED = 15;
 /** DeckMessage: the room's custom card art and host skins (room_deck.ts). */
 export const OP_DECK = 16;
+/** EarningsMessage: what the game just paid this player; sent once the awards are written. */
+export const OP_EARNINGS = 17;
+
+/** One XP line of the earnings report, in the order the client lists them. */
+export interface EarningsLine {
+  /** `capital`: XP for final capital. `finish`: for finishing. `quest`: a quest this game completed. */
+  kind: 'capital' | 'finish' | 'quest';
+  xp: number;
+  /** Quest lines: the quest's text. */
+  text?: string;
+}
+
+/** A quest this game moved but did not finish, for the report's "next" rows. */
+export interface EarningsQuest {
+  id: string;
+  text: string;
+  progress: number;
+  target: number;
+  xp: number;
+  weekly: boolean;
+}
+
+/**
+ * OP_EARNINGS payload: the receipt for one player's finished game (plan
+ * section 4). Everything is computed on the server; the client only draws it.
+ */
+export interface EarningsMessage {
+  /** Finishing place and the number of seats. */
+  rank: number;
+  seats: number;
+  /** Final capital: bronze plus three per gold coin. */
+  capital: number;
+  /** XP per coin the capital line was paid at (halved against only bots). */
+  rate: number;
+  /** true when no other person played, so the game paid half. */
+  botsOnly: boolean;
+  lines: EarningsLine[];
+  /** Sum of the lines. */
+  xp: number;
+  xpBefore: number;
+  xpAfter: number;
+  levelBefore: number;
+  levelAfter: number;
+  /** Season points this game added (0 against only bots). */
+  seasonPoints: number;
+  /** Quests still open (quests.ts openQuests): those this game moved first, then the nearest to done. */
+  quests: EarningsQuest[];
+  /** Track cosmetics this game unlocked (ids from cosmetics.ts). */
+  unlocked: string[];
+}
 
 /**
  * OP_DECK payload: art hashes (fetched with the get_card_art RPC) for the

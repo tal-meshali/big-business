@@ -1,7 +1,8 @@
 class_name QuestsPanel
 extends PanelContainer
 ## Quests overlay for the lobby: today's and this week's quests with progress
-## bars and Claim buttons, the free cosmetic track, and a picker for the card
+## bars (a finished quest pays its XP when its game ends; the button only
+## collects a leftover), the free cosmetic track, and a picker for the card
 ## back and table felt (only unlocked ones enabled), on two tabs (Quests,
 ## Looks) so neither needs scrolling on a phone. Built in code on a royal
 ## sheet with the night scheme's text roles, wells and meters; fed by the
@@ -10,14 +11,17 @@ extends PanelContainer
 signal closed
 ## Emitted after a cosmetic is picked, once `Cosmetics` already reflects it.
 signal cosmetic_changed(slot: String, id: String)
+## A leftover quest was collected: the profile after its XP (level, XP).
+signal progress_changed(progress: Dictionary)
 
 const HINTS := [
-	"Quests reset at midnight UTC; weekly ones on Monday.",
-	"Points from quests unlock new looks along the track.",
+	"Finished quests pay when the game ends. New ones daily; weekly on Monday.",
+	"All XP counts toward the next look.",
 ]
-## One entry per quest row: {id, claimable, claimed, label, bar, count, button}.
+## One entry per quest row: {id, claimable, claimed, label, bar, count, button, done}.
 var rows: Array[Dictionary] = []
-var track_points := 0
+## XP counted toward the cosmetic track.
+var track_xp := 0
 var unlocked: Array = []
 var track: Array = []
 var _daily_box: VBoxContainer
@@ -100,7 +104,7 @@ func _init() -> void:
 	for e in Cosmetics.TABLES:
 		_table_buttons[e["id"]] = _make_pick_button(felts, "table", e["id"])
 
-	# WHY outside the pages: this line also answers a tap on Claim, and at
+	# WHY outside the pages: this line also answers a tap on Collect, and at
 	# the end of a scrolling list nobody saw it.
 	_status = UiTheme.body("", UiTheme.dp(UiTheme.TYPE_LABEL), UiTheme.TEXT_SOFT)
 	column.add_child(_status)
@@ -169,7 +173,7 @@ func _show_hint() -> void:
 
 ## Feeds the whole `get_profile` result (or any dictionary with the same keys).
 func apply_profile(data: Dictionary) -> void:
-	track_points = int(data.get("trackPoints", 0))
+	track_xp = int(data.get("trackXp", 0))
 	unlocked = data.get("unlocked", [Cosmetics.DEFAULT_CARD_BACK, Cosmetics.DEFAULT_TABLE])
 	track = data.get("track", [])
 	Cosmetics.apply_equipped(data.get("equipped", {}))
@@ -191,7 +195,7 @@ func apply_profile(data: Dictionary) -> void:
 
 
 ## One quest in a well: what to do, how far along, and what it pays, with
-## Claim on the right (mint once the quest is done).
+## Collect on the right only for a finished quest that still waits.
 func _add_row(parent: Control, q: Dictionary) -> void:
 	var row := UiTheme.well()
 	parent.add_child(row)
@@ -210,33 +214,50 @@ func _add_row(parent: Control, q: Dictionary) -> void:
 	bar.max_value = maxf(1.0, float(q.get("target", 1)))
 	bar.value = float(q.get("progress", 0))
 	col.add_child(bar)
-	var count := UiTheme.body("%d of %d  ·  +%d track points" % [int(q.get("progress", 0)), int(q.get("target", 1)), int(q.get("points", 0))], UiTheme.dp(UiTheme.TYPE_LABEL), UiTheme.TEXT_SOFT)
+	var count := UiTheme.body("%d of %d  ·  +%d XP" % [int(q.get("progress", 0)), int(q.get("target", 1)), int(q.get("xp", 0))], UiTheme.dp(UiTheme.TYPE_LABEL), UiTheme.TEXT_SOFT)
+	# WHY: starts with a number; a right-to-left locale would reorder it.
+	count.text_direction = Control.TEXT_DIRECTION_LTR
 	col.add_child(count)
-	var button := UiTheme.button("Claim", UiTheme.dp(UiTheme.TYPE_LABEL), UiTheme.dp(44))
-	button.custom_minimum_size.x = UiTheme.dp(84)
-	button.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	# The row's end: nothing while the quest is open, a tick once it paid,
+	# and a button only for a finished quest that still waits. The slot keeps
+	# its width in all three, so every row's bar is the same length.
+	var slot := CenterContainer.new()
+	slot.custom_minimum_size = Vector2(UiTheme.dp(96), UiTheme.dp(44))
+	slot.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	line.add_child(slot)
+	var button := UiTheme.button("Collect", UiTheme.dp(UiTheme.TYPE_LABEL), UiTheme.dp(44))
+	button.custom_minimum_size.x = UiTheme.dp(96)
+	# Mint, the reward colour: there is something to collect.
+	button.theme_type_variation = "GreenButton"
 	var id := String(q.get("id", ""))
 	button.pressed.connect(func() -> void: _on_claim(id))
-	line.add_child(button)
+	slot.add_child(button)
+	var done := HBoxContainer.new()
+	done.add_theme_constant_override("separation", UiTheme.dp(5))
+	slot.add_child(done)
+	var tick := EarningsReport.ReportIcon.new()
+	tick.kind = "check"
+	tick.custom_minimum_size = Vector2(UiTheme.dp(16), UiTheme.dp(16))
+	tick.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	done.add_child(tick)
+	var collected := UiTheme.body("Collected", UiTheme.dp(UiTheme.TYPE_LABEL), UiTheme.TEXT)
+	# WHY: one word in a centred slot. A wrapping label has no width of its
+	# own there and would stand the word on end, a letter to a line.
+	collected.autowrap_mode = TextServer.AUTOWRAP_OFF
+	done.add_child(collected)
 	var entry := {"id": id, "claimable": bool(q.get("claimable", false)), "claimed": bool(q.get("claimed", false)),
-		"label": label, "bar": bar, "count": count, "button": button, "row": row}
+		"label": label, "bar": bar, "count": count, "button": button, "done": done, "row": row}
 	rows.append(entry)
 	_refresh_row(entry)
 
 
 func _refresh_row(entry: Dictionary) -> void:
 	var button: Button = entry["button"]
-	# Mint, the reward colour, only while there is something to collect.
-	button.theme_type_variation = "GreenButton" if entry["claimable"] and not entry["claimed"] else ""
-	if entry["claimed"]:
-		button.text = "Claimed"
-		button.disabled = true
-	elif entry["claimable"]:
-		button.text = "Claim"
-		button.disabled = false
-	else:
-		button.text = "Claim"
-		button.disabled = true
+	# WHY still a button at all: quests are collected when a game ends, but
+	# one finished on an older server waits here until the player takes it.
+	button.visible = entry["claimable"] and not entry["claimed"]
+	button.disabled = false
+	entry["done"].visible = entry["claimed"]
 
 
 func _on_claim(id: String) -> void:
@@ -247,21 +268,24 @@ func _on_claim(id: String) -> void:
 	var res: Dictionary = await Net.claim_quest(id)
 	if res.is_empty() or not res.get("ok", false):
 		entry["button"].disabled = false
-		_status.text = "Could not claim right now. Try again in a moment."
+		_status.text = "Could not collect right now. Try again in a moment."
 		_status_is_hint = false
 		return
-	_apply_claim(id, int(res.get("trackPoints", track_points)), res.get("unlocked", unlocked))
+	_apply_claim(id, int(res.get("trackXp", track_xp)), res.get("unlocked", unlocked))
+	var progress: Dictionary = res.get("progress", {})
+	if not progress.is_empty():
+		progress_changed.emit(progress)
 
 
 ## Marks a row claimed and updates the track from the server's answer.
-func _apply_claim(id: String, new_points: int, new_unlocked: Array) -> void:
+func _apply_claim(id: String, new_track_xp: int, new_unlocked: Array) -> void:
 	var entry := _row_by_id(id)
 	if not entry.is_empty():
 		entry["claimed"] = true
 		entry["claimable"] = false
 		_refresh_row(entry)
 	var before := unlocked.size()
-	track_points = new_points
+	track_xp = new_track_xp
 	unlocked = new_unlocked
 	_refresh_track()
 	_refresh_picker()
@@ -277,31 +301,31 @@ func _row_by_id(id: String) -> Dictionary:
 	return {}
 
 
-## Track summary: points so far and the next unlock.
+## Track summary: XP so far and the next unlock.
 func _refresh_track() -> void:
 	var prev := 0
 	var next: Dictionary = {}
 	for step in track:
-		if track_points < int(step.get("points", 0)):
+		if track_xp < int(step.get("xp", 0)):
 			next = step
 			break
-		prev = int(step.get("points", 0))
+		prev = int(step.get("xp", 0))
 	if next.is_empty():
-		_track_label.text = "%d track points. Every cosmetic unlocked!" % track_points if not track.is_empty() else "%d track points" % track_points
+		_track_label.text = "%s XP. Every look unlocked!" % EarningsReport.grouped(track_xp) if not track.is_empty() else "%s XP" % EarningsReport.grouped(track_xp)
 		_track_bar.min_value = 0
-		_track_bar.max_value = maxf(1.0, float(track_points))
-		_track_bar.value = track_points
+		_track_bar.max_value = maxf(1.0, float(track_xp))
+		_track_bar.value = track_xp
 		return
-	_track_label.text = "%d track points. Next unlock: %s at %d." % [track_points, Cosmetics.name_of(String(next.get("cosmeticId", ""))), int(next.get("points", 0))]
+	_track_label.text = "%s XP. Next look: %s at %s." % [EarningsReport.grouped(track_xp), Cosmetics.name_of(String(next.get("cosmeticId", ""))), EarningsReport.grouped(int(next.get("xp", 0)))]
 	_track_bar.min_value = prev
-	_track_bar.max_value = int(next.get("points", 0))
-	_track_bar.value = track_points
+	_track_bar.max_value = int(next.get("xp", 0))
+	_track_bar.value = track_xp
 
 
-func _unlock_points(id: String) -> int:
+func _unlock_xp(id: String) -> int:
 	for step in track:
 		if String(step.get("cosmeticId", "")) == id:
-			return int(step.get("points", 0))
+			return int(step.get("xp", 0))
 	return 0
 
 
@@ -320,15 +344,15 @@ func _refresh_pick_button(b: Button, id: String, current: String) -> void:
 	b.set_pressed_no_signal(id == current)
 	# The one in use is gold; a pressed violet button alone was hard to spot.
 	b.theme_type_variation = "PrimaryButton" if id == current else ""
-	var pts := _unlock_points(id)
-	if is_unlocked or (pts == 0 and not Cosmetics.is_paid(id) and not Cosmetics.is_plus(id)):
+	var at := _unlock_xp(id)
+	if is_unlocked or (at == 0 and not Cosmetics.is_paid(id) and not Cosmetics.is_plus(id)):
 		b.text = Cosmetics.name_of(id)
 	elif Cosmetics.is_paid(id):
 		b.text = "%s · shop" % Cosmetics.name_of(id)
 	elif Cosmetics.is_plus(id):
 		b.text = "%s · Plus" % Cosmetics.name_of(id)
 	else:
-		b.text = "%s · %d pts" % [Cosmetics.name_of(id), pts]
+		b.text = "%s · %s XP" % [Cosmetics.name_of(id), EarningsReport.grouped(at)]
 
 
 ## Applies the pick locally first so the lobby and cards change at once,

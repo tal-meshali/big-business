@@ -46,7 +46,7 @@ export function hostDeck(nk: nkruntime.Nakama, hostId: string): DeckMessage | nu
 export function hostSkins(nk: nkruntime.Nakama, hostId: string): { cardBack: string; table: string } | null {
   if (!designerAccess(nk, hostId).plus) return null;
   const p = loadProfile(nk, hostId).progress;
-  return dropUnavailable(p.equipped, availableCosmetics(p.trackPoints, readOwned(nk, hostId).owned));
+  return dropUnavailable(p.equipped, availableCosmetics(p.trackXp, readOwned(nk, hostId).owned));
 }
 
 /** The first seated Plus member (seat order) who opted their deck into quick play. */

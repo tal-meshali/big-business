@@ -215,6 +215,8 @@ func _add_row(parent: Control, q: Dictionary) -> void:
 	bar.value = float(q.get("progress", 0))
 	col.add_child(bar)
 	var count := UiTheme.body("%d of %d  ·  +%d XP" % [int(q.get("progress", 0)), int(q.get("target", 1)), int(q.get("xp", 0))], UiTheme.dp(UiTheme.TYPE_LABEL), UiTheme.TEXT_SOFT)
+	# WHY: starts with a number; a right-to-left locale would reorder it.
+	count.text_direction = Control.TEXT_DIRECTION_LTR
 	col.add_child(count)
 	# The row's end: nothing while the quest is open, a tick once it paid,
 	# and a button only for a finished quest that still waits. The slot keeps

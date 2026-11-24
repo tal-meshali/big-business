@@ -206,7 +206,15 @@ func _text(text: String, dp: float, color: Color, display := false) -> Label:
 	if not display:
 		l.add_theme_font_override("font", UiTheme.body_font())
 	l.add_theme_constant_override("line_spacing", 0)
+	_ltr(l)
 	return l
+
+
+## WHY: the layout is left to right in every language, but a label takes its
+## reading direction from the locale, and in a right-to-left one a line that
+## starts with a sign or a number ("+42", "2 of 3") would come out reversed.
+func _ltr(l: Label) -> void:
+	l.text_direction = Control.TEXT_DIRECTION_LTR
 
 
 func _group() -> VBoxContainer:
@@ -321,6 +329,7 @@ func _lines_well(e: Dictionary) -> Control:
 	total.add_child(earned)
 	# Gold, as the scores on the standings: this is the number to read.
 	_total = UiTheme.title("", _px(UiTheme.TYPE_TITLE), UiTheme.GOLD)
+	_ltr(_total)
 	total.add_child(_total)
 	col.add_child(total)
 	return well

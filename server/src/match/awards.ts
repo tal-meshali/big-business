@@ -122,9 +122,11 @@ export function awardProgress(s: MatchState, nk: nkruntime.Nakama, logger: nkrun
   s.awarded = true;
   const seatCount = s.game.seats.length;
   let humans = 0;
-  // WHY: a player who forfeited is not playing, so a 2-human room where one
-  // forfeits counts as a solo game (no season points, reduced XP).
-  for (const seat of s.game.seats) if (!seat.id.startsWith('bot:') && !s.forfeited[seat.id]) humans++;
+  // WHY: a player who forfeited, or who was away until a bot finished their
+  // seat, is not playing. A 2-human room where one of them is gone counts as
+  // a solo game (no season points, reduced XP), so a second account left
+  // idle cannot turn a bot game into a game with people.
+  for (const seat of s.game.seats) if (!seat.id.startsWith('bot:') && !s.forfeited[seat.id] && !seat.isBot) humans++;
   const now = Date.now();
   const rates = xpRates(nk, logger);
   for (const score of s.game.result.scores) {

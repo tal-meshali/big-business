@@ -216,10 +216,9 @@ describe('awardProgress', () => {
     // Nothing the bot did reaches the season table or the statistics.
     expect(board.filter((r) => r.owner === BOB)).toEqual([]);
     expect(Object.keys(rows).filter((k) => k.indexOf(BOB) >= 0 && k.indexOf('stats') >= 0)).toEqual([]);
-    // The one who stayed still played with a person: full rate, season points.
+    // For the one who stayed it was a game against bots, as after a forfeit.
     const e = s.earnings[ALICE] as EarningsMessage;
-    expect([e.botsOnly, e.rate]).toEqual([false, 2]);
-    expect(e.seasonPoints).toBeGreaterThan(0);
+    expect([e.botsOnly, e.rate, e.seasonPoints, e.lines[1]?.xp]).toEqual([true, 1, 0, 10]);
   });
 
   it('pays the tutorial at the solo rate with no quest credit', () => {

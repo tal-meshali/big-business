@@ -8,7 +8,7 @@
 import { storeArt } from './art_upload';
 import { LOGO_PART, LOGO_TEMPLATE, STRIKES_TO_BAN, uploadBlocker, type ArtStatus } from './designer';
 import { readArt, readStanding } from './designer_store';
-import { clashWith, cleanName, COLORS, COMPANY_SLOTS, emptyRow, LOGOS, nameProblem, normalizeCompany, pictureHashes, setCompany, type Company, type CompaniesRow } from './founder';
+import { clashWith, cleanName, effective, COLORS, COMPANY_SLOTS, emptyRow, LOGOS, nameProblem, normalizeCompany, pictureHashes, setCompany, type Company, type CompaniesRow } from './founder';
 import { enqueueCompanies, ownsFounder, readCompanies, writeCompanies } from './founder_store';
 import { isUserId, MATCH_ID_MAX, parseBody, readString, refuse, required, requireUser, type Body } from './input';
 import { checkRate } from './ratelimit';
@@ -89,7 +89,13 @@ export const rpcSaveCompany: nkruntime.RpcFunction = (ctx, logger, nk, payload) 
   refuse(i < 0 ? 'invalid company' : '');
   const current = readCompanies(nk, userId);
   let company: Company | null = null;
-  if (req['reset'] !== true) {
+  if (req['reset'] === true) {
+    // The standard company must not clash with one of the player's own
+    // (one of them may have taken its colour, logo or band name).
+    const std = effective(setCompany(current.row, i, null), i);
+    const clash = clashWith(current.row, i, { ...std, picture: null });
+    refuse(clash ? `${std.name} cannot come back yet: ${clash.charAt(0).toLowerCase()}${clash.slice(1)} Change that company first.` : '');
+  } else {
     refuse(nameProblem(req['name']));
     const prev = current.row.companies[i];
     const keepPicture = req['picture'] === null ? null : prev ? prev.picture : null;

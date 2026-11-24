@@ -694,9 +694,9 @@ async function testPlus() {
   const host = await makePlayer('PlusHost');
   const guest = await makePlayer('PlusGuest');
   const listed = async () => (await rpc(host, 'store_catalog')).unlocks.map((u) => u.id).join(',');
-  if ((await listed()) !== 'designer') fail('Plus must not be listed until offered');
+  if ((await listed()) !== 'designer,founder') fail('Plus must not be listed until offered');
   await serverRpc('set_remote_config', { plusEnabled: true });
-  if ((await listed()) !== 'designer,plus') fail('Plus should be listed once offered');
+  if ((await listed()) !== 'designer,plus,founder') fail('Plus should be listed once offered');
   await serverRpc('set_remote_config', { plusEnabled: false });
   await rpcRejected(host, 'set_public_deck', { on: true }, 'quick play opt-in without Plus');
   await consoleWrite('purchases', 'owned', host.userId, { owned: ['plus', 'table_walnut'], syncedAt: Date.now(), expires: { plus: Date.now() + 86_400_000 } });

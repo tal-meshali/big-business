@@ -52,6 +52,10 @@ describe('Founder RPCs', () => {
     const st = call(rpcFounderState, userCtx(ALICE), nk, {});
     expect(st.companies[2]).toMatchObject({ name: 'Rocket Mail', pictureStatus: null });
     expect(st.colors).toContain('teal');
+    // A standard company cannot come back while another company has its colour.
+    call(rpcSaveCompany, userCtx(ALICE), nk, { company: 3, name: 'Deep Blue', color: 'blue', logo: 'gear' });
+    expect(() => call(rpcSaveCompany, userCtx(ALICE), nk, { company: 2, reset: true })).toThrow('Tidewater Freight cannot come back yet');
+    call(rpcSaveCompany, userCtx(ALICE), nk, { company: 3, reset: true });
     call(rpcSaveCompany, userCtx(ALICE), nk, { company: 2, reset: true });
     expect(call(rpcFounderState, userCtx(ALICE), nk, {}).companies[2]).toBeNull();
   });

@@ -158,6 +158,16 @@ function refusedName(name: string): boolean {
     const pair = (words[i] as string) + (words[i + 1] || '');
     if (i + 1 < words.length && readings(pair).some((r) => BLOCKED_WORDS.indexOf(r) >= 0)) return true;
   }
+  // Single letters spelled out ("F.U.C.K", "S h i t") are read as one word.
+  let run = '';
+  for (const w of words.concat([''])) {
+    if (w.length === 1) {
+      run += w;
+      continue;
+    }
+    if (run.length > 1 && refusedWord(run)) return true;
+    run = '';
+  }
   return fold(name).indexOf('bigbusiness') >= 0;
 }
 

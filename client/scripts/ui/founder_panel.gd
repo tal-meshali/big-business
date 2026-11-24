@@ -144,6 +144,9 @@ func _build_studio(parent: Control) -> void:
 	_use_toggle.custom_minimum_size = Vector2(0, ROW_HEIGHT)
 	# Flat: a switch on the plate, not a second violet button.
 	_use_toggle.flat = true
+	# Gold when on, so the switch reads at a glance on the night plate.
+	_use_toggle.add_theme_color_override("icon_pressed_color", UiTheme.GOLD)
+	_use_toggle.add_theme_color_override("icon_hover_pressed_color", UiTheme.GOLD)
 	_use_toggle.add_theme_font_size_override("font_size", 20)
 	_use_toggle.add_theme_color_override("font_color", CREAM)
 	_use_toggle.add_theme_color_override("font_pressed_color", CREAM)
@@ -350,6 +353,12 @@ func refresh() -> void:
 ## answer yet (loading, offline) neither shows, so an owner never sees the
 ## buy page flash.
 func apply_state(data: Dictionary) -> void:
+	# Real edits are judged against the row they were made on, before it is replaced.
+	var keep := {}
+	for i in drafts.keys():
+		if is_dirty(i):
+			keep[i] = drafts[i]
+	drafts = keep
 	state = data
 	var known := not data.is_empty()
 	var enabled: bool = data.get("enabled", true)
@@ -365,11 +374,6 @@ func apply_state(data: Dictionary) -> void:
 		_status.text = ""
 	_use_toggle.set_pressed_no_signal(data.get("active", false))
 	_age_box.visible = false
-	# Companies only looked at follow the newly loaded row (a review may
-	# have approved a picture); real edits are kept.
-	for i in drafts.keys():
-		if not is_dirty(i):
-			drafts.erase(i)
 	select_company(selected)
 
 

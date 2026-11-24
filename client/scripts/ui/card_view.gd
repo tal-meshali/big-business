@@ -243,7 +243,7 @@ func _draw() -> void:
 	var short_px := 15
 	while short_px > 9 and display.get_string_size(short, HORIZONTAL_ALIGNMENT_LEFT, -1, short_px).x > room:
 		short_px -= 1
-	_draw_centered_text(short, Vector2(mid, INSET + 30), short_px, text_on_band, display)
+	_draw_fit_text(short, Vector2(mid, INSET + 30), short_px, room, text_on_band, display)
 
 	# Full name over a rule, the art window, and the share count in words.
 	var name_y := INSET + BAND_H + 4
@@ -252,7 +252,7 @@ func _draw() -> void:
 	var name_px := 11
 	while name_px > 8 and text.get_string_size(full, HORIZONTAL_ALIGNMENT_LEFT, -1, name_px).x > size.x - INSET * 2 - 4:
 		name_px -= 1
-	_draw_centered_text(full, Vector2(size.x / 2.0, name_y + 7), name_px, Companies.INK, text)
+	_draw_fit_text(full, Vector2(size.x / 2.0, name_y + 7), name_px, size.x - INSET * 2 - 4, Companies.INK, text)
 	draw_line(Vector2(INSET, name_y + 16), Vector2(size.x - INSET, name_y + 16), Companies.INK, 1.2)
 	# Art window: the only area a custom design may replace.
 	var art := Rect2(INSET, name_y + 20, size.x - INSET * 2, size.y - name_y - 20 - FOOT_H - INSET)
@@ -464,6 +464,19 @@ func _draw_blocked_stripes(rect: Rect2) -> void:
 		for part in seg:
 			draw_polyline(part, Color(Companies.INK, 0.28), 5.0)
 		x += 16.0
+
+
+## Centred text no wider than `max_w`: past the smallest size it is
+## squeezed sideways, so a long typed company name never leaves the card.
+func _draw_fit_text(text: String, at: Vector2, px: int, max_w: float, color: Color, font: Font) -> void:
+	var w := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, px).x
+	if w <= max_w:
+		_draw_centered_text(text, at, px, color, font)
+		return
+	var sx := max_w / w
+	draw_set_transform(at, 0.0, Vector2(sx, 1.0))
+	draw_string(font, Vector2(-w / 2.0, px / 3.0), text, HORIZONTAL_ALIGNMENT_LEFT, -1, px, color)
+	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 
 func _draw_centered_text(text: String, at: Vector2, px: int, color: Color, font: Font = null) -> void:

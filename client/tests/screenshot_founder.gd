@@ -12,7 +12,7 @@ const CUSTOM := [
 	{"name": "Rocket Mail", "color": "teal", "logo": "rocket", "picture": null},
 	null,
 	{"name": "Crown & Co.", "color": "pink", "logo": "crown", "picture": null},
-	{"name": "Summit Outdoor Gear", "color": "navy", "logo": "mountain", "picture": null},
+	{"name": "Summit Outdoors", "color": "navy", "logo": "mountain", "picture": null},
 ]
 
 

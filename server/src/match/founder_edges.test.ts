@@ -116,8 +116,10 @@ describe('Founder edge cases', () => {
     }
   });
 
-  // Tester finding: single letters spaced or dotted out ("S h i t Co", "F.U.C.K Co") pass today.
-  it.todo('refuses a blocked word spelled out in single letters');
+  it('refuses a blocked word spelled out in single letters', () => {
+    for (const bad of ['S h i t Co', 'F.U.C.K Co', 'F-U-C-K']) expect([bad, nameProblem(bad)]).not.toEqual([bad, null]);
+    for (const ok of ['A B C Foods', 'J & K Bakery', 'U S Air']) expect([ok, nameProblem(ok)]).toEqual([ok, null]);
+  });
 
   it('band names: stop words and the standard band names', () => {
     expect(shortName('The Rocket Shop', 2)).toBe('Rocket');

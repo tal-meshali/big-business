@@ -39,6 +39,9 @@ var _board_button: IconTile
 var _streak_label: Label
 var _quests_tab: IconTile
 var _board_label: Label
+var _board_rows: VBoxContainer
+var _board_scroll: ScrollContainer
+var _board_mine: VBoxContainer
 var _season_sheet: ColorRect
 var _friends_panel: FriendsPanel
 var _quests_button: Button
@@ -69,6 +72,7 @@ var _press_tween: Tween
 var _felt: StartFan
 var _room: LobbyBackdrop
 var _account_label: Label
+var _link_row: HBoxContainer
 var _link_apple_button: Button
 var _link_google_button: Button
 var _connected := false
@@ -146,7 +150,7 @@ func _build() -> void:
 	box.add_child(_felt)
 	box.add_child(_logo())
 
-	_status = UiTheme.label("Not connected", _px(12), UiTheme.LILAC)
+	_status = UiTheme.label("Not connected", _px(UiTheme.TYPE_LABEL), UiTheme.LILAC)
 	_status.add_theme_font_override("font", UiTheme.body_font())
 	_status.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -359,19 +363,19 @@ func _hud() -> Control:
 	var xp_row := HBoxContainer.new()
 	xp_row.add_theme_constant_override("separation", _px(6))
 	col.add_child(xp_row)
-	_profile_label = UiTheme.label("Level 1", _px(10), UiTheme.GOLD, true)
+	_profile_label = UiTheme.label("Level 1", _px(UiTheme.TYPE_CAPTION), UiTheme.GOLD, true)
 	_profile_label.add_theme_color_override("font_outline_color", UiTheme.OUTLINE)
 	_profile_label.add_theme_constant_override("outline_size", _px(3))
 	_profile_label.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	_profile_label.draw.connect(func() -> void: diamond.queue_redraw())
 	xp_row.add_child(_profile_label)
 	_xp_bar = ProgressBar.new()
-	_xp_bar.custom_minimum_size = Vector2(0, _px(14))
+	_xp_bar.custom_minimum_size = Vector2(0, _px(16))
 	_xp_bar.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_xp_bar.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	_xp_bar.show_percentage = false
 	xp_row.add_child(_xp_bar)
-	_xp_label = UiTheme.label("0 / 50", _px(8.5), Color.WHITE, true)
+	_xp_label = UiTheme.label("0 / 50", _px(UiTheme.TYPE_CAPTION), Color.WHITE, true)
 	_xp_label.add_theme_color_override("font_outline_color", UiTheme.OUTLINE)
 	_xp_label.add_theme_constant_override("outline_size", _px(2.5))
 	_xp_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -490,17 +494,13 @@ func _build_room_box(box: VBoxContainer) -> void:
 	box.add_child(_room_box)
 	_room_row = _row(_room_box)
 	_room_row.visible = false
-	_room_label = UiTheme.label("", _px(13), UiTheme.CREAM)
+	_room_label = UiTheme.label("", _px(UiTheme.TYPE_HEADING), UiTheme.GOLD, true)
 	_room_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_room_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	_room_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_room_label.custom_minimum_size = Vector2(0, _px(44))
-	var dashed := StyleBoxFlat.new()
-	dashed.draw_center = false
-	dashed.border_color = UiTheme.CREAM
-	dashed.set_border_width_all(2)
-	dashed.set_corner_radius_all(_px(10))
-	_room_label.add_theme_stylebox_override("normal", dashed)
+	# The code to share sits in a well, in gold, so it reads over the rays.
+	_room_label.add_theme_stylebox_override("normal", UiTheme.well_box())
 	_room_row.add_child(_room_label)
 	_copy_button = UiTheme.button("Copy", _px(14), _px(44))
 	_copy_button.custom_minimum_size.x = _px(88)
@@ -509,8 +509,8 @@ func _build_room_box(box: VBoxContainer) -> void:
 		_copy_button.text = "Copied!")
 	_room_row.add_child(_copy_button)
 
-	_lobby_label = UiTheme.label("", _px(14), UiTheme.CREAM)
-	_lobby_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_lobby_label = UiTheme.body("", _px(UiTheme.TYPE_BODY))
+	_lobby_label.add_theme_stylebox_override("normal", UiTheme.well_box())
 	_lobby_label.visible = false
 	_room_box.add_child(_lobby_label)
 	var buttons := _row(_room_box)
@@ -585,9 +585,9 @@ func _refresh_quest_badge() -> void:
 	_quests_tab.badge = str(n) if n > 0 else ""
 
 
-## A deed sheet rising from the bottom over a dimmed lobby; a tap outside
+## A night panel rising from the bottom over a dimmed lobby; a tap outside
 ## closes it. Returns {"root": the overlay, "body": a VBox for content}.
-func _sheet(color: Color, title: String, title_color := Color.WHITE) -> Dictionary:
+func _sheet(color: Color, title: String) -> Dictionary:
 	var shade := ColorRect.new()
 	shade.color = Color(UiTheme.NIGHT, 0.72)
 	shade.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -596,9 +596,10 @@ func _sheet(color: Color, title: String, title_color := Color.WHITE) -> Dictiona
 		if e is InputEventMouseButton and e.pressed:
 			shade.visible = false)
 	add_child(shade)
-	var deed := UiTheme.deed_panel(color, title, title_color)
-	deed["title"].add_theme_font_size_override("font_size", _px(18))
+	var deed := UiTheme.panel(color, title)
 	var sheet: PanelContainer = deed["panel"]
+	# WHY it swallows taps: only a tap on the dimmed lobby closes the sheet.
+	sheet.mouse_filter = Control.MOUSE_FILTER_STOP
 	sheet.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_WIDE)
 	sheet.grow_vertical = Control.GROW_DIRECTION_BEGIN
 	sheet.offset_left = _px(16)
@@ -620,13 +621,10 @@ func _close_button(sheet: Control) -> Button:
 ## Join by code: a sheet, so the field sits low and the lobby lifts it
 ## above the keyboard.
 func _build_join_sheet() -> void:
-	var sheet := _sheet(Companies.CHEST, "Join a private room")
+	var sheet := _sheet(UiTheme.VIOLET, "Join a private room")
 	_join_sheet = sheet["root"]
 	var body: VBoxContainer = sheet["body"]
-	var hint := UiTheme.label("Type the 6-letter code your friend shared.", _px(14))
-	hint.add_theme_font_override("font", UiTheme.body_font())
-	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	body.add_child(hint)
+	body.add_child(UiTheme.body("Type the 6-letter code your friend shared.", _px(UiTheme.TYPE_BODY)))
 	_join_row = _row(body)
 	_code_edit = LineEdit.new()
 	_code_edit.placeholder_text = "Room code"
@@ -689,7 +687,7 @@ func _build_friends_sheet() -> void:
 		_room_code = ""
 		_friends_panel.room_code = "")
 	scroll.add_child(_friends_panel)
-	var close := UiTheme.button("Close", _px(14), _px(48), "primary")
+	var close := UiTheme.button("Close", _px(14), _px(48), "ghost")
 	close.pressed.connect(func() -> void: shade.visible = false)
 	column.add_child(close)
 	# FriendsPanel shows and hides itself with the sheet.
@@ -699,7 +697,7 @@ func _build_friends_sheet() -> void:
 
 ## More: rules and help, your account (guest or linked) and the server.
 func _build_more_sheet() -> void:
-	var sheet := _sheet(Companies.INK, "More")
+	var sheet := _sheet(UiTheme.VIOLET, "More")
 	_more_sheet = sheet["root"]
 	var body: VBoxContainer = sheet["body"]
 	var rules := UiTheme.button("Rules and help", _px(14), _px(48))
@@ -711,27 +709,39 @@ func _build_more_sheet() -> void:
 	# Account row: guest or linked providers, with link buttons where a
 	# token provider exists (iOS / Android with the plugin installed).
 	var account_row := _row(body)
-	_account_label = UiTheme.label(Net.describe_account_links({}), _px(13))
-	_account_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_account_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	_account_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	account_row.add_child(_account_label)
+	var account := VBoxContainer.new()
+	account.add_theme_constant_override("separation", _px(2))
+	account.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	account.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	account_row.add_child(account)
+	account.add_child(UiTheme.caption("Account", _px(UiTheme.TYPE_CAPTION)))
+	_account_label = UiTheme.body(Net.describe_account_links({}), _px(UiTheme.TYPE_BODY))
+	account.add_child(_account_label)
+	# WHY a row of their own: next to the account line two link buttons left
+	# it a few words per line and stretched to its height.
+	_link_row = _row(body)
+	_link_row.visible = false
 	_link_apple_button = UiTheme.button("Link Apple", _px(13), _px(44))
 	_link_apple_button.visible = false
+	_link_apple_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_link_apple_button.pressed.connect(_on_link_apple)
-	account_row.add_child(_link_apple_button)
+	_link_row.add_child(_link_apple_button)
 	_link_google_button = UiTheme.button("Link Google", _px(13), _px(44))
 	_link_google_button.visible = false
+	_link_google_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_link_google_button.pressed.connect(_on_link_google)
-	account_row.add_child(_link_google_button)
+	_link_row.add_child(_link_google_button)
 
-	body.add_child(UiTheme.label("SERVER", _px(11), UiTheme.MUTED, true))
-	var server_row := _row(body)
+	var server := VBoxContainer.new()
+	server.add_theme_constant_override("separation", _px(4))
+	body.add_child(server)
+	server.add_child(UiTheme.caption("Server", _px(UiTheme.TYPE_CAPTION)))
+	var server_row := _row(server)
 	_host_edit = LineEdit.new()
 	_host_edit.placeholder_text = "127.0.0.1 or https://your.domain"
 	_host_edit.text = Net.server_address()
 	_host_edit.custom_minimum_size = Vector2(0, maxf(48, _px(44)))
-	_host_edit.add_theme_font_size_override("font_size", _px(13))
+	_host_edit.add_theme_font_size_override("font_size", _px(UiTheme.TYPE_LABEL))
 	_host_edit.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_host_edit.virtual_keyboard_type = LineEdit.KEYBOARD_TYPE_URL
 	_host_edit.text_submitted.connect(func(_t: String) -> void: _on_connect_pressed())
@@ -781,39 +791,37 @@ func _build_season_sheet() -> void:
 		if e is InputEventMouseButton and e.pressed:
 			_season_sheet.visible = false)
 	add_child(_season_sheet)
-	var deed := UiTheme.deed_panel(Color("#7B4FC6"), "Season standings", Color.WHITE)
-	deed["title"].add_theme_font_size_override("font_size", _px(18))
-	deed["title"].horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	var deed := UiTheme.panel(UiTheme.VIOLET, "Season standings")
 	var sheet: PanelContainer = deed["panel"]
+	sheet.mouse_filter = Control.MOUSE_FILTER_STOP
 	sheet.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_WIDE)
 	sheet.grow_vertical = Control.GROW_DIRECTION_BEGIN
 	sheet.offset_left = _px(16)
 	sheet.offset_right = -_px(16)
-	sheet.offset_bottom = -_px(16)
+	sheet.offset_bottom = -_px(16) - _insets.y
 	_season_sheet.add_child(sheet)
 	var body := VBoxContainer.new()
-	body.add_theme_constant_override("separation", _px(14))
+	body.add_theme_constant_override("separation", _px(12))
 	deed["body"].add_child(body)
-	_board_label = UiTheme.label("", _px(15))
-	_board_label.add_theme_font_override("font", UiTheme.body_font())
-	_board_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	# One line above the rows: "Loading…", the empty state, or the reset rule.
+	_board_label = UiTheme.body("", _px(UiTheme.TYPE_LABEL), UiTheme.TEXT_SOFT)
 	body.add_child(_board_label)
-	var close := UiTheme.button("Close", _px(14), _px(44), "primary")
+	# WHY a scroll: ten places plus your own are taller than a phone.
+	_board_scroll = ScrollContainer.new()
+	_board_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	body.add_child(_board_scroll)
+	_board_rows = VBoxContainer.new()
+	_board_rows.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_board_rows.add_theme_constant_override("separation", _px(6))
+	_board_scroll.add_child(_board_rows)
+	# Your own place when it is past the top ten: under the list, always
+	# in view, never scrolled away.
+	_board_mine = VBoxContainer.new()
+	_board_mine.visible = false
+	body.add_child(_board_mine)
+	var close := UiTheme.button("Close", _px(14), _px(44), "ghost")
 	close.pressed.connect(func() -> void: _season_sheet.visible = false)
 	body.add_child(close)
-
-
-func _band(color: Color, height: int) -> PanelContainer:
-	var band := PanelContainer.new()
-	var style := StyleBoxFlat.new()
-	style.bg_color = color
-	style.border_color = Companies.INK
-	style.border_width_bottom = 2
-	style.corner_radius_top_left = int(10 * _s)
-	style.corner_radius_top_right = int(10 * _s)
-	band.add_theme_stylebox_override("panel", style)
-	band.custom_minimum_size = Vector2(0, height)
-	return band
 
 
 func _row(parent: Control) -> HBoxContainer:
@@ -905,14 +913,14 @@ func _on_ready_pressed() -> void:
 func _on_start_now_pressed() -> void:
 	Net.send_start_now()
 	_start_now_button.disabled = true
-	_status.text = "Starting with bots..."
+	_status.text = "Starting with bots…"
 
 
 func _on_connect_pressed() -> void:
 	Net.set_server_address(_host_edit.text)
 	_host_edit.text = Net.server_address()
 	Net.save_settings()
-	_status.text = "Connecting to %s..." % Net.server_address()
+	_status.text = "Connecting to %s…" % Net.server_address()
 	await Net.connect_preferred()
 
 
@@ -964,8 +972,9 @@ func _apply_progress(p: Dictionary, daily_available: bool) -> void:
 	_profile_panel.apply_progress(p)
 	_profile_label.text = "Level %d" % level
 	_profile_label.tooltip_text = "%d games, %d wins" % [int(p.get("gamesPlayed", 0)), int(p.get("wins", 0))]
-	# WHY: past six digits the full numbers no longer fit the small bar.
-	_xp_label.text = "%d / %d" % [xp, next_xp] if next_xp < 100000 else "%s / %s" % [ProfilePanel.compact(xp), ProfilePanel.compact(next_xp)]
+	# From 10,000 on the figures are rounded ("12.3k / 20k") to stay inside
+	# the bar; the tooltip keeps them whole.
+	_xp_label.text = "%s / %s" % [_short_count(xp), _short_count(next_xp)]
 	_xp_label.tooltip_text = "%d / %d XP to level %d" % [xp, next_xp, level + 1]
 	_streak_label.text = str(int(p.get("streak", 0)))
 	_xp_bar.min_value = floor_xp
@@ -1044,19 +1053,74 @@ func _on_cosmetic_changed(_slot: String, _id: String) -> void:
 
 func _on_show_board() -> void:
 	_season_sheet.visible = true
-	_board_label.text = "Loading..."
+	_show_board_rows([], Net.user_id)
+	_board_label.text = "Loading…"
 	var rows: Array = await Net.season_leaderboard(10)
+	_show_board_rows(rows, Net.user_id)
+
+
+## Fills the season sheet: one row per place, yours lit up. The top ten
+## take the height they need up to what the screen has left, and scroll
+## beyond that; a place of yours past the top ten stays under the list.
+func _show_board_rows(rows: Array, my_id: String) -> void:
+	for box in [_board_rows, _board_mine]:
+		for child in box.get_children():
+			box.remove_child(child)
+			child.queue_free()
+	_board_scroll.visible = not rows.is_empty()
+	_board_mine.visible = false
 	if rows.is_empty():
 		_board_label.text = "No season games yet. Points come from games with other people, and the board resets every month."
 		return
-	var lines := PackedStringArray()
-	lines.append("Resets every month.")
+	_board_label.text = "Points from games with other people. Resets every month."
+	# The server sends your own record again after the top ten; inside the
+	# top ten that would show you twice.
+	var seen := {}
+	var own := {}
 	for r in rows:
-		if r.get("mine", false) and int(r.get("rank", 0)) > 10:
-			lines.append("…")
-		var me := "  (you)" if r.get("userId", "") == Net.user_id else ""
-		lines.append("#%d  %s  %d pts, %d wins%s" % [int(r.get("rank", 0)), r.get("name", "?"), int(r.get("score", 0)), int(r.get("wins", 0)), me])
-	_board_label.text = "\n".join(lines)
+		if _board_is_mine(r, my_id):
+			own[_board_key(r)] = true
+	for r in rows:
+		var rank := int(r.get("rank", 0))
+		var key := _board_key(r)
+		var mine: bool = own.has(key)
+		if seen.has(key):
+			continue
+		seen[key] = true
+		var wins := int(r.get("wins", 0))
+		var detail := "%d %s%s" % [wins, "win" if wins == 1 else "wins", " · you" if mine else ""]
+		var row := UiTheme.standing_row(rank, String(r.get("name", "?")), detail, str(int(r.get("score", 0))), mine)
+		if mine and rank > 10:
+			_board_mine.add_child(row)
+			_board_mine.visible = true
+		else:
+			_board_rows.add_child(row)
+	var gap := _px(6)
+	var tall := -float(gap)
+	for child in _board_rows.get_children():
+		tall += child.get_combined_minimum_size().y + gap
+	# Room for the band, the line above the list, your own row, Close and
+	# the margins.
+	var room := get_viewport_rect().size.y - _insets.x - _insets.y - _px(230 + (70 if _board_mine.visible else 0))
+	_board_scroll.custom_minimum_size.y = minf(maxf(tall, 0.0), room)
+
+
+## What makes two standings records the same player: the user id, or
+## place and name where the server sent none.
+static func _board_key(r: Dictionary) -> String:
+	var uid := String(r.get("userId", ""))
+	return uid if not uid.is_empty() else "rank %d %s" % [int(r.get("rank", 0)), r.get("name", "")]
+
+
+static func _board_is_mine(r: Dictionary, my_id: String) -> bool:
+	return bool(r.get("mine", false)) or (not my_id.is_empty() and String(r.get("userId", "")) == my_id)
+
+
+static func _short_count(n: int) -> String:
+	if n < 10000:
+		return str(n)
+	var k := n / 1000.0
+	return ("%dk" % int(k)) if is_equal_approx(k, floorf(k)) or k >= 100.0 else ("%.1fk" % (floorf(k * 10.0) / 10.0))
 
 
 ## Account row: the label follows the server's view of the account; a link
@@ -1070,6 +1134,7 @@ func _refresh_account_row() -> void:
 	var avail: Dictionary = SocialTokens.available()
 	_link_apple_button.visible = bool(avail.get("apple", false)) and not links.get("apple", false)
 	_link_google_button.visible = bool(avail.get("google", false)) and not links.get("google", false)
+	_link_row.visible = _link_apple_button.visible or _link_google_button.visible
 	_link_apple_button.disabled = not Net.is_connected_to_server()
 	_link_google_button.disabled = not Net.is_connected_to_server()
 	_profile_panel.apply_account(links)
@@ -1133,10 +1198,10 @@ func _on_failed(reason: String) -> void:
 func _on_quick_play() -> void:
 	# Remote Config can send a brand-new player to the tutorial first (TODO-local B2).
 	if RemoteConfig.tutorial_auto_route and _games_played == 0:
-		_status.text = "First game: let's start with the tutorial..."
+		_status.text = "First game: let's start with the tutorial…"
 		_in_lobby = await Net.start_tutorial()
 		return
-	_status.text = "Finding a game..."
+	_status.text = "Finding a game…"
 	_in_lobby = await Net.quick_play()
 
 
@@ -1147,7 +1212,7 @@ func _on_play_bots() -> void:
 		_in_lobby = false
 		_room_code = ""
 		_friends_panel.room_code = ""
-	_status.text = "Starting a game against bots..."
+	_status.text = "Starting a game against bots…"
 	_in_lobby = await Net.play_bots()
 
 
@@ -1158,20 +1223,21 @@ func _on_help() -> void:
 
 
 func _on_tutorial() -> void:
-	_status.text = "Starting the tutorial..."
+	_status.text = "Starting the tutorial…"
 	_in_lobby = await Net.start_tutorial()
 
 
 func _on_create_room() -> void:
-	_status.text = "Creating room..."
+	_status.text = "Creating room…"
 	var code: String = await Net.create_room()
 	if code.is_empty():
 		return
 	_in_lobby = true
 	_room_code = code
 	_friends_panel.room_code = code
-	_status.text = "Room code: %s" % code
-	_room_label.text = "Your room  %s" % code
+	# The code shows once, in the well below; this line says what to do with it.
+	_status.text = "Share the code with a friend"
+	_room_label.text = "Room code  %s" % code
 	_copy_button.text = "Copy"
 	_room_row.visible = true
 	_ready_button.visible = true
@@ -1179,7 +1245,7 @@ func _on_create_room() -> void:
 
 
 func _on_join_room() -> void:
-	_status.text = "Joining..."
+	_status.text = "Joining…"
 	_in_lobby = await Net.join_room(_code_edit.text)
 	if _in_lobby:
 		_join_sheet.visible = false
@@ -1192,15 +1258,15 @@ func _on_lobby(lobby: Dictionary) -> void:
 	var lines := PackedStringArray()
 	var seats: Array = lobby.get("seats", [])
 	var is_private: bool = lobby.get("isPrivate", false)
-	lines.append("%s room  •  %d / %d players" % ["Private" if is_private else "Public", seats.size(), int(lobby.get("maxSeats", 0))])
+	lines.append("%s room · %d of %d players" % ["Private" if is_private else "Public", seats.size(), int(lobby.get("maxSeats", 0))])
 	for s in seats:
-		lines.append("  %s%s" % [s.get("name", "?"), "  (ready)" if s.get("ready", false) else ""])
+		lines.append("  %s%s" % [s.get("name", "?"), " · ready" if s.get("ready", false) else ""])
 	var starts := float(lobby.get("startsAt", 0))
 	if starts > 0:
 		var secs := maxi(0, int((starts - Time.get_unix_time_from_system() * 1000.0) / 1000.0))
-		lines.append("Starting in %ds (empty seats become bots)" % secs)
+		lines.append("Starting in %ds. Empty seats become bots." % secs)
 	elif is_private:
-		lines.append("Starts when everyone is ready (2+ players)")
+		lines.append("Starts when everyone is ready (2 or more players).")
 	_lobby_label.text = "\n".join(lines)
 	_lobby_label.visible = true
 	_show_room_box(true)

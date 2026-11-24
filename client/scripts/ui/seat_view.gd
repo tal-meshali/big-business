@@ -1,10 +1,13 @@
 class_name SeatView
 extends Control
-## One player at the table. Opponents get a white plate (avatar, name and
-## bot tag, capital, then one coloured pip per company held, with a gold
-## regulator seal); the local player gets a flat strip in the bottom bar.
-## The seat whose turn it is lifts and glows yellow, with a timer arc
-## around the avatar.
+## One player at the table. Opponents get a white plate with the ink
+## outline (avatar, name in ink and a bot or away tag, capital, then one
+## coloured pip per company held, with a gold regulator seal); the local
+## player gets a flat strip in the bottom bar. The seat whose turn it is
+## lifts, warms to pale gold and gets a gold rim, with a timer arc around
+## the avatar.
+## WHY white: the table keeps its light surfaces; the night look is for
+## sheets, panels and what opens over the table (docs/design/theme.md).
 
 signal seat_pressed(seat_index: int, at: Vector2)
 
@@ -75,10 +78,12 @@ func _draw() -> void:
 		var box := Rect2(Vector2(0, _lift()), size)
 		if is_active:
 			var ring := StyleBoxFlat.new()
-			ring.bg_color = UiTheme.PRIMARY
+			ring.bg_color = UiTheme.GOLD
 			ring.set_corner_radius_all(int(16 * s))
+			ring.anti_aliasing = true
 			draw_style_box(ring, box.grow(4 * s))
-		var plate := UiTheme.card_box(UiTheme.PLATE_ON if is_active else Companies.PANEL, 12 * s, 3 * s, 2)
+		var plate := UiTheme.ink_box(UiTheme.PLATE_ON if is_active else Companies.PANEL, 12 * s, maxf(2.0, 1.5 * s))
+		plate.border_width_bottom += int(3 * s)
 		draw_style_box(plate, box)
 
 	var text := UiTheme.ui_font()
@@ -86,23 +91,28 @@ func _draw() -> void:
 	var c := _avatar_local()
 	var r := (13.0 if strip else 15.0) * s
 	var fill: Color = avatar_color if connected else avatar_color.lerp(Color.GRAY, 0.6)
-	draw_circle(c, r, Companies.INK)
-	draw_circle(c, r - 2, fill)
+	# Ink edge, white ring, then the avatar's own colour, as in the lobby.
+	draw_circle(c, r, UiTheme.OUTLINE, true, -1.0, true)
+	draw_circle(c, r - 1.3 * s, Color.WHITE if connected else UiTheme.LILAC, true, -1.0, true)
+	draw_circle(c, r - 2.6 * s, fill, true, -1.0, true)
 	var name_text := "You" if is_me else String(data.get("name", "?"))
 	var initial := name_text.substr(0, 1).to_upper()
 	var ipx := int((12.0 if strip else 14.0) * s)
 	var iw := display.get_string_size(initial, HORIZONTAL_ALIGNMENT_LEFT, -1, ipx).x
-	draw_string(display, c + Vector2(-iw / 2.0, ipx * 0.36), initial, HORIZONTAL_ALIGNMENT_LEFT, -1, ipx, Companies.INK)
+	draw_string(display, c + Vector2(-iw / 2.0, ipx * 0.36), initial, HORIZONTAL_ALIGNMENT_LEFT, -1, ipx, UiTheme.OUTLINE)
 
 	# Timer arc around the avatar.
 	if is_active and deadline_ms > 0 and step_ms > 0:
 		var remaining := (deadline_ms - Time.get_unix_time_from_system() * 1000.0) / step_ms
 		remaining = clampf(remaining, 0.0, 1.0)
-		var arc_color := Companies.GOLD if remaining > 0.3 else Companies.ALERT
-		draw_arc(c, r + 3.5 * s, -PI / 2, -PI / 2 + TAU * remaining, 40, Companies.INK, 3.5 * s, true)
+		# WHY deep gold on a wide ink line: the arc lies on white, pale gold
+		# or cream, where the bright gold alone all but disappears.
+		var arc_color := UiTheme.GOLD_DEEP if remaining > 0.3 else UiTheme.BADGE
+		draw_arc(c, r + 3.5 * s, -PI / 2, -PI / 2 + TAU * remaining, 40, UiTheme.OUTLINE, 4.4 * s, true)
 		draw_arc(c, r + 3.5 * s, -PI / 2, -PI / 2 + TAU * remaining, 40, arc_color, 2.2 * s, true)
 	elif is_active:
-		draw_arc(c, r + 3.5 * s, 0, TAU, 40, Companies.GOLD, 2.2 * s, true)
+		draw_arc(c, r + 3.5 * s, 0, TAU, 40, UiTheme.OUTLINE, 4.4 * s, true)
+		draw_arc(c, r + 3.5 * s, 0, TAU, 40, UiTheme.GOLD_DEEP, 2.2 * s, true)
 
 	var bronze := int(data.get("bronze", 0))
 	var gold := int(data.get("gold", 0))
@@ -116,26 +126,21 @@ func _draw() -> void:
 	var npx := int(12 * s)
 	var max_w := size.x - nx - 6 * s
 	var tag := "bot" if data.get("isBot", false) else ("away" if not connected else "")
+	var tag_px := int(UiTheme.TYPE_CAPTION * s)
 	var tag_w := 0.0
 	if tag != "":
-		tag_w = text.get_string_size(tag, HORIZONTAL_ALIGNMENT_LEFT, -1, int(9 * s)).x + 8 * s
+		tag_w = text.get_string_size(tag, HORIZONTAL_ALIGNMENT_LEFT, -1, tag_px).x + 14 * s
 	# A long name gives way to its short form ("Analyst Avi" -> "Avi").
-	var words := name_text.split(" ", false)
-	var short_name: String = words[words.size() - 1] if data.get("isBot", false) and words.size() > 1 else (words[0] if words.size() > 0 else name_text)
 	var shown := name_text
 	if text.get_string_size(name_text, HORIZONTAL_ALIGNMENT_LEFT, -1, npx).x > max_w - tag_w:
-		shown = _fit(text, short_name, npx, max_w - tag_w)
-	draw_string(text, Vector2(nx, top + 13 * s), shown, HORIZONTAL_ALIGNMENT_LEFT, -1, npx, Companies.INK if connected else Companies.INK_SOFT)
+		shown = _fit(text, short_name(data), npx, max_w - tag_w)
+	draw_string(text, Vector2(nx, top + 13 * s), shown, HORIZONTAL_ALIGNMENT_LEFT, -1, npx, UiTheme.OUTLINE if connected else UiTheme.INK_SOFT)
 	if tag != "":
+		# The tag: ink on a pale lilac pill, at the smallest size the game uses.
 		var tx := nx + text.get_string_size(shown, HORIZONTAL_ALIGNMENT_LEFT, -1, npx).x + 4 * s
-		var tag_box := Rect2(tx, top + 3 * s, tag_w - 4 * s, 13 * s)
-		var tb := StyleBoxFlat.new()
-		tb.bg_color = Color(0, 0, 0, 0)
-		tb.border_color = Companies.INK
-		tb.set_border_width_all(1)
-		tb.set_corner_radius_all(int(4 * s))
-		draw_style_box(tb, tag_box)
-		draw_string(text, Vector2(tx + 2 * s, top + 13 * s), tag, HORIZONTAL_ALIGNMENT_LEFT, -1, int(9 * s), Companies.INK)
+		var tag_box := Rect2(tx, top + 2 * s, tag_w - 4 * s, 15 * s)
+		draw_style_box(UiTheme.ink_box(UiTheme.TAG, 7.5 * s, 0), tag_box)
+		draw_string(text, Vector2(tx + 5 * s, tag_box.get_center().y + tag_px * 0.34), tag, HORIZONTAL_ALIGNMENT_LEFT, -1, tag_px, UiTheme.OUTLINE)
 	_draw_coins(text, Vector2(nx, top + 26 * s), bronze, gold, wide)
 
 	_draw_pips(text, Vector2(8 * s, top + 35 * s), size.x - 12 * s)
@@ -145,7 +150,7 @@ func _draw_strip(text: Font, c: Vector2, r: float, name_text: String, bronze: in
 	var px := int(13 * s)
 	var x := c.x + r + 8 * s
 	var base := size.y / 2.0 + px * 0.36
-	draw_string(text, Vector2(x, base), name_text, HORIZONTAL_ALIGNMENT_LEFT, -1, px, Companies.INK)
+	draw_string(text, Vector2(x, base), name_text, HORIZONTAL_ALIGNMENT_LEFT, -1, px, UiTheme.OUTLINE)
 	x += text.get_string_size(name_text, HORIZONTAL_ALIGNMENT_LEFT, -1, px).x + 10 * s
 	x = _draw_coins(text, Vector2(x, size.y / 2.0), bronze, gold, true)
 	# Pips flush right.
@@ -162,10 +167,10 @@ func _draw_coins(text: Font, at: Vector2, bronze: int, gold: int, spell: bool) -
 		if coin[1] == Companies.GOLD and int(coin[0]) == 0:
 			continue
 		var cc := Vector2(x + 6 * s, at.y)
-		draw_circle(cc, 6 * s, Companies.INK)
+		draw_circle(cc, 6 * s, UiTheme.OUTLINE)
 		draw_circle(cc, 4.6 * s, coin[1])
 		var label := "%d%s" % [int(coin[0]), coin[2]]
-		draw_string(text, Vector2(x + 15 * s, at.y + px * 0.36), label, HORIZONTAL_ALIGNMENT_LEFT, -1, px, Companies.INK)
+		draw_string(text, Vector2(x + 15 * s, at.y + px * 0.36), label, HORIZONTAL_ALIGNMENT_LEFT, -1, px, UiTheme.OUTLINE)
 		x += 15 * s + text.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, px).x + 8 * s
 	return x
 
@@ -196,9 +201,10 @@ func _draw_pips(text: Font, at: Vector2, right: float) -> void:
 		var box := Rect2(x, at.y, pip, pip)
 		var sb := StyleBoxFlat.new()
 		sb.bg_color = Companies.color_of(company)
-		sb.border_color = Companies.INK
+		sb.border_color = UiTheme.OUTLINE
 		sb.set_border_width_all(2)
-		sb.set_corner_radius_all(int(3 * s))
+		sb.set_corner_radius_all(int(4 * s))
+		sb.anti_aliasing = true
 		draw_style_box(sb, box)
 		var txt := str(p[1])
 		var px := int(11 * s)
@@ -211,11 +217,24 @@ func _draw_pips(text: Font, at: Vector2, right: float) -> void:
 	# a small "R" ring was too easy to miss on a phone.
 	for at_seal in seals:
 		var rr := 8.5 * s
-		draw_circle(at_seal, rr, Companies.INK)
+		draw_circle(at_seal, rr, UiTheme.OUTLINE)
 		draw_circle(at_seal, rr - 1.5 * s, Companies.GOLD)
 		var px := int(10 * s)
 		var rw := display.get_string_size("R", HORIZONTAL_ALIGNMENT_LEFT, -1, px).x
 		draw_string(display, at_seal + Vector2(-rw / 2.0, px * 0.36), "R", HORIZONTAL_ALIGNMENT_LEFT, -1, px, Companies.INK)
+
+
+## The name to use where room is short: a bot's given name ("Analyst Avi"
+## -> "Avi"), a player's first word, cut to `max_chars` when that is set.
+static func short_name(seat: Dictionary, max_chars := 0) -> String:
+	var full := String(seat.get("name", "?"))
+	var words := full.split(" ", false)
+	var short := full
+	if not words.is_empty():
+		short = words[words.size() - 1] if seat.get("isBot", false) and words.size() > 1 else words[0]
+	if max_chars > 0 and short.length() > max_chars:
+		short = short.substr(0, max_chars - 1) + "…"
+	return short
 
 
 ## `text` cut with an ellipsis to fit `width` px.

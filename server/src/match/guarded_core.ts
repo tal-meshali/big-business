@@ -1,5 +1,5 @@
 /**
- * Guarded wrappers for the room, profile, quest, moderation and social RPCs,
+ * Guarded wrappers for the room, profile, name, quest, moderation and social RPCs,
  * registered by main.ts. They live here so main.ts stays under the graph's
  * god-node limit (docs/conventions.md); each is a named arrow for the reason
  * given in guarded_services.ts.
@@ -7,6 +7,7 @@
 import { guarded } from './input';
 import { rpcReportPlayer } from './reports';
 import { rpcCreateRoom, rpcJoinRoom, rpcQuickPlay } from './rooms';
+import { rpcSetName } from './rpc_names';
 import { rpcClaimDaily, rpcGetProfile } from './rpc_profile';
 import { rpcClaimQuest, rpcEquipCosmetic } from './rpc_quests';
 import { rpcAccountLinks, rpcFindPlayer, rpcInviteFriend } from './social';
@@ -22,3 +23,4 @@ export const guardedReportPlayer: nkruntime.RpcFunction = (ctx, logger, nk, payl
 export const guardedFindPlayer: nkruntime.RpcFunction = (ctx, logger, nk, payload) => guarded(rpcFindPlayer, ctx, logger, nk, payload);
 export const guardedInviteFriend: nkruntime.RpcFunction = (ctx, logger, nk, payload) => guarded(rpcInviteFriend, ctx, logger, nk, payload);
 export const guardedAccountLinks: nkruntime.RpcFunction = (ctx, logger, nk, payload) => guarded(rpcAccountLinks, ctx, logger, nk, payload);
+export const guardedSetName: nkruntime.RpcFunction = (ctx, logger, nk, payload) => guarded(rpcSetName, ctx, logger, nk, payload);

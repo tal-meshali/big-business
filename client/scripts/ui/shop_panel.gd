@@ -3,7 +3,7 @@ extends PanelContainer
 ## Skin shop overlay for the lobby: curated card backs and table felts sold
 ## a la carte for real money (decision D5: no virtual currency), each with
 ## Buy or Use, plus Restore Purchases (required by both stores). Built in
-## code on a deed panel and fed by `Net.store_catalog()` through
+## code on a night panel and fed by `Net.store_catalog()` through
 ## `apply_catalog`. Buying goes through `Purchases` (the store plugin);
 ## what the player owns always comes back from the server. The Designer
 ## unlock (custom card art), the Founder unlock (custom companies) and the
@@ -13,8 +13,6 @@ extends PanelContainer
 signal closed
 ## Emitted after a skin is put on, once `Cosmetics` already reflects it.
 signal cosmetic_changed(slot: String, id: String)
-
-const ROW_HEIGHT := 48.0
 
 ## One entry per skin: {id, slot, product_id, name, button, label}.
 var rows: Array[Dictionary] = []
@@ -39,56 +37,39 @@ var _deed_panel: Control
 
 func _init() -> void:
 	add_theme_stylebox_override("panel", StyleBoxEmpty.new())
-	var deed := UiTheme.deed_panel(Companies.GOLD, "Shop", Companies.INK)
-	deed["title"].add_theme_font_size_override("font_size", 28)
+	var deed := UiTheme.panel(UiTheme.VIOLET, "Shop")
 	deed["panel"].size_flags_vertical = Control.SIZE_EXPAND_FILL
 	add_child(deed["panel"])
-	var body: MarginContainer = deed["body"]
-	body.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	var column := VBoxContainer.new()
-	column.add_theme_constant_override("separation", 10)
-	column.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	body.add_child(column)
+	column.add_theme_constant_override("separation", UiTheme.dp(8))
+	deed["body"].add_child(column)
 
-	var intro := Label.new()
-	intro.text = "Card backs and table felts. Skins only change the look, never the game."
-	intro.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	intro.add_theme_font_size_override("font_size", 18)
-	column.add_child(intro)
+	column.add_child(UiTheme.body("Card backs and table felts. Skins only change the look, never the game.", UiTheme.dp(UiTheme.TYPE_LABEL), UiTheme.TEXT_SOFT))
 
-	_designer_button = Button.new()
-	_designer_button.text = "Designer: your own card art"
-	_designer_button.custom_minimum_size = Vector2(0, ROW_HEIGHT)
+	_designer_button = _button("Designer: your own card art")
 	_designer_button.visible = RemoteConfig.designer_enabled
 	_designer_button.pressed.connect(_on_open_designer)
 	column.add_child(_designer_button)
 
-	_founder_button = Button.new()
-	_founder_button.text = "Founder: your own companies"
-	_founder_button.custom_minimum_size = Vector2(0, ROW_HEIGHT)
+	_founder_button = _button("Founder: your own companies")
 	_founder_button.visible = RemoteConfig.companies_enabled
 	_founder_button.pressed.connect(_on_open_founder)
 	column.add_child(_founder_button)
 
 	_plus_box = VBoxContainer.new()
-	_plus_box.add_theme_constant_override("separation", 6)
+	_plus_box.add_theme_constant_override("separation", UiTheme.dp(6))
 	_plus_box.visible = false
 	column.add_child(_plus_box)
-	_plus_label = Label.new()
-	_plus_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_plus_label.add_theme_font_size_override("font_size", 18)
+	_plus_label = UiTheme.body("", UiTheme.dp(UiTheme.TYPE_LABEL))
 	_plus_box.add_child(_plus_label)
 	var plus_row := HBoxContainer.new()
-	plus_row.add_theme_constant_override("separation", 8)
+	plus_row.add_theme_constant_override("separation", UiTheme.dp(8))
 	_plus_box.add_child(plus_row)
-	_plus_button = Button.new()
-	_plus_button.custom_minimum_size = Vector2(0, ROW_HEIGHT)
+	_plus_button = _button("", "primary")
 	_plus_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_plus_button.pressed.connect(_on_plus)
 	plus_row.add_child(_plus_button)
-	var stats_button := Button.new()
-	stats_button.text = "Your stats"
-	stats_button.custom_minimum_size = Vector2(0, ROW_HEIGHT)
+	var stats_button := _button("Your stats")
 	stats_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	stats_button.pressed.connect(_on_open_stats)
 	plus_row.add_child(stats_button)
@@ -99,24 +80,17 @@ func _init() -> void:
 	column.add_child(scroll)
 	_list = VBoxContainer.new()
 	_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_list.add_theme_constant_override("separation", 8)
+	_list.add_theme_constant_override("separation", UiTheme.dp(6))
 	scroll.add_child(_list)
 
-	_status = Label.new()
-	_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_status.add_theme_font_size_override("font_size", 17)
-	_status.text = "Connect to see the shop."
+	_status = UiTheme.body("Connect to see the shop.", UiTheme.dp(UiTheme.TYPE_LABEL), UiTheme.TEXT_SOFT)
 	column.add_child(_status)
 
-	_restore_button = Button.new()
-	_restore_button.text = "Restore purchases"
-	_restore_button.custom_minimum_size = Vector2(0, ROW_HEIGHT)
+	_restore_button = _button("Restore purchases")
 	_restore_button.pressed.connect(_on_restore)
 	column.add_child(_restore_button)
 
-	var close := Button.new()
-	close.text = "Close"
-	close.custom_minimum_size = Vector2(0, ROW_HEIGHT)
+	var close := _button("Close", "ghost")
 	close.pressed.connect(func() -> void:
 		visible = false
 		closed.emit())
@@ -136,6 +110,10 @@ func _init() -> void:
 	stats_panel.visible = false
 	stats_panel.closed.connect(func() -> void: _deed_panel.visible = true)
 	add_child(stats_panel)
+
+
+func _button(text: String, kind := "") -> Button:
+	return UiTheme.button(text, UiTheme.dp(UiTheme.TYPE_LABEL), UiTheme.dp(44), kind)
 
 
 ## Shows the panel and loads the catalog and prices.
@@ -189,7 +167,7 @@ func _on_plus() -> void:
 	if plus.is_empty():
 		return
 	_plus_button.disabled = true
-	_status.text = "Opening the store..."
+	_status.text = "Opening the store…"
 	if await Purchases.purchase(String(plus.get("productId", ""))):
 		await _sync("Welcome to Plus!")
 	else:
@@ -232,29 +210,37 @@ func apply_catalog(data: Dictionary) -> void:
 	_refresh_rows()
 
 
+## One skin in a well: its colour, its name over what it is, and Buy or Use.
 func _add_row(skin: Dictionary) -> void:
 	var id := String(skin.get("id", ""))
 	var slot := String(skin.get("slot", ""))
-	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 10)
+	var row := UiTheme.well()
 	_list.add_child(row)
-	var swatch := ColorRect.new()
-	swatch.custom_minimum_size = Vector2(ROW_HEIGHT, ROW_HEIGHT)
-	swatch.color = Cosmetics.swatch_color(id)
+	var line := HBoxContainer.new()
+	line.add_theme_constant_override("separation", UiTheme.dp(10))
+	row.add_child(line)
+	var swatch := Panel.new()
+	swatch.custom_minimum_size = Vector2(UiTheme.dp(40), UiTheme.dp(40))
+	swatch.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	swatch.add_theme_stylebox_override("panel", UiTheme.ink_box(Cosmetics.swatch_color(id), UiTheme.dp(8), maxi(2, UiTheme.dp(1.2))))
 	swatch.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	row.add_child(swatch)
-	var label := Label.new()
-	label.text = "%s  (%s)" % [Cosmetics.name_of(id), "card back" if slot == "cardBack" else "table felt"]
-	label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	label.add_theme_font_size_override("font_size", 18)
-	row.add_child(label)
-	var button := Button.new()
-	button.custom_minimum_size = Vector2(140, ROW_HEIGHT)
+	line.add_child(swatch)
+	var names := VBoxContainer.new()
+	names.add_theme_constant_override("separation", 0)
+	names.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	names.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	line.add_child(names)
+	var label := UiTheme.label(Cosmetics.name_of(id), UiTheme.dp(UiTheme.TYPE_BODY), UiTheme.TEXT)
+	label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	names.add_child(label)
+	var kind := UiTheme.body("Card back" if slot == "cardBack" else "Table felt", UiTheme.dp(UiTheme.TYPE_LABEL), UiTheme.TEXT_SOFT)
+	kind.autowrap_mode = TextServer.AUTOWRAP_OFF
+	names.add_child(kind)
+	var button := _button("")
+	button.custom_minimum_size.x = UiTheme.dp(84)
 	button.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	button.pressed.connect(func() -> void: _on_action(id))
-	row.add_child(button)
+	line.add_child(button)
 	rows.append({"id": id, "slot": slot, "product_id": String(skin.get("productId", "")), "button": button, "label": label, "row": row})
 
 
@@ -272,7 +258,10 @@ func _refresh_rows() -> void:
 			var in_use := _current(r["slot"]) == id
 			b.text = "In use" if in_use else "Use"
 			b.disabled = in_use
+			b.theme_type_variation = ""
 		else:
+			# Gold marks the one button here that spends money.
+			b.theme_type_variation = "PrimaryButton"
 			var price := String(prices.get(r["product_id"], ""))
 			b.text = "Buy %s" % price if not price.is_empty() else "Buy"
 			b.disabled = not Purchases.available()
@@ -317,7 +306,7 @@ func _buy(r: Dictionary) -> void:
 		return
 	var b: Button = r["button"]
 	b.disabled = true
-	_status.text = "Opening the store..."
+	_status.text = "Opening the store…"
 	if not await Purchases.purchase(r["product_id"]):
 		_status.text = "Purchase not completed."
 		_refresh_rows()
@@ -330,7 +319,7 @@ func _buy(r: Dictionary) -> void:
 ## purchase made on another device is already known to RevenueCat.
 func _on_restore() -> void:
 	_restore_button.disabled = true
-	_status.text = "Restoring purchases..."
+	_status.text = "Restoring purchases…"
 	if Purchases.available():
 		await Purchases.restore()
 	await _sync("")

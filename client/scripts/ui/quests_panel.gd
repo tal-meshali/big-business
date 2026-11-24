@@ -4,24 +4,17 @@ extends PanelContainer
 ## bars and Claim buttons, the free cosmetic track, and a picker for the card
 ## back and table felt (only unlocked ones enabled), on two tabs (Quests,
 ## Looks) so neither needs scrolling on a phone. Built in code on a royal
-## panel; fed by the `get_profile` dictionary through `apply_profile`.
+## sheet with the night scheme's text roles, wells and meters; fed by the
+## `get_profile` dictionary through `apply_profile`.
 
 signal closed
 ## Emitted after a cosmetic is picked, once `Cosmetics` already reflects it.
 signal cosmetic_changed(slot: String, id: String)
 
-const ROW_HEIGHT := 56.0
-## Px per design point for the sheet and tabs.
-## WHY fixed: this panel is laid out in canvas px on the 720-wide canvas
-## (23 px text, 56 px rows); 1.35 matches the tabs to that text size.
-const K := 1.35
 const HINTS := [
 	"Quests reset at midnight UTC; weekly ones on Monday.",
 	"Points from quests unlock new looks along the track.",
 ]
-## Text on the royal sheet.
-const CREAM := Color("#FFF6DE")
-
 ## One entry per quest row: {id, claimable, claimed, label, bar, count, button}.
 var rows: Array[Dictionary] = []
 var track_points := 0
@@ -43,27 +36,27 @@ var _status_is_hint := true
 
 
 func _init() -> void:
-	# The same royal sheet as the rules, so the overlays read as one family.
-	add_theme_stylebox_override("panel", UiTheme.royal_sheet_style(K))
+	# The same royal sheet as the rules, so the overlays read as one family;
+	# sheet, tabs and text all follow the screen's design-point scale.
+	var k := UiTheme.dp_scale()
+	add_theme_stylebox_override("panel", UiTheme.royal_sheet_style(k))
+	theme = UiTheme.night_theme()
 	var column := VBoxContainer.new()
-	column.add_theme_constant_override("separation", 10)
+	column.add_theme_constant_override("separation", UiTheme.dp(8))
 	column.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	add_child(column)
 	# No title: the dock button and the tabs already say Quests; the
 	# track line leads.
 	# Track summary stays visible above the scrolling list.
-	_track_label = Label.new()
-	_track_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_track_label.add_theme_font_size_override("font_size", 24)
-	_track_label.add_theme_color_override("font_color", CREAM)
+	_track_label = UiTheme.body("", UiTheme.dp(UiTheme.TYPE_BODY))
 	column.add_child(_track_label)
-	_track_bar = _make_bar(UiTheme.MINT)
+	_track_bar = UiTheme.meter(UiTheme.GOLD, UiTheme.dp(10))
 	column.add_child(_track_bar)
 
 	# Two pages instead of one long list: the quests, and the looks the
 	# track unlocks. The status line stays under both.
 	tabs = TabStrip.new()
-	tabs.setup([{"label": "Quests"}, {"label": "Looks"}], K)
+	tabs.setup([{"label": "Quests"}, {"label": "Looks"}], k)
 	tabs.tab_selected.connect(func(i: int) -> void: select_tab(i))
 	column.add_child(tabs)
 
@@ -75,42 +68,41 @@ func _init() -> void:
 	pages.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	scroll.add_child(pages)
 	quests_page = VBoxContainer.new()
-	quests_page.add_theme_constant_override("separation", 8)
+	quests_page.add_theme_constant_override("separation", UiTheme.dp(6))
 	pages.add_child(quests_page)
 	looks_page = VBoxContainer.new()
-	looks_page.add_theme_constant_override("separation", 8)
+	looks_page.add_theme_constant_override("separation", UiTheme.dp(6))
 	looks_page.visible = false
 	pages.add_child(looks_page)
 	_scroll = scroll
 
 	quests_page.add_child(_heading("Today"))
 	_daily_box = VBoxContainer.new()
-	_daily_box.add_theme_constant_override("separation", 6)
+	_daily_box.add_theme_constant_override("separation", UiTheme.dp(6))
 	quests_page.add_child(_daily_box)
 	quests_page.add_child(_heading("This week"))
 	_weekly_box = VBoxContainer.new()
-	_weekly_box.add_theme_constant_override("separation", 6)
+	_weekly_box.add_theme_constant_override("separation", UiTheme.dp(6))
 	quests_page.add_child(_weekly_box)
 
 	looks_page.add_child(_heading("Card back"))
 	var backs := HFlowContainer.new()
-	backs.add_theme_constant_override("h_separation", 8)
-	backs.add_theme_constant_override("v_separation", 8)
+	backs.add_theme_constant_override("h_separation", UiTheme.dp(6))
+	backs.add_theme_constant_override("v_separation", UiTheme.dp(6))
 	looks_page.add_child(backs)
 	for e in Cosmetics.CARD_BACKS:
 		_back_buttons[e["id"]] = _make_pick_button(backs, "cardBack", e["id"])
 	looks_page.add_child(_heading("Table felt"))
 	var felts := HFlowContainer.new()
-	felts.add_theme_constant_override("h_separation", 8)
-	felts.add_theme_constant_override("v_separation", 8)
+	felts.add_theme_constant_override("h_separation", UiTheme.dp(6))
+	felts.add_theme_constant_override("v_separation", UiTheme.dp(6))
 	looks_page.add_child(felts)
 	for e in Cosmetics.TABLES:
 		_table_buttons[e["id"]] = _make_pick_button(felts, "table", e["id"])
 
-	_status = Label.new()
-	_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_status.add_theme_font_size_override("font_size", 19)
-	_status.add_theme_color_override("font_color", UiTheme.LILAC)
+	# WHY outside the pages: this line also answers a tap on Claim, and at
+	# the end of a scrolling list nobody saw it.
+	_status = UiTheme.body("", UiTheme.dp(UiTheme.TYPE_LABEL), UiTheme.TEXT_SOFT)
 	column.add_child(_status)
 	_show_hint()
 	# Opening from the dock always starts on the quests, where the badge
@@ -124,10 +116,7 @@ func _init() -> void:
 			_status_is_hint = true
 			select_tab(0, false))
 
-	var close := Button.new()
-	close.text = "Close"
-	close.custom_minimum_size = Vector2(0, ROW_HEIGHT)
-	close.theme_type_variation = "GhostButton"
+	var close := UiTheme.button("Close", UiTheme.dp(14), UiTheme.dp(44), "ghost")
 	close.pressed.connect(func() -> void:
 		visible = false
 		closed.emit())
@@ -136,36 +125,18 @@ func _init() -> void:
 	_refresh_picker()
 
 
-func _heading(text: String) -> Label:
-	var l := Label.new()
-	l.text = text.to_upper()
-	l.add_theme_font_size_override("font_size", 18)
-	l.add_theme_color_override("font_color", UiTheme.LILAC)
-	return l
-
-
-func _make_bar(fill_color: Color) -> ProgressBar:
-	var bar := ProgressBar.new()
-	bar.custom_minimum_size = Vector2(0, 14)
-	bar.show_percentage = false
-	var fill := StyleBoxFlat.new()
-	fill.bg_color = fill_color
-	fill.set_corner_radius_all(6)
-	var back := StyleBoxFlat.new()
-	back.bg_color = UiTheme.NIGHT
-	back.border_color = UiTheme.OUTLINE
-	back.set_border_width_all(2)
-	back.set_corner_radius_all(6)
-	bar.add_theme_stylebox_override("fill", fill)
-	bar.add_theme_stylebox_override("background", back)
-	return bar
+## A section name, with air above it to part it from the section before.
+func _heading(text: String) -> Control:
+	var l := UiTheme.caption(text, UiTheme.dp(UiTheme.TYPE_CAPTION))
+	var pad := MarginContainer.new()
+	pad.add_theme_constant_override("margin_top", UiTheme.dp(6))
+	pad.add_child(l)
+	return pad
 
 
 func _make_pick_button(parent: Control, slot: String, id: String) -> Button:
-	var b := Button.new()
-	b.text = Cosmetics.name_of(id)
+	var b := UiTheme.button(Cosmetics.name_of(id), UiTheme.dp(UiTheme.TYPE_LABEL), UiTheme.dp(44))
 	b.toggle_mode = true
-	b.custom_minimum_size = Vector2(150, ROW_HEIGHT)
 	b.pressed.connect(func() -> void: _on_pick(slot, id))
 	parent.add_child(b)
 	return b
@@ -219,36 +190,34 @@ func apply_profile(data: Dictionary) -> void:
 	_refresh_picker()
 
 
+## One quest in a well: what to do, how far along, and what it pays, with
+## Claim on the right (mint once the quest is done).
 func _add_row(parent: Control, q: Dictionary) -> void:
-	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 10)
+	var row := UiTheme.well()
 	parent.add_child(row)
+	var line := HBoxContainer.new()
+	line.add_theme_constant_override("separation", UiTheme.dp(10))
+	row.add_child(line)
 	var col := VBoxContainer.new()
 	col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	col.add_theme_constant_override("separation", 4)
-	row.add_child(col)
-	var label := Label.new()
-	label.text = "%s  (+%d pts)" % [String(q.get("text", "")), int(q.get("points", 0))]
+	col.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	col.add_theme_constant_override("separation", UiTheme.dp(4))
+	line.add_child(col)
+	var label := UiTheme.label(String(q.get("text", "")), UiTheme.dp(UiTheme.TYPE_BODY), UiTheme.TEXT)
 	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	label.add_theme_font_size_override("font_size", 23)
-	label.add_theme_color_override("font_color", CREAM)
 	col.add_child(label)
-	var bar := _make_bar(UiTheme.GOLD)
+	var bar := UiTheme.meter(UiTheme.MINT, UiTheme.dp(8))
 	bar.max_value = maxf(1.0, float(q.get("target", 1)))
 	bar.value = float(q.get("progress", 0))
 	col.add_child(bar)
-	var count := Label.new()
-	count.text = "%d / %d" % [int(q.get("progress", 0)), int(q.get("target", 1))]
-	count.add_theme_font_size_override("font_size", 17)
-	count.add_theme_color_override("font_color", UiTheme.LILAC)
+	var count := UiTheme.body("%d of %d  ·  +%d track points" % [int(q.get("progress", 0)), int(q.get("target", 1)), int(q.get("points", 0))], UiTheme.dp(UiTheme.TYPE_LABEL), UiTheme.TEXT_SOFT)
 	col.add_child(count)
-	var button := Button.new()
-	# Wide enough for "Claimed", so every row's bar is the same length.
-	button.custom_minimum_size = Vector2(136, ROW_HEIGHT)
+	var button := UiTheme.button("Claim", UiTheme.dp(UiTheme.TYPE_LABEL), UiTheme.dp(44))
+	button.custom_minimum_size.x = UiTheme.dp(84)
 	button.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	var id := String(q.get("id", ""))
 	button.pressed.connect(func() -> void: _on_claim(id))
-	row.add_child(button)
+	line.add_child(button)
 	var entry := {"id": id, "claimable": bool(q.get("claimable", false)), "claimed": bool(q.get("claimed", false)),
 		"label": label, "bar": bar, "count": count, "button": button, "row": row}
 	rows.append(entry)
@@ -257,15 +226,14 @@ func _add_row(parent: Control, q: Dictionary) -> void:
 
 func _refresh_row(entry: Dictionary) -> void:
 	var button: Button = entry["button"]
-	button.theme_type_variation = ""
+	# Mint, the reward colour, only while there is something to collect.
+	button.theme_type_variation = "GreenButton" if entry["claimable"] and not entry["claimed"] else ""
 	if entry["claimed"]:
 		button.text = "Claimed"
 		button.disabled = true
 	elif entry["claimable"]:
 		button.text = "Claim"
 		button.disabled = false
-		# Mint for rewards: a quest ready to claim stands out from the rest.
-		button.theme_type_variation = "GreenButton"
 	else:
 		button.text = "Claim"
 		button.disabled = true
@@ -319,12 +287,12 @@ func _refresh_track() -> void:
 			break
 		prev = int(step.get("points", 0))
 	if next.is_empty():
-		_track_label.text = "Track: %d points. Every cosmetic unlocked!" % track_points if not track.is_empty() else "Track: %d points" % track_points
+		_track_label.text = "%d track points. Every cosmetic unlocked!" % track_points if not track.is_empty() else "%d track points" % track_points
 		_track_bar.min_value = 0
 		_track_bar.max_value = maxf(1.0, float(track_points))
 		_track_bar.value = track_points
 		return
-	_track_label.text = "Track: %d points  •  next: %s at %d" % [track_points, Cosmetics.name_of(String(next.get("cosmeticId", ""))), int(next.get("points", 0))]
+	_track_label.text = "%d track points. Next unlock: %s at %d." % [track_points, Cosmetics.name_of(String(next.get("cosmeticId", ""))), int(next.get("points", 0))]
 	_track_bar.min_value = prev
 	_track_bar.max_value = int(next.get("points", 0))
 	_track_bar.value = track_points
@@ -350,17 +318,17 @@ func _refresh_pick_button(b: Button, id: String, current: String) -> void:
 	var is_unlocked := unlocked.has(id)
 	b.disabled = not is_unlocked
 	b.set_pressed_no_signal(id == current)
-	# The look in use is gold, so it stands apart from the other unlocked ones.
+	# The one in use is gold; a pressed violet button alone was hard to spot.
 	b.theme_type_variation = "PrimaryButton" if id == current else ""
 	var pts := _unlock_points(id)
 	if is_unlocked or (pts == 0 and not Cosmetics.is_paid(id) and not Cosmetics.is_plus(id)):
 		b.text = Cosmetics.name_of(id)
 	elif Cosmetics.is_paid(id):
-		b.text = "%s  (shop)" % Cosmetics.name_of(id)
+		b.text = "%s · shop" % Cosmetics.name_of(id)
 	elif Cosmetics.is_plus(id):
-		b.text = "%s  (Plus)" % Cosmetics.name_of(id)
+		b.text = "%s · Plus" % Cosmetics.name_of(id)
 	else:
-		b.text = "%s  (%d pts)" % [Cosmetics.name_of(id), pts]
+		b.text = "%s · %d pts" % [Cosmetics.name_of(id), pts]
 
 
 ## Applies the pick locally first so the lobby and cards change at once,

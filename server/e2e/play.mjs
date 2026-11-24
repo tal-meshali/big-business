@@ -830,7 +830,58 @@ async function testGiftsAndWatching() {
   for (const p of [a, b, c, stranger]) p.socket.disconnect(true);
 }
 
+/** Names: set_name's rules, a name taken in any casing, the named flag, and the ways round it closed. */
+async function testNames() {
+  const a = await makePlayer('nina');
+  const b = await makePlayer('omar');
+  const before = await rpc(a, 'account_links');
+  if (before.named !== false) fail(`a new account is not named yet: ${JSON.stringify(before)}`);
+  const stamp = Date.now() % 1000000;
+  const name = `Nina ${stamp}`;
+  // Too short, too long, a symbol, a staff name behind a digit, a zero-width space, a variation selector,
+  // an emoji, a Hangul filler, a listed word in full-width letters, a Cyrillic letter in a Latin name.
+  for (const [bad, why] of [['a', 'Too short.'], ['x'.repeat(17), 'Too long.'], ['nina@home', 'Use letters, numbers and spaces only.'], ['Adm1n', 'Pick a different name.'],
+    ['Nina\u200b', 'Use letters'], ['Nina\ufe0f', 'Use letters'], ['\ud83d\ude42\ud83d\ude42', 'Use letters'], ['\u3164\u3164\u3164', 'Use letters'],
+    ['\uff46\uff55\uff43\uff4b', 'Pick a different name.'], ['Nin\u0430', 'one alphabet'],
+    // An accent on a listed word, a dotless i in a staff name, a phone number, fifteen marks on one Thai letter.
+    ['f\u00fcck', 'Pick a different name.'], ['Adm\u0131n', 'Pick a different name.'], ['0544123456', 'no more than 6 numbers'], ['_Nina', 'between words'], ['Suppor\u0167', 'Pick a different name.'], ['\u0e01' + '\u0e47'.repeat(15), 'Use letters']]) {
+    const said = await rpcRejected(a, 'set_name', { name: bad }, `the name ${JSON.stringify(bad)}`);
+    if (!said.includes(why)) fail(`set_name ${JSON.stringify(bad)} should say "${why}", said "${said}"`);
+  }
+  const set = await rpc(a, 'set_name', { name: `  ${name}  ` });
+  const after = await rpc(a, 'account_links');
+  if (set.name !== name || after.named !== true || after.username !== name) fail(`set_name: ${JSON.stringify({ set, after })}`);
+  for (const taken of [name, name.toUpperCase()]) {
+    const said = await rpcRejected(b, 'set_name', { name: taken }, `the taken name ${taken}`);
+    if (!said.includes('That name is taken')) fail(`a taken name should say so, said "${said}"`);
+  }
+  // The holder may change the casing of their own name.
+  if ((await rpc(a, 'set_name', { name: name.toLowerCase() })).name !== name.toLowerCase()) fail('changing the case of your own name');
+  // No way round the rules: not the account update, not a username at sign-up.
+  let updated = false;
+  try { await a.client.updateAccount(a.session, { username: 'Admin' }); updated = true; } catch (e) { /* expected */ }
+  if (updated) fail('a direct account update must be refused');
+  const client = new Client(KEY, HOST, PORT, false);
+  const sneaky = await client.authenticateDevice(`e2e-sneaky-${Date.now()}`, true, name.toUpperCase());
+  if (sneaky.username.toLowerCase() === name.toLowerCase()) fail('signing up with a name someone holds in another casing must not give it');
+  // The sign-in methods the game does not offer would create an account under any name.
+  for (const [how, signIn] of [['custom', () => client.authenticateCustom(`e2e-custom-${Date.now()}`, true, 'Admin')], ['email', () => client.authenticateEmail(`e2e${Date.now()}@example.com`, 'password-1234', true, 'Admin')]]) {
+    let signedIn = false;
+    try { await signIn(); signedIn = true; } catch (e) { /* expected */ }
+    if (signedIn) fail(`${how} sign-in must be refused`);
+  }
+  // Friends find each other by name in any letter case.
+  const found = await rpc(b, 'find_player', { name: name.toUpperCase() });
+  if (found.userId !== a.userId) fail(`find_player in another casing: ${JSON.stringify(found)}`);
+  // A fresh token carries the new name into the next room.
+  const fresh = await a.client.sessionRefresh(a.session);
+  if (fresh.username !== name.toLowerCase()) fail(`a refreshed session should carry the new name, got ${fresh.username}`);
+  log('names: rules, taken in any casing, named flag, account update, sign-up and unused sign-ins closed, found in any casing, refresh carries the name');
+  for (const p of [a, b]) p.socket.disconnect(true);
+}
+
 try {
+  await testNames();
   await testPrivateRoom();
   await testForfeit();
   await testFriendsAndInvites();

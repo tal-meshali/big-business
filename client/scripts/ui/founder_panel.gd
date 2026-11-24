@@ -35,6 +35,8 @@ var selected: int = 0
 var draft: Dictionary = {}
 ## Working copies by company index, so switching company keeps unsaved edits.
 var drafts: Dictionary = {}
+## True while a save is on its way, so Save cannot be sent twice.
+var _saving := false
 var _editor_note: Label
 var _age_box: VBoxContainer
 var _status: Label
@@ -363,6 +365,11 @@ func apply_state(data: Dictionary) -> void:
 		_status.text = ""
 	_use_toggle.set_pressed_no_signal(data.get("active", false))
 	_age_box.visible = false
+	# Companies only looked at follow the newly loaded row (a review may
+	# have approved a picture); real edits are kept.
+	for i in drafts.keys():
+		if not is_dirty(i):
+			drafts.erase(i)
 	select_company(selected)
 
 
@@ -485,7 +492,7 @@ func _refresh_editor() -> void:
 	_reset_button.disabled = saved(selected).is_empty()
 	_reset_button.text = "Use standard"
 	var n := String(draft["name"]).strip_edges()
-	_save_button.disabled = n.length() < 2 or not is_dirty(selected)
+	_save_button.disabled = _saving or n.length() < 2 or not is_dirty(selected)
 
 
 func _picture_text(blocker: String, has_picture: bool) -> String:
@@ -496,7 +503,7 @@ func _picture_text(blocker: String, has_picture: bool) -> String:
 	if has_picture:
 		return PICTURE_STATUS.get(String(draft.get("picture_status", "")), "Your logo picture shows once you save the company.")
 	if saved(selected).is_empty():
-		return "Save the company to add your own logo picture."
+		return "Tap + to add your own logo picture."
 	return ""
 
 
@@ -520,25 +527,33 @@ func _pick_logo(id: String) -> void:
 
 
 func _on_save() -> void:
+	await save_draft()
+
+
+## Saves the selected company's draft. True when it was saved.
+func save_draft() -> bool:
 	var n := String(draft.get("name", "")).strip_edges()
+	_saving = true
 	_save_button.disabled = true
 	_status.text = "Saving..."
 	var c := saved(selected)
 	var had_picture := c.get("picture") is String and not String(c["picture"]).is_empty()
 	var drop := had_picture and String(draft["picture_hash"]).is_empty()
 	var res: Dictionary = await FounderApi.save(selected, n, String(draft["color"]), String(draft["logo"]), drop)
+	_saving = false
 	if res.is_empty():
 		_status.text = ""
 		# The reason sits right above the button, next to what it is about.
 		_editor_note.text = FounderApi.last_error if not FounderApi.last_error.is_empty() else "Could not save. Try again."
 		_refresh_editor()
-		return
+		return false
 	var keep := selected
 	drafts.erase(keep)
 	await refresh()
 	select_company(keep)
 	_pop(_minis[keep])
 	_status.text = "%s is saved." % n if state.get("active", false) else "%s is saved. Switch on \"Use my companies\" to play with it." % n
+	return true
 
 
 ## A saved company's small share bounces once: the save landed.
@@ -606,8 +621,8 @@ func _on_picture_tile() -> void:
 		# never has to find it in Designer.
 		_age_box.visible = true
 		return
-	if saved(selected).is_empty():
-		_editor_note.text = "Save the company first, then add your logo picture."
+	# A picture belongs to a saved company: save this one first (even unchanged).
+	if saved(selected).is_empty() and not await save_draft():
 		return
 	var filters := PackedStringArray(["*.png, *.jpg, *.jpeg, *.webp ; Pictures"])
 	if DisplayServer.has_feature(DisplayServer.FEATURE_NATIVE_DIALOG_FILE):

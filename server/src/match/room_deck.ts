@@ -117,7 +117,10 @@ export function sendDeck(s: MatchState, nk: nkruntime.Nakama, dispatcher: nkrunt
   const deck = s.customDeck;
   if (!deck) {
     // An empty look tells the seats to go back to the standard one.
-    if (s.clearLook && !to) {
+    // A seat rejoining after that gets it too (the client may still hold the old look).
+    if (to) {
+      send(dispatcher, OP_DECK, {}, to);
+    } else if (s.clearLook) {
       send(dispatcher, OP_DECK, {}, Object.keys(s.presences).map((id) => s.presences[id] as nkruntime.Presence));
       s.clearLook = false;
     }

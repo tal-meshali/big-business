@@ -35,7 +35,7 @@ const DEFAULT_COLOR_IDS: Array[String] = ["yellow", "green", "blue", "orange", "
 const NAME_MAX := 18
 ## Colours and logos too alike to sit at one table: a pair counts as one.
 ## Must match founder.ts COLOR_FAMILIES / LOGO_FAMILIES.
-const COLOR_FAMILIES := [["green", "lime"], ["blue", "navy"], ["orange", "brown"]]
+const COLOR_FAMILIES := [["green", "lime"], ["blue", "navy"], ["orange", "brown"], ["red", "pink"]]
 const LOGO_FAMILIES := [["pine", "mountain"], ["bolt", "globe"]]
 ## Words skipped when a long name is cut to its band name (founder.ts STOP_WORDS).
 const STOP_WORDS := ["the", "a", "an", "my", "our", "big", "little", "new", "old", "el", "la", "le", "los", "las", "les", "de", "di", "da", "and", "&", "of"]

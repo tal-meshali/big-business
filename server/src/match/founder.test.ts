@@ -28,10 +28,10 @@ describe('company names', () => {
   });
 
   it('reads through look-alikes and split words without refusing ordinary names', () => {
-    for (const n of ['Fuсk Co', 'Phuck Inc', 'Fvck Inc', 'Fu Ck Corp', 'Cocks & Co', 'Nazis', 'Admins Ltd', 'Shitty Air']) {
+    for (const n of ['Fuсk Co', 'Phuck Inc', 'Fvck Inc', 'Fu Ck Corp', 'Cocks & Co', 'Nazis', 'Admins Ltd', 'Shitty Air', 'Fück Co', 'Fuuuck Co', 'Kunt Co', 'Nazism', 'Raped Inc']) {
       expect(nameProblem(n), n).toBe('Pick a different name.');
     }
-    for (const n of ['Badminton Club', 'Scunthorpe United', 'Push It Co', 'Wash It Co', 'Cogs Hit', 'Shiitake Co', 'Bit Chain', 'Pass Hole', 'Snigger Co', 'Essex Foods', 'Title Deeds']) {
+    for (const n of ['Badminton Club', 'Scunthorpe United', 'Push It Co', 'Wash It Co', 'Cogs Hit', 'Shiitake Co', 'Bit Chain', 'Pass Hole', 'Snigger Co', 'Essex Foods', 'Title Deeds', 'Penistone Mills', 'Rapeseed Oil', 'Sexton Bakery', 'Glasses Co', 'Coffee Pool']) {
       expect(nameProblem(n), n).toBeNull();
     }
   });

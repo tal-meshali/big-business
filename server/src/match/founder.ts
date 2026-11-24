@@ -101,15 +101,17 @@ function codePoints(s: string): number[] {
 const LOOKALIKE: { [c: string]: string } = {
   '0': 'o', '1': 'i', '3': 'e', '4': 'a', '5': 's', '7': 't',
   'а': 'a', 'в': 'b', 'е': 'e', 'к': 'k', 'м': 'm', 'н': 'h', 'о': 'o', 'р': 'p', 'с': 'c', 'т': 't', 'у': 'y', 'х': 'x', 'і': 'i', 'ѕ': 's',
+  'à': 'a', 'á': 'a', 'â': 'a', 'ã': 'a', 'ä': 'a', 'å': 'a', 'ç': 'c', 'è': 'e', 'é': 'e', 'ê': 'e', 'ë': 'e', 'ì': 'i', 'í': 'i', 'î': 'i', 'ï': 'i',
+  'ñ': 'n', 'ò': 'o', 'ó': 'o', 'ô': 'o', 'õ': 'o', 'ö': 'o', 'ù': 'u', 'ú': 'u', 'û': 'u', 'ü': 'u', 'ý': 'y', 'ÿ': 'y',
   'α': 'a', 'β': 'b', 'ε': 'e', 'ι': 'i', 'κ': 'k', 'ν': 'v', 'ο': 'o', 'ρ': 'p', 'τ': 't', 'υ': 'u', 'χ': 'x',
 };
 
 /** Words refused anywhere inside one word of a name ("Fuckco"). */
 const BLOCKED_INSIDE = ['fuck', 'cunt', 'nigger', 'nigga', 'faggot', 'bitch', 'asshole', 'whore', 'pussy', 'hitler', 'shit', 'porn', 'dildo', 'penis', 'vagina'];
 /** Ordinary words that contain a blocked one. */
-const ALLOWED_INSIDE = ['scunthorpe', 'shiitake', 'shitake', 'badminton', 'cockpit', 'peacock', 'hancock', 'woodcock', 'shuttlecock', 'cocktail', 'dickens', 'snigger', 'sniggers'];
+const ALLOWED_INSIDE = ['penistone', 'scunthorpe', 'shiitake', 'shitake', 'badminton', 'cockpit', 'peacock', 'hancock', 'woodcock', 'shuttlecock', 'cocktail', 'dickens', 'snigger', 'sniggers'];
 /** Words refused as a whole word, or as two words run together ("Fu Ck"), plurals included. */
-const BLOCKED_WORDS = ['ass', 'sex', 'cum', 'tit', 'tits', 'nazi', 'kkk', 'rape', 'slut', 'wank', 'twat', 'retard', 'kike', 'chink', 'bastard', 'dick', 'cock', 'fuk', 'fuc', 'phuck'].concat(BLOCKED_INSIDE);
+const BLOCKED_WORDS = ['ass', 'sex', 'cum', 'tit', 'tits', 'nazi', 'kkk', 'rape', 'slut', 'wank', 'twat', 'retard', 'kike', 'chink', 'bastard', 'dick', 'cock', 'fuk', 'fuc', 'phuck', 'kunt', 'nazism', 'raped', 'rapist'].concat(BLOCKED_INSIDE);
 /** Names that could pass for the game or its staff. */
 const STAFF_INSIDE = ['admin', 'moderator', 'official', 'bigbusiness'];
 
@@ -125,7 +127,8 @@ export function fold(name: string): string {
 
 /** The ways a folded word may be read: as written, "ph" as "f", "v" as "u", plural dropped. */
 function readings(word: string): string[] {
-  const out = [word, word.replace(/ph/g, 'f'), word.replace(/v/g, 'u')];
+  // Repeated letters collapsed too ("Fuuuck").
+  const out = [word, word.replace(/ph/g, 'f'), word.replace(/v/g, 'u'), word.replace(/(.)\1+/g, '$1')];
   for (const w of out.slice()) {
     if (w.length > 3 && w.endsWith('es')) out.push(w.slice(0, -2));
     if (w.length > 2 && w.endsWith('s')) out.push(w.slice(0, -1));
@@ -266,7 +269,7 @@ export function clashWith(row: CompaniesRow, i: number, company: Company): strin
  * WHY: chips on the felt show only the colour, and a mini logo shows only
  * its outline; these pairs are hard to tell apart there.
  */
-export const COLOR_FAMILIES = [['green', 'lime'], ['blue', 'navy'], ['orange', 'brown']];
+export const COLOR_FAMILIES = [['green', 'lime'], ['blue', 'navy'], ['orange', 'brown'], ['red', 'pink']];
 export const LOGO_FAMILIES = [['pine', 'mountain'], ['bolt', 'globe']];
 
 function family(families: string[][], id: string): string {

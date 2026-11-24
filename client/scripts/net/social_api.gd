@@ -12,7 +12,7 @@ static func _call(id: String, body: Dictionary) -> Dictionary:
 	return res
 
 
-## {waiting, names, claimLeft, sentToday: [userId], sendLeft, points}.
+## {waiting, names, claimLeft, sentToday: [userId], sendLeft, xp}.
 static func gift_state() -> Dictionary:
 	return await _call("gift_state", {})
 

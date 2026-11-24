@@ -23,7 +23,8 @@ static func _call(id: String, body: Dictionary) -> Dictionary:
 ## The server's own words from a refusal: "Error: x at reject (...)" -> "x".
 static func clean_error(message: String) -> String:
 	var m := message.trim_prefix("Error: ")
-	var at := m.find(" at ")
+	# WHY the last one: the sentence itself may say " at ".
+	var at := m.rfind(" at ")
 	return m.substr(0, at) if at > 0 else m
 
 

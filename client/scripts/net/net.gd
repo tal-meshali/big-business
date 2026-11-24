@@ -55,6 +55,11 @@ var last_view: Dictionary = {}
 var last_earnings: Dictionary = {}
 var user_id: String = ""
 var display_name: String = ""
+## False until the server has said the player picked the account's name
+## (it starts with a random one), so nothing shows that name as theirs.
+## Set by the lobby from the account's answer and kept in the settings, so
+## the next launch and an offline one know it too.
+var named: bool = false
 ## True while the current match is the tutorial (coach overlay on).
 var tutorial_mode: bool = false
 ## Sign-in provider used last ("apple", "google" or "" for the device id),
@@ -68,6 +73,8 @@ var blocked: Dictionary = {}
 var _reconnect_attempts: int = 0
 var _closing: bool = false
 var _reconnecting: bool = false
+## True while the server holds a newer name than the session token carries.
+var _identity_stale: bool = false
 
 
 func _ready() -> void:
@@ -87,13 +94,16 @@ func _load_settings() -> void:
 		# one it was saved under. When a new build moves the default (a server
 		# move, docs/home-server.md), players follow it instead of staying on
 		# the old address they never chose.
-		var saved_default: Variant = cfg.get_value("server", "default", null)
+		# "" and not null: with null, Godot logs an error for a file saved
+		# before this key existed.
+		var saved_default: Variant = cfg.get_value("server", "default", "")
 		if not OS.has_feature("template") or AppInfo.SERVER_ADDRESS.is_empty() \
 				or saved_default == AppInfo.SERVER_ADDRESS:
 			host = cfg.get_value("server", "host", host)
 			port = cfg.get_value("server", "port", port)
 			scheme = cfg.get_value("server", "scheme", scheme)
 		display_name = cfg.get_value("player", "name", "")
+		named = bool(cfg.get_value("player", "named", false))
 		for id in cfg.get_value("social", "muted", PackedStringArray()):
 			muted[String(id)] = true
 		provider = String(cfg.get_value("player", "provider", ""))
@@ -106,6 +116,7 @@ func save_settings() -> void:
 	cfg.set_value("server", "scheme", scheme)
 	cfg.set_value("server", "default", AppInfo.SERVER_ADDRESS)
 	cfg.set_value("player", "name", display_name)
+	cfg.set_value("player", "named", named)
 	cfg.set_value("player", "provider", provider)
 	cfg.set_value("social", "muted", PackedStringArray(muted.keys()))
 	cfg.save(SETTINGS_PATH)
@@ -162,12 +173,16 @@ func connect_to_server() -> bool:
 	var device_id := OS.get_unique_id()
 	if device_id.is_empty():
 		device_id = _persistent_device_id()
-	session = await client.authenticate_device_async(device_id, _create_username(), true)
+	# WHY no username: a new account gets a random one from the server and
+	# the player picks theirs in the name step (NamesApi), under its rules.
+	session = await client.authenticate_device_async(device_id, null, true)
 	if session.is_exception():
 		var msg := "auth failed: %s" % session.get_exception().message
 		push_warning(msg)
 		connection_failed.emit(msg)
 		return false
+	# A token issued just now carries the current name.
+	_identity_stale = false
 	return await _open_socket()
 
 
@@ -179,16 +194,14 @@ func _make_client() -> void:
 	client = Nakama.create_client(key, host, port, scheme, Nakama.DEFAULT_TIMEOUT, NakamaLogger.LOG_LEVEL.WARNING)
 
 
-## The username to create a new account with, or null to let Nakama pick.
-func _create_username():
-	return display_name if not display_name.is_empty() else null
-
-
 ## Adopts `session` and opens the realtime socket on it. Shared by the
 ## device-id and social sign-ins so they behave identically after auth.
 func _open_socket() -> bool:
 	user_id = session.user_id
-	if display_name.is_empty():
+	# WHY: an existing account keeps its own name whatever the saved one
+	# says, and this is the name every other player sees. A stale token
+	# still carries the name from before the last change.
+	if not _identity_stale:
 		display_name = session.username
 
 	socket = Nakama.create_socket_from(client)
@@ -292,6 +305,10 @@ func _join_match(id: String, code: String = "", watch: bool = false) -> bool:
 	if id.is_empty():
 		server_error.emit("no match id")
 		return false
+	# A name saved while the session could not be renewed: renew it before
+	# taking a seat under the old one.
+	if _identity_stale and match_id.is_empty() and not _reconnecting:
+		await refresh_identity()
 	var metadata = {"code": code} if not code.is_empty() else null
 	if watch:
 		metadata = {"watch": "1"}
@@ -550,12 +567,68 @@ func _try_reconnect() -> void:
 	connection_failed.emit("disconnected")
 
 
+## Renews the session and reopens the socket, so the name other players
+## see at a table follows a change of name at once (set_name on the server).
+## False while seated in a match or when the server cannot be reached; the
+## name is then marked stale and renewed before the next seat is taken or
+## at the next reconnect.
+## WHY: the session token carries the username it was issued with.
+func refresh_identity() -> bool:
+	_identity_stale = true
+	if client == null or session == null or session.is_exception() or not match_id.is_empty() or _reconnecting:
+		return false
+	# WHY held for the whole swap: a resume check in the middle of it would
+	# start a reconnect of its own.
+	_reconnecting = true
+	var fresh: NakamaSession = await client.session_refresh_async(session)
+	if fresh.is_exception():
+		_reconnecting = false
+		if _refresh_refused(fresh) and socket != null:
+			# WHY: only a new sign-in gets a token with the new name; the
+			# reconnect that follows the close makes one (_reconnect_session).
+			socket.close()
+		else:
+			# A close of the socket during the attempt went unanswered.
+			check_connection()
+		return false
+	session = fresh
+	_identity_stale = false
+	# The new socket opens before the old one closes, so a failure here
+	# leaves a reconnect to run instead of a dead lobby. The old socket's
+	# close is ignored: it is no longer `socket`.
+	var old := socket
+	var opened := await _open_socket()
+	if old != null:
+		old.close()
+	_reconnecting = false
+	if not opened:
+		_try_reconnect()
+	return opened
+
+
+## True when the server answered a session refresh and refused its token,
+## as opposed to not being reached.
+static func _refresh_refused(result: NakamaSession) -> bool:
+	var e: NakamaException = result.get_exception()
+	return e != null and (e.status_code == 401 or e.grpc_status_code == 16)
+
+
 ## Reopens the socket for the account we were signed in as.
 ## WHY: connect_to_server signs in with the device id, which after an Apple
 ## or Google sign-in is a different account; rejoining as that account would
 ## be refused and the seat would time out. The current session is reused
 ## while valid, otherwise the remembered sign-in runs again.
 func _reconnect_session() -> bool:
+	if _identity_stale and session != null and not session.is_exception():
+		var fresh: NakamaSession = await client.session_refresh_async(session)
+		if not fresh.is_exception():
+			session = fresh
+			_identity_stale = false
+		elif _refresh_refused(fresh):
+			# WHY only when refused: the token would carry the old name until
+			# it expires, and a new sign-in issues one with the new name. A
+			# refresh that failed for want of a network keeps the session.
+			return await connect_preferred()
 	if session != null and not session.is_exception() and not session.would_expire_in(60):
 		return await _open_socket()
 	return await connect_preferred()
@@ -585,13 +658,14 @@ func list_friends() -> Array:
 	for f in res.friends:
 		if f.user == null or f.state == 3:
 			continue
-		var shown_name: String = f.user.display_name if not f.user.display_name.is_empty() else f.user.username
-		rows.append({"userId": f.user.id, "name": shown_name, "online": f.user.online, "state": int(f.state)})
+		# WHY the username only: Nakama fills display_name from an Apple or
+		# Google profile, which the name rules never saw.
+		rows.append({"userId": f.user.id, "name": f.user.username, "online": f.user.online, "state": int(f.state)})
 	return rows
 
 
-## Sends a friend request to a player by exact username (adding back accepts
-## theirs). False when no such player exists.
+## Sends a friend request to a player by username, in any letter case
+## (adding back accepts theirs). False when no such player exists.
 func add_friend_by_name(username: String) -> bool:
 	var rpc: NakamaAPI.ApiRpc = await client.rpc_async(session, "find_player", JSON.stringify({"name": username.strip_edges()}))
 	if rpc.is_exception():
@@ -717,8 +791,9 @@ func equip_cosmetic(slot: String, id: String) -> Dictionary:
 # account keeps XP, cosmetics and friends; the token itself comes from
 # SocialTokens (native plugins, a local step in docs/TODO-local.md E).
 
-## Which sign-in methods the account has: {apple, google, device, username};
-## {} when offline or on failure.
+## Which sign-in methods the account has, its name and whether the player
+## picked that name: {apple, google, device, username, named, nameLocked}; {} when
+## offline or on failure.
 func get_account_links() -> Dictionary:
 	if client == null or session == null:
 		return {}
@@ -831,8 +906,8 @@ func sign_in_with_google(id_token: String) -> bool:
 func _social_session(name: String, token: String, create: bool) -> NakamaSession:
 	_make_client()
 	if name == "apple":
-		return await client.authenticate_apple_async(token, _create_username(), create)
-	return await client.authenticate_google_async(token, _create_username(), create)
+		return await client.authenticate_apple_async(token, null, create)
+	return await client.authenticate_google_async(token, null, create)
 
 
 func _finish_social_sign_in(name: String, new_session: NakamaSession) -> bool:
@@ -842,6 +917,7 @@ func _finish_social_sign_in(name: String, new_session: NakamaSession) -> bool:
 		connection_failed.emit(msg)
 		return false
 	session = new_session
+	_identity_stale = false
 	if provider != name:
 		provider = name
 		save_settings()
@@ -859,6 +935,9 @@ func _switch_to_social(name: String, token: String) -> bool:
 		socket.close()
 	_closing = false
 	session = found
+	_identity_stale = false
+	# Another account: whether it has a name is not known until it says.
+	named = false
 	provider = name
 	save_settings()
 	if not await _open_socket():
@@ -885,6 +964,7 @@ func connect_preferred() -> bool:
 		var found := await _social_session(provider, token, false)
 		if not found.is_exception():
 			session = found
+			_identity_stale = false
 			return await _open_socket()
 		push_warning("%s sign-in failed, using the device id: %s" % [provider, found.get_exception().message])
 	return await connect_to_server()

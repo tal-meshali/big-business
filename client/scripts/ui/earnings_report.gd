@@ -20,6 +20,13 @@ const FILL_SECONDS := 0.55
 const SPILL_SECONDS := 0.4
 ## The sheet's own entrance.
 const ENTER_SECONDS := 0.2
+## The level-up landing: the plate lights, the chip fades in, the badge pops.
+const LIGHT_SECONDS := 0.15
+const POP_SECONDS := 0.25
+## The buttons take no press this long after the sheet appears. Play again
+## sits where Continue was on the standings, and a double tap on Continue
+## would otherwise start a new game before the report was seen.
+const ARM_MS := 350
 ## At most this many quest lines; more finished quests fold into one line.
 const MAX_QUEST_LINES := 2
 
@@ -36,11 +43,15 @@ var _level_badge: LevelBadge
 var _level_box: StyleBoxFlat
 var _level_chip: Control
 var _bar: ProgressBar
-## The bar's sequence, the total's count and the sheet's entrance.
+## The bar's sequence, the total's count, the sheet's entrance and the
+## level-up landing.
 var _tween: Tween
 var _count_tween: Tween
 var _enter_tween: Tween
+var _pop_tween: Tween
 var _earnings: Dictionary = {}
+## Time.get_ticks_msec() from which the buttons answer (ARM_MS).
+var _armed_at := 0
 
 
 ## Builds the empty sheet. Call once, before the first show_report.
@@ -51,7 +62,8 @@ func setup() -> void:
 	root.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	add_child(root)
 	var rows := VBoxContainer.new()
-	rows.add_theme_constant_override("separation", _px(12))
+	# The actions stand a little further off than the groups do from each other.
+	rows.add_theme_constant_override("separation", _px(16))
 	sheet["body"].add_child(rows)
 	_content = VBoxContainer.new()
 	_content.add_theme_constant_override("separation", _px(14))
@@ -62,11 +74,15 @@ func setup() -> void:
 	rows.add_child(buttons)
 	_again = UiTheme.button("Play again", _px(15), _px(50), "primary")
 	_again.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_again.pressed.connect(func() -> void: play_again.emit())
+	_again.pressed.connect(func() -> void:
+		if _armed():
+			play_again.emit())
 	buttons.add_child(_again)
 	_leave = UiTheme.button("Leave", _px(15), _px(50), "ghost")
 	_leave.custom_minimum_size.x = _px(92)
-	_leave.pressed.connect(func() -> void: leave.emit())
+	_leave.pressed.connect(func() -> void:
+		if _armed():
+			leave.emit())
 	buttons.add_child(_leave)
 
 
@@ -82,8 +98,10 @@ func show_report(e: Dictionary) -> void:
 	paid.add_child(_headline(e))
 	paid.add_child(_lines_well(e))
 	if bool(e.get("botsOnly", false)):
-		var note := _text("Games with other people pay double.", UiTheme.TYPE_LABEL, UiTheme.TEXT_SOFT)
-		note.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		# On the wells' text edge, like every other line on the sheet.
+		var note := MarginContainer.new()
+		note.add_theme_constant_override("margin_left", _px(10))
+		note.add_child(_text("Games with other people pay double.", UiTheme.TYPE_LABEL, UiTheme.TEXT_SOFT))
 		paid.add_child(note)
 	paid.add_child(_level_plate())
 	var moved := _group()
@@ -100,6 +118,7 @@ func show_report(e: Dictionary) -> void:
 		_content.remove_child(moved)
 		moved.queue_free()
 	visible = true
+	_armed_at = Time.get_ticks_msec() + ARM_MS
 	_again.grab_focus.call_deferred()
 	_play_enter()
 	_play_fill()
@@ -154,18 +173,25 @@ func _input(event: InputEvent) -> void:
 
 
 func _kill_tweens() -> void:
-	for t in [_tween, _count_tween, _enter_tween]:
+	for t in [_tween, _count_tween, _enter_tween, _pop_tween]:
 		if t != null:
 			t.kill()
 	_tween = null
 	_count_tween = null
 	_enter_tween = null
+	_pop_tween = null
 
 
-## True when the report should move: off in tests, and when the phone asks
-## for less motion.
+## False for the first moments after the sheet appears (ARM_MS).
+func _armed() -> bool:
+	return Time.get_ticks_msec() >= _armed_at
+
+
+## True when the report should move: off in tests, and where the device
+## says it wants less motion.
 func _moves() -> bool:
-	# The call answers 1 for yes, 0 for no and -1 where the platform cannot say.
+	# The call answers 1 for yes, 0 for no and -1 where the platform cannot
+	# say. Not every platform can, which is why a tap also skips the motion.
 	return animate and is_inside_tree() and DisplayServer.accessibility_should_reduce_animation() != 1
 
 
@@ -314,7 +340,6 @@ func _level_plate() -> Control:
 	_level_badge.font_px = _px(15)
 	_level_badge.custom_minimum_size = Vector2(_px(38), _px(38))
 	_level_badge.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	_level_badge.pivot_offset_ratio = Vector2(0.5, 0.5)
 	h.add_child(_level_badge)
 	var names := VBoxContainer.new()
 	names.add_theme_constant_override("separation", _px(1))
@@ -351,19 +376,31 @@ func _level_plate() -> Control:
 	return plate
 
 
-## The level-up look; with `pop` the badge lands with a small bounce and the
-## phone buzzes once.
+## The level-up look. With `pop` it lands: the plate lights and the chip
+## fades in, the badge bounces and the phone buzzes once.
 func _mark_level_up(pop: bool) -> void:
-	_level_box.bg_color = Color(UiTheme.VIOLET, 0.55)
-	_level_box.border_color = UiTheme.GOLD
-	_level_chip.modulate.a = 1.0
+	var lit := Color(UiTheme.VIOLET, 0.55)
 	# Lilac falls under 4.5:1 on the lit plate (UiTheme.standing_row).
 	_level_count.add_theme_color_override("font_color", Color(UiTheme.TEXT, 0.85))
+	if _pop_tween != null:
+		_pop_tween.kill()
+		_pop_tween = null
 	if not pop:
+		_level_box.bg_color = lit
+		_level_box.border_color = UiTheme.GOLD
+		_level_chip.modulate.a = 1.0
+		_level_badge.pop = 1.0
 		return
 	Sfx.buzz(20)
-	_level_badge.scale = Vector2(0.8, 0.8)
-	_level_badge.create_tween().tween_property(_level_badge, "scale", Vector2.ONE, 0.25).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	# WHY the badge's own `pop` and not its scale: the row is a container,
+	# and a container puts a child's scale back to 1 every time it sorts,
+	# which the changing numbers beside the badge make it do each frame.
+	_level_badge.pop = 0.8
+	_pop_tween = create_tween().set_parallel(true)
+	_pop_tween.tween_property(_level_box, "bg_color", lit, LIGHT_SECONDS)
+	_pop_tween.tween_property(_level_box, "border_color", UiTheme.GOLD, LIGHT_SECONDS)
+	_pop_tween.tween_property(_level_chip, "modulate:a", 1.0, LIGHT_SECONDS)
+	_pop_tween.tween_property(_level_badge, "pop", 1.0, POP_SECONDS).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 
 
 func _season_row(points: int) -> Control:
@@ -421,23 +458,29 @@ func _quest_row(q: Dictionary) -> Control:
 	return well
 
 
-## The level plate at `xp` inside `level`: title, what is left, the bar.
+## The level plate at `xp` inside `level`: title, the count, the bar.
 func _set_level(level: int, xp: int) -> void:
 	var span := Leveling.span(level)
 	_level_badge.level = level
 	_level_badge.queue_redraw()
 	_level_title.text = "Level %d" % level
-	_level_sub.text = "%s XP to level %d" % [grouped(maxi(0, span.y - xp)), level + 1]
 	_level_count.text = "%s / %s" % [grouped(xp), grouped(span.y)]
 	_bar.min_value = span.x
 	_bar.max_value = span.y
 	_bar.value = clampi(xp, span.x, span.y)
 
 
+## What is left to the next level. Set at rest only (start, crossover,
+## end): a sentence whose number ticked every frame would shiver.
+func _set_left(level: int, xp: int) -> void:
+	_level_sub.text = "%s XP to level %d" % [grouped(maxi(0, Leveling.span(level).y - xp)), level + 1]
+
+
 func _show_final() -> void:
 	var e := _earnings
 	_total.text = "+%s XP" % grouped(int(e.get("xp", 0)))
 	_set_level(int(e.get("levelAfter", 1)), int(e.get("xpAfter", 0)))
+	_set_left(int(e.get("levelAfter", 1)), int(e.get("xpAfter", 0)))
 	if int(e.get("levelAfter", 1)) > int(e.get("levelBefore", 1)):
 		_mark_level_up(false)
 
@@ -449,10 +492,11 @@ func _play_enter() -> void:
 	if not _moves():
 		return
 	modulate.a = 0.0
-	scale = Vector2(0.96, 0.96)
 	_enter_tween = create_tween().set_parallel(true).set_trans(Tween.TRANS_QUART).set_ease(Tween.EASE_OUT)
 	_enter_tween.tween_property(self, "modulate:a", 1.0, ENTER_SECONDS)
-	_enter_tween.tween_property(self, "scale", Vector2.ONE, ENTER_SECONDS)
+	# WHY from(): the parent container sorts once as the sheet appears and
+	# puts the scale back to 1, so a start value set by hand would be lost.
+	_enter_tween.tween_property(self, "scale", Vector2.ONE, ENTER_SECONDS).from(Vector2(0.96, 0.96))
 
 
 ## The one authored moment: the XP counts up while the bar fills, and on a
@@ -470,8 +514,10 @@ func _play_fill() -> void:
 		return
 	_total.text = "+0 XP"
 	_set_level(level_from, before)
-	var fill := func(xp: float, level: int) -> void: _set_level(level, int(roundf(xp)))
 	var levelled := level_to > level_from
+	# Without a level-up the line already says where this game leaves you.
+	_set_left(level_from, before if levelled else after)
+	var fill := func(xp: float, level: int) -> void: _set_level(level, int(roundf(xp)))
 	_count_tween = create_tween()
 	_count_tween.tween_interval(FILL_DELAY)
 	_count_tween.tween_method(func(v: float) -> void: _total.text = "+%s XP" % grouped(int(roundf(v))), 0.0, float(after - before),
@@ -480,7 +526,9 @@ func _play_fill() -> void:
 	_tween.tween_interval(FILL_DELAY)
 	if levelled:
 		_tween.tween_method(fill.bind(level_from), float(before), float(Leveling.xp_for_level(level_from + 1)), FILL_SECONDS).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN_OUT)
-		_tween.tween_callback(_mark_level_up.bind(true))
+		_tween.tween_callback(func() -> void:
+			_set_left(level_to, after)
+			_mark_level_up(true))
 		_tween.tween_method(fill.bind(level_to), float(Leveling.xp_for_level(level_to)), float(after), SPILL_SECONDS).set_trans(Tween.TRANS_QUART).set_ease(Tween.EASE_OUT)
 	else:
 		_tween.tween_method(fill.bind(level_from), float(before), float(after), FILL_SECONDS).set_trans(Tween.TRANS_QUART).set_ease(Tween.EASE_OUT)
@@ -531,11 +579,17 @@ class PlaceMedal extends Control:
 class LevelBadge extends Control:
 	var level := 1
 	var font_px := 28
+	## The drawing's scale about its centre, for the level-up bounce.
+	var pop := 1.0:
+		set(value):
+			pop = value
+			queue_redraw()
 
 	func _init() -> void:
 		mouse_filter = Control.MOUSE_FILTER_IGNORE
 
 	func _draw() -> void:
+		draw_set_transform(size / 2.0 * (1.0 - pop), 0.0, Vector2(pop, pop))
 		var c := size / 2.0
 		var r := minf(size.x, size.y) / 2.0
 		var o := maxf(2.0, r * 0.12)

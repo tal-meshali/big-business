@@ -41,11 +41,15 @@ export function apply(
   for (const e of events) if (e.type === 'took_market') coins = e.coins;
   s.log.push({ seq: s.game.seq, seat, action, source, coins });
 
-  // A human who keeps timing out becomes a bot for the rest of the game.
+  // A human who keeps timing out becomes a bot, until they play a turn
+  // themselves or rejoin (handler.ts matchJoin). A forfeit is final.
   const seatState = s.game.seats[seat];
   if (seatState && !seatState.isBot && seatState.autoMoves >= AUTO_MOVES_TO_BOT) {
     seatState.isBot = true;
     logger.info('seat %d converted to bot after repeated timeouts', seat);
+  } else if (seatState && seatState.isBot && source === 'player' && !s.forfeited[seatState.id]) {
+    seatState.isBot = false;
+    logger.info('seat %d is played by its player again', seat);
   }
 
   send(dispatcher, OP_EVENTS, { seq: s.game.seq, events });

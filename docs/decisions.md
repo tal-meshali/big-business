@@ -122,6 +122,7 @@ Decisions made by the project owner on 2026-09-27, after the research in `docs/r
 - **Decision:** players earn XP only; there is no spendable game currency. XP after a game is linear in the capital the player ends with (proposed: 20 for finishing plus 2 per coin of final score). Quests, gifts and the daily reward pay XP, and the cosmetic track reads XP; track points are retired.
 - **Why:** the owner wants the coins a player ends with to matter beyond the result. One number keeps D5 (no virtual currency) and needs no economy to balance.
 - **Implies:** season points stay based on finishing place. D14's gift becomes XP with the same caps. The full plan is `docs/design/engagement-plan.md`.
+- **Away seats (2026-11-24):** a seat whose player timed out three turns running is played by a bot. If a bot is still playing it when the game ends, the game is recorded like a forfeit: it counts as played and pays no XP, quest credit, season points or win, so XP cannot be earned by idling. Playing a turn or rejoining before the end makes the seat the player's again, and the game then pays in full. The standings tell an away player why there is no earnings report.
 
 ## D24. Retention is kind, not aggressive (2026-11-21)
 

@@ -26,7 +26,6 @@ function xpRates(nk: nkruntime.Nakama, logger: nkruntime.Logger): XpRates {
 }
 
 /** What a seat a bot finished is paid: the bot earned that capital, not the player. */
-const NO_XP: XpRates = { base: 0, perCoin: 0 };
 /** Versioned tries at the profile write before the last, unconditional one. */
 const GUARDED_SAVES = 2;
 
@@ -132,28 +131,32 @@ export function awardProgress(s: MatchState, nk: nkruntime.Nakama, logger: nkrun
     const seat = s.game.seats[score.seat];
     // Forfeited players were recorded when they forfeited (awardForfeit).
     if (!seat || seat.id.startsWith('bot:') || s.forfeited[seat.id]) continue;
+    // WHY: a seat with a player's id that ended as a bot was left to time
+    // out, so it is recorded like a forfeit: the game counts as played and
+    // nothing the bot did (XP, quests, season points, a win, statistics) is
+    // credited. The cosmetic track cannot be earned by idling. A player who
+    // comes back, by rejoining or by playing a turn, is a player again
+    // (handler.ts matchJoin, actions.ts apply) and is paid in full.
+    if (seat.isBot) {
+      awardForfeit(nk, logger, seat.id);
+      continue;
+    }
     try {
-      // WHY: a seat with a player's id that ended as a bot was left to time
-      // out. The game counts as played, but it pays no XP and no quest
-      // credit, so the cosmetic track cannot be earned by idling. The
-      // tutorial (a scripted game anyone can replay) pays no quest credit.
-      const away = seat.isBot;
+      // The tutorial (a scripted game anyone can replay) pays no quest credit.
       const game = s.game;
-      const earnsQuests = !s.params.tutorial && !away;
+      const earnsQuests = !s.params.tutorial;
       const result: SeatResult = { rank: score.rank, seats: seatCount, capital: score.score, humans };
-      const seatRates = away ? NO_XP : rates;
       const settled = settleAndSave(nk, seat.id, (current) => {
         if (earnsQuests) {
           try {
-            return settleGame(current, result, gameStats(game, s.log, score.seat, humans), seatRates, now);
+            return settleGame(current, result, gameStats(game, s.log, score.seat, humans), rates, now);
           } catch (e) {
             logger.warn('quest progress failed for %s: %s', seat.id, String(e));
           }
         }
-        return settleGame(current, result, null, seatRates, now);
+        return settleGame(current, result, null, rates, now);
       });
-      // No receipt for a seat that was away: there is nothing to report.
-      if (!away) s.earnings[seat.id] = settled.earnings;
+      s.earnings[seat.id] = settled.earnings;
       const points = settled.earnings.seasonPoints;
       if (points > 0) {
         nk.leaderboardRecordWrite(SEASON_LEADERBOARD, seat.id, seat.name, points, score.rank === 1 ? 1 : 0);

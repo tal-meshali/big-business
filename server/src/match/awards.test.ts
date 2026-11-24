@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { applyAction, autoAction, createGame, type GameState } from '../engine';
+import { apply } from './actions';
 import { awardProgress, settleGame, type SeatResult } from './awards';
 import { loadProfile, saveProfile } from './profile';
 import { DEFAULT_PARAMS, OP_EARNINGS, type EarningsMessage } from './protocol';
@@ -203,16 +204,22 @@ describe('awardProgress', () => {
     expect([e.botsOnly, e.rate, e.seasonPoints, e.lines[1]?.xp]).toEqual([true, 1, 0, 10]);
   });
 
-  it('pays no XP and sends no receipt to a seat a bot had to finish', () => {
-    const { nk } = awardsNk();
+  it('records a seat a bot had to finish like a forfeit: no XP, win, season points or receipt', () => {
+    const { nk, board, rows } = awardsNk();
     const s = endedMatch();
     ((s.game as GameState).seats.find((x) => x.id === BOB) as { isBot: boolean }).isBot = true;
     awardProgress(s, nk, logger);
     const bob = loadProfile(nk, BOB).progress;
-    expect([bob.xp, bob.trackXp, bob.gamesPlayed]).toEqual([0, 0, 1]);
+    expect([bob.xp, bob.trackXp, bob.gamesPlayed, bob.wins, bob.streak]).toEqual([0, 0, 1, 0, 0]);
     expect(bob.quests.daily).toEqual({});
     expect(s.earnings[BOB]).toBeUndefined();
-    expect((s.earnings[ALICE] as EarningsMessage).xp).toBeGreaterThan(0);
+    // Nothing the bot did reaches the season table or the statistics.
+    expect(board.filter((r) => r.owner === BOB)).toEqual([]);
+    expect(Object.keys(rows).filter((k) => k.indexOf(BOB) >= 0 && k.indexOf('stats') >= 0)).toEqual([]);
+    // The one who stayed still played with a person: full rate, season points.
+    const e = s.earnings[ALICE] as EarningsMessage;
+    expect([e.botsOnly, e.rate]).toEqual([false, 2]);
+    expect(e.seasonPoints).toBeGreaterThan(0);
   });
 
   it('pays the tutorial at the solo rate with no quest credit', () => {
@@ -293,5 +300,50 @@ describe('sendEarnings', () => {
     sendEarnings(s, dispatcher, [{ userId: BOB } as nkruntime.Presence]);
     expect(out.map((m) => m.to)).toEqual([[BOB]]);
     expect(out[0]?.data.xp).toBe((s.earnings[BOB] as EarningsMessage).xp);
+  });
+});
+
+describe('a seat left to time out', () => {
+  /** A game in play with ALICE to act, and a dispatcher that swallows everything. */
+  function inPlay() {
+    const s = endedMatch();
+    s.game = createGame((s.game as GameState).seats.map((x) => ({ id: x.id, name: x.name, isBot: x.id.startsWith('bot:') })), 11, { stepSeconds: 0 });
+    const dispatcher = { broadcastMessage: () => {}, matchLabelUpdate: () => {} } as unknown as nkruntime.MatchDispatcher;
+    return { s, dispatcher };
+  }
+
+  function playUntil(s: MatchState, dispatcher: nkruntime.MatchDispatcher, done: (g: GameState) => boolean, source: (g: GameState) => 'player' | 'bot' | 'timeout'): void {
+    let guard = 0;
+    while (!done(s.game as GameState) && (s.game as GameState).phase !== 'ended' && guard++ < 400) {
+      const g = s.game as GameState;
+      apply(s, dispatcher, logger, g.active, autoAction(g), source(g));
+    }
+  }
+
+  it('becomes a bot after three timeouts and a player again on the first turn they play', () => {
+    const { s, dispatcher } = inPlay();
+    const alice = () => (s.game as GameState).seats.find((x) => x.id === ALICE) as GameState['seats'][number];
+    const aliceIdx = (s.game as GameState).seats.findIndex((x) => x.id === ALICE);
+    // ALICE times out on every step; everyone else plays.
+    playUntil(s, dispatcher, () => alice().isBot, (g) => (g.active === aliceIdx ? 'timeout' : 'player'));
+    expect(alice().isBot).toBe(true);
+    // The bot plays her seat until she plays a turn herself.
+    playUntil(s, dispatcher, (g) => g.active === aliceIdx, () => 'bot');
+    expect(apply(s, dispatcher, logger, aliceIdx, autoAction(s.game as GameState), 'player')).toBe(true);
+    expect(alice().isBot).toBe(false);
+    // The timeouts are forgotten once she finishes the turn (the play step).
+    expect(apply(s, dispatcher, logger, aliceIdx, autoAction(s.game as GameState), 'player')).toBe(true);
+    expect([alice().isBot, alice().autoMoves]).toEqual([false, 0]);
+  });
+
+  it('stays a bot after a forfeit, whatever arrives from the player', () => {
+    const { s, dispatcher } = inPlay();
+    const aliceIdx = (s.game as GameState).seats.findIndex((x) => x.id === ALICE);
+    const alice = (s.game as GameState).seats[aliceIdx] as GameState['seats'][number];
+    alice.isBot = true;
+    s.forfeited[ALICE] = true;
+    playUntil(s, dispatcher, (g) => g.active === aliceIdx, () => 'bot');
+    apply(s, dispatcher, logger, aliceIdx, autoAction(s.game as GameState), 'player');
+    expect(((s.game as GameState).seats[aliceIdx] as GameState['seats'][number]).isBot).toBe(true);
   });
 });

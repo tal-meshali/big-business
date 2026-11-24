@@ -1220,6 +1220,64 @@ func _earnings_checks() -> int:
 		push_error("more than two finished quests fold into one line, got %s" % [_texts(report)])
 		failures += 1
 
+	# A sheet of its own, centred like the table's, to watch it move.
+	var center := CenterContainer.new()
+	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	root.add_child(center)
+	var solo = report_script.new()
+	solo.setup()
+	solo.custom_minimum_size.x = 600
+	center.add_child(solo)
+	var presses := [0]
+	solo.play_again.connect(func() -> void: presses[0] += 1)
+	solo.leave.connect(func() -> void: presses[0] += 1)
+	solo.show_report(_receipt())
+	# A second tap meant for Continue lands on Play again: it must not count.
+	solo._again.pressed.emit()
+	solo._leave.pressed.emit()
+	if presses[0] != 0:
+		push_error("the report's buttons take no press in its first moments")
+		failures += 1
+	await process_frame
+	await process_frame
+	# The container sorts as the sheet appears; the settle must survive it.
+	if solo._enter_tween != null and solo._enter_tween.is_running() and solo.scale.x >= 1.0:
+		push_error("the sheet should arrive a little small and settle, got scale %s" % solo.scale)
+		failures += 1
+	# The level-up lands as the bar crosses over, not at the end of the fill.
+	var waited := 0
+	while solo._level_chip.modulate.a == 0.0 and solo._tween != null and waited < 600:
+		await process_frame
+		waited += 1
+	if solo._level_title.text != "Level 5" or solo._level_sub.text != "403 XP to level 6" or solo._level_chip.modulate.a <= 0.0 or solo._pop_tween == null:
+		push_error("at the crossover the plate reads Level 5 with its chip coming in, got %s, %s, chip %s" % [solo._level_title.text, solo._level_sub.text, solo._level_chip.modulate.a])
+		failures += 1
+	solo.finish_motion()
+	if solo._level_badge.pop != 1.0 or solo._level_box.border_color != UiTheme.GOLD or solo._level_chip.modulate.a != 1.0 or solo.scale != Vector2.ONE:
+		push_error("skipping mid level-up lands the badge, the plate and the chip")
+		failures += 1
+	solo._armed_at = 0
+	solo._again.pressed.emit()
+	if presses[0] != 1:
+		push_error("once armed, Play again answers")
+		failures += 1
+	center.queue_free()
+
+	# A seat a bot had to finish: the standings say why there is no report.
+	if table._result_away.visible:
+		push_error("the away note is for a seat a bot finished only")
+		failures += 1
+	var idle := v.duplicate(true)
+	idle["seats"][table._my_seat]["isBot"] = true
+	net.last_earnings = {}
+	table._on_view(idle)
+	await process_frame
+	if not table._result_away.visible or table._result_continue.visible or not table._result_again.visible:
+		push_error("a seat a bot finished gets the away note and Play again, no Continue")
+		failures += 1
+	table._on_view(v.duplicate(true))
+	await process_frame
+
 	# The next game starts from the standings again.
 	v["phase"] = "take"
 	v["result"] = null

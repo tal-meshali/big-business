@@ -467,11 +467,7 @@ func _ink_polygon(points: Array, fill: Color, width: float) -> void:
 
 
 func _draw_coin_badge(n: int, c: Vector2) -> void:
-	draw_circle(c + Vector2(0, 3), 22, Companies.INK)
-	draw_circle(c, 22, Companies.INK)
-	draw_circle(c, 19.5, Companies.BRONZE)
-	draw_circle(c - Vector2(5, 6), 7, Color(1, 1, 1, 0.18))
-	_draw_centered_text(str(n), c + Vector2(0, 1), 22, Companies.CARD_FACE, UiTheme.display_font())
+	CapitalChip.badge(self, c, 22, n)
 
 
 ## A share you may not take (you hold its regulator token): diagonal hatching.

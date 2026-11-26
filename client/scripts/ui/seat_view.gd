@@ -14,6 +14,8 @@ signal seat_pressed(seat_index: int, at: Vector2)
 ## Fallback size in px, before the table sizes the seat.
 const W := 220.0
 const H := 104.0
+## Design points between the capital and gold chips.
+const CHIP_GAP := 6.0
 ## Avatar fills, by seat order from the local player.
 const AVATARS := [Color("#FFD98A"), Color("#9ED9B5"), Color("#A9C5F5"), Color("#F5B8A0"), Color("#D9C2F0"), Color("#F7C6D9"), Color("#BFE3F0")]
 
@@ -30,6 +32,35 @@ var strip := false
 ## Wide plates (one or two opponents) spell out "capital".
 var wide := false
 var avatar_color := AVATARS[1]
+## Capital pop: 0 to 1 per coin kind while a count that just changed
+## ticks (swells and flashes gold). One "+3"/"-2" per kind shows right
+## after its count where there is room, holds, then fades.
+var _pop := {"bronze": 0.0, "gold": 0.0}
+var _pop_tweens := {}
+## kind -> {"delta": int, "t": 0 to 1 (linear), "tween": Tween}
+var _deltas := {}
+## Counts last seen, and for which seat.
+var _shown := {}
+var _shown_seat := -1
+## Where each chip was drawn last, for flying coins and the deltas.
+var _chip_rects := {}
+## The word each chip showed ("" when it was dropped to fit).
+var _chip_words := {}
+## What the capital is drawn on (plate or bottom bar), so its count
+## picks ink or outlined cream.
+var _surface := Color.WHITE
+## The bottom bar's colour behind the strip; the table sets it from the
+## bar's own style.
+var bar_color := UiTheme.CREAM
+
+## The tick, within the 0.06 to 0.3 s budget each way (docs/design/theme.md).
+const POP_UP := 0.08
+const POP_DOWN := 0.22
+## WHY longer than UI motion: the delta is information to read, not a
+## transition; it holds for about half of this, then fades.
+const DELTA_TIME := 0.9
+## Part of DELTA_TIME the delta holds before it fades.
+const DELTA_HOLD := 0.55
 
 
 func _init() -> void:
@@ -50,7 +81,72 @@ func update(p_index: int, p_data: Dictionary, p_active: bool, p_me: bool, p_dead
 	is_me = p_me
 	deadline_ms = p_deadline
 	step_ms = p_step_seconds * 1000.0
+	_watch_capital()
 	queue_redraw()
+
+
+## Pops a count that changed since the last update of the same seat.
+func _watch_capital() -> void:
+	if _shown_seat != seat_index:
+		reset_capital()
+	for kind in ["bronze", "gold"]:
+		var now := int(data.get(kind, 0))
+		if _shown.has(kind) and int(_shown[kind]) != now:
+			_start_pop(kind, now - int(_shown[kind]))
+		_shown[kind] = now
+	_shown_seat = seat_index
+
+
+## Forgets the counts seen so far and stops any pop: the next update is a
+## fresh start (a new game, or this plate now shows another seat).
+func reset_capital() -> void:
+	for tw in _pop_tweens.values():
+		if tw.is_valid():
+			tw.kill()
+	for d in _deltas.values():
+		if d["tween"].is_valid():
+			d["tween"].kill()
+	_pop_tweens.clear()
+	_deltas.clear()
+	_pop = {"bronze": 0.0, "gold": 0.0}
+	_shown.clear()
+	_shown_seat = -1
+	queue_redraw()
+
+
+func _start_pop(kind: String, delta: int) -> void:
+	if _pop_tweens.has(kind) and _pop_tweens[kind].is_valid():
+		_pop_tweens[kind].kill()
+	var setter := func(v: float) -> void:
+		_pop[kind] = v
+		queue_redraw()
+	# WHY from the current value: a second change mid-tick swells again
+	# from where it is instead of snapping back to rest.
+	var tw := create_tween()
+	tw.tween_method(setter, float(_pop[kind]), 1.0, POP_UP).set_ease(Tween.EASE_OUT).set_trans(Tween.TRANS_CUBIC)
+	tw.tween_method(setter, 1.0, 0.0, POP_DOWN).set_ease(Tween.EASE_OUT).set_trans(Tween.TRANS_CUBIC)
+	_pop_tweens[kind] = tw
+	# A second change while a delta still holds folds into it; one already
+	# fading is replaced.
+	if _deltas.has(kind):
+		if float(_deltas[kind]["t"]) < DELTA_HOLD:
+			delta += int(_deltas[kind]["delta"])
+		if _deltas[kind]["tween"].is_valid():
+			_deltas[kind]["tween"].kill()
+		_deltas.erase(kind)
+	if delta == 0:
+		return
+	var d := {"delta": delta, "t": 0.0}
+	var dt := create_tween()
+	dt.tween_method(func(v: float) -> void:
+		d["t"] = v
+		queue_redraw(), 0.0, 1.0, DELTA_TIME)
+	dt.tween_callback(func() -> void:
+		if is_same(_deltas.get(kind), d):
+			_deltas.erase(kind)
+		queue_redraw())
+	d["tween"] = dt
+	_deltas[kind] = d
 
 
 func _process(_delta: float) -> void:
@@ -60,6 +156,19 @@ func _process(_delta: float) -> void:
 
 func avatar_center() -> Vector2:
 	return get_global_transform() * _avatar_local()
+
+
+## Where coins leave from and land: the coin of the capital chip (or, for
+## gold before there is any, where its chip will appear).
+func capital_center(kind := "bronze") -> Vector2:
+	if not _chip_rects.has("bronze"):
+		return avatar_center()
+	var rect: Rect2 = _chip_rects.get(kind, _chip_rects["bronze"])
+	var r := rect.size.y * CapitalChip.COIN_R
+	var local := Vector2(rect.position.x + r, rect.get_center().y)
+	if not _chip_rects.has(kind):
+		local = Vector2(rect.end.x + CHIP_GAP * s + r, rect.get_center().y)
+	return get_global_transform() * local
 
 
 func _avatar_local() -> Vector2:
@@ -82,9 +191,13 @@ func _draw() -> void:
 			ring.set_corner_radius_all(int(16 * s))
 			ring.anti_aliasing = true
 			draw_style_box(ring, box.grow(4 * s))
-		var plate := UiTheme.ink_box(UiTheme.PLATE_ON if is_active else Companies.PANEL, 12 * s, maxf(2.0, 1.5 * s))
+		_surface = UiTheme.PLATE_ON if is_active else Companies.PANEL
+		var plate := UiTheme.ink_box(_surface, 12 * s, maxf(2.0, 1.5 * s))
 		plate.border_width_bottom += int(3 * s)
 		draw_style_box(plate, box)
+	else:
+		# The strip sits on the bottom bar.
+		_surface = bar_color
 
 	var text := UiTheme.ui_font()
 	var display := UiTheme.display_font()
@@ -141,9 +254,11 @@ func _draw() -> void:
 		var tag_box := Rect2(tx, top + 2 * s, tag_w - 4 * s, 15 * s)
 		draw_style_box(UiTheme.ink_box(UiTheme.TAG, 7.5 * s, 0), tag_box)
 		draw_string(text, Vector2(tx + 5 * s, tag_box.get_center().y + tag_px * 0.34), tag, HORIZONTAL_ALIGNMENT_LEFT, -1, tag_px, UiTheme.OUTLINE)
-	_draw_coins(text, Vector2(nx, top + 26 * s), bronze, gold, wide)
-
-	_draw_pips(text, Vector2(8 * s, top + 35 * s), size.x - 12 * s)
+	# WHY 38 and pips first: a regulator seal sticks up from its pip; it
+	# goes under the coin's lip with its "R" clear, and the pips keep off
+	# the plate's bottom edge.
+	_draw_pips(text, Vector2(8 * s, top + 38 * s), size.x - 12 * s)
+	_draw_coins(Vector2(nx, top + 24 * s), bronze, gold, wide, size.x - 6 * s)
 
 
 func _draw_strip(text: Font, c: Vector2, r: float, name_text: String, bronze: int, gold: int) -> void:
@@ -152,27 +267,89 @@ func _draw_strip(text: Font, c: Vector2, r: float, name_text: String, bronze: in
 	var base := size.y / 2.0 + px * 0.36
 	draw_string(text, Vector2(x, base), name_text, HORIZONTAL_ALIGNMENT_LEFT, -1, px, UiTheme.OUTLINE)
 	x += text.get_string_size(name_text, HORIZONTAL_ALIGNMENT_LEFT, -1, px).x + 10 * s
-	x = _draw_coins(text, Vector2(x, size.y / 2.0), bronze, gold, true)
-	# Pips flush right.
-	var pips := _pip_list()
-	var pw := pips.size() * 23.0 * s
-	_draw_pips(text, Vector2(maxf(x + 8 * s, size.x - pw - 4 * s), size.y / 2.0 - 9 * s), size.x)
+	# Pips flush right; capital gets what is left.
+	var pw := 0.0
+	for p in _pip_list():
+		pw += (28.0 if p[2] else 23.0) * s
+	var pips_x := size.x - pw - 4 * s
+	x = _draw_coins(Vector2(x, size.y / 2.0), bronze, gold, true, pips_x - 8 * s, pips_x - 2 * s)
+	_draw_pips(text, Vector2(maxf(x, pips_x), size.y / 2.0 - 9 * s), size.x)
 
 
-## Coin icons with the bronze (and gold) count; returns the x after them.
-func _draw_coins(text: Font, at: Vector2, bronze: int, gold: int, spell: bool) -> float:
-	var px := int(12 * s)
+## Capital chips (bronze, then gold once there is any); returns the x
+## after them. To fit `right` it drops the words, then shrinks. Deltas
+## may use the room up to `delta_right` (default: `right`).
+func _draw_coins(at: Vector2, bronze: int, gold: int, spell: bool, right: float = INF, delta_right: float = NAN) -> float:
+	var h := (15.0 if strip else 14.0) * s
+	var chips := [["bronze", bronze, "capital" if spell else ""]]
+	if gold > 0:
+		chips.append(["gold", gold, "gold" if spell else ""])
+	var gap := CHIP_GAP * s
+	var total := _chips_width(chips, h, gap)
+	if at.x + total > right and spell:
+		for p in chips:
+			p[2] = ""
+		total = _chips_width(chips, h, gap)
+	if at.x + total > right:
+		# WHY a 0.6 floor: smaller counts stop being readable on a phone.
+		var k := maxf(0.6, (right - at.x) / total)
+		h *= k
+		gap *= k
 	var x := at.x
-	for coin in [[bronze, Companies.BRONZE, " capital" if spell else ""], [gold, Companies.GOLD, " gold" if spell else ""]]:
-		if coin[1] == Companies.GOLD and int(coin[0]) == 0:
+	_chip_rects.clear()
+	_chip_words.clear()
+	for p in chips:
+		var kind: String = p[0]
+		var rect := CapitalChip.draw(self, Vector2(x, at.y), int(p[1]), p[2], h, kind == "gold", float(_pop[kind]), _surface)
+		_chip_rects[kind] = rect
+		_chip_words[kind] = p[2]
+		x = rect.end.x + gap
+	_draw_deltas(h, delta_right if not is_nan(delta_right) else right)
+	return x - gap + 8.0 * s
+
+
+func _chips_width(chips: Array, h: float, gap: float) -> float:
+	var total := -gap
+	for p in chips:
+		total += CapitalChip.width(int(p[1]), p[2], h) + gap
+	return total
+
+
+## "+3" or "-2" right after the count that just changed, drifting up
+## a little. Where there is no room before the next chip or the edge, it is
+## left out: the gold flash and the flying coins already say it.
+## WHY not above the count: that is the name row.
+func _draw_deltas(h: float, right: float) -> void:
+	var font := UiTheme.display_font()
+	var px := int(h * 0.9)
+	var limit := minf(right, size.x - 4.0 * s)
+	var reduce := UiTheme.reduce_motion()
+	for kind in ["bronze", "gold"]:
+		if not _deltas.has(kind) or not _chip_rects.has(kind):
 			continue
-		var cc := Vector2(x + 6 * s, at.y)
-		draw_circle(cc, 6 * s, UiTheme.OUTLINE)
-		draw_circle(cc, 4.6 * s, coin[1])
-		var label := "%d%s" % [int(coin[0]), coin[2]]
-		draw_string(text, Vector2(x + 15 * s, at.y + px * 0.36), label, HORIZONTAL_ALIGNMENT_LEFT, -1, px, UiTheme.OUTLINE)
-		x += 15 * s + text.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, px).x + 8 * s
-	return x
+		var d: Dictionary = _deltas[kind]
+		var t: float = d["t"]
+		var delta: int = d["delta"]
+		var txt := ("+%d" if delta > 0 else "%d") % delta
+		var w := font.get_string_size(txt, HORIZONTAL_ALIGNMENT_LEFT, -1, px).x
+		var rect: Rect2 = _chip_rects[kind]
+		var x := rect.end.x + 3.0 * s
+		var stop := limit
+		if kind == "bronze" and _chip_rects.has("gold"):
+			stop = minf(stop, _chip_rects["gold"].position.x - 2.0 * s)
+		if x + w > stop:
+			continue
+		# WHY: a count swelling past its chip nudges the delta along; where
+		# there is no room for that, the delta waits out the swell.
+		x += CapitalChip.swell_reach(int(data.get(kind, 0)), _chip_words.get(kind, ""), h, float(_pop[kind]))
+		if x + w > stop:
+			continue
+		var rise := 0.0 if reduce else ease(t, 0.3) * 3.0 * s
+		var at := Vector2(x, rect.get_center().y + px * 0.36 - rise)
+		var a := clampf((1.0 - t) / (1.0 - DELTA_HOLD), 0.0, 1.0)
+		var fill := UiTheme.MINT if delta > 0 else UiTheme.BADGE
+		draw_string_outline(font, at, txt, HORIZONTAL_ALIGNMENT_LEFT, -1, px, maxi(4, int(px * 0.3)), Color(UiTheme.OUTLINE, a))
+		draw_string(font, at, txt, HORIZONTAL_ALIGNMENT_LEFT, -1, px, Color(fill, a))
 
 
 func _pip_list() -> Array:

@@ -64,6 +64,8 @@ const TOP_BAR_H := 48.0
 
 var view: Dictionary = {}
 var _my_seat: int = -1
+## Set by Play again: the next view starts a game, not a capital change.
+var _reset_capital_on_view := false
 var _step_seconds: float = 30.0
 ## Design points to px for this screen.
 var _s: float = 1.85
@@ -354,6 +356,8 @@ func _build_bottom_bar() -> void:
 	_me_view = SeatView.new()
 	_me_view.s = _s
 	_me_view.strip = true
+	# WHY: the strip draws its capital ink or cream to suit the bar.
+	_me_view.bar_color = style.bg_color
 	_me_view.avatar_color = SeatView.AVATARS[0]
 	_me_view.custom_minimum_size = Vector2(0, _px(36))
 	_me_view.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -947,6 +951,12 @@ func _on_play_again() -> void:
 	_prompt.custom_minimum_size.y = maxf(_px(38), _prompt_height(2))
 	_status.text = "Finding a new game…"
 	_result_backdrop.visible = false
+	# The new game's capital is not a change to pop. WHY on the next view
+	# too: a re-render of the old view meanwhile (a resize) would remember
+	# the old counts again.
+	_reset_capital_on_view = true
+	for sv in _seat_views:
+		sv.reset_capital()
 	var ok: bool = await Net.quick_play()
 	if not ok:
 		get_tree().change_scene_to_file("res://scenes/main.tscn")
@@ -973,6 +983,10 @@ func _on_events(_seq: int, events: Array) -> void:
 
 
 func _on_view(v: Dictionary) -> void:
+	if _reset_capital_on_view:
+		_reset_capital_on_view = false
+		for sv in _seat_views:
+			sv.reset_capital()
 	_last_view = view
 	view = v
 	_my_seat = int(v.get("you", -1)) if v.get("you") != null else -1
@@ -1737,6 +1751,14 @@ func _seat_anchor(seat_idx: int) -> Vector2:
 	return get_viewport_rect().size / 2.0
 
 
+## The coin on a seat's capital chip, where coins leave and land.
+func _capital_anchor(seat_idx: int, gold := false) -> Vector2:
+	for sv in _seat_views:
+		if sv.visible and sv.seat_index == seat_idx:
+			return sv.capital_center("gold" if gold else "bronze")
+	return get_viewport_rect().size / 2.0
+
+
 func _center_of(cv: CardView) -> Vector2:
 	return cv.get_global_transform() * (Vector2(CardView.W, CardView.H) / 2.0)
 
@@ -1792,7 +1814,7 @@ func _play_events_then_render() -> void:
 					var d := 0.0
 					for cv in _market_row.get_children():
 						if cv is CardView and cv.visible and not cv.blocked:
-							_fly_coin(_seat_anchor(seat), _center_of(cv), false, d)
+							_fly_coin(_capital_anchor(seat), _center_of(cv), false, d)
 							d = minf(d + 0.04, 0.12)
 					await get_tree().create_timer(COIN_TIME + d).timeout
 				_action_note = "" if mine else "%s draws from the supply%s." % [_seat_name(seat), " and pays %d capital onto the Market" % cost if cost > 0 else ""]
@@ -1815,12 +1837,18 @@ func _play_events_then_render() -> void:
 				_slide_market()
 				_action_note = "" if mine else "%s takes a %s share from the Market%s." % [_seat_name(seat), Companies.name_of(company), " with %d capital on it" % coins if coins > 0 else ""]
 				for i in mini(coins, 8):
-					_fly_coin(from, _seat_anchor(seat), false, i * 0.07)
+					_fly_coin(from, _capital_anchor(seat), false, i * 0.07)
 				var market_k := _felt_scale(_market_pos(0, 1), MARKET_CARD)
 				if mine:
 					await _fly_to_hand(from, market_k)
 				else:
 					await _fly_card(from, _seat_anchor(seat), company, true, market_k, small_k)
+				# WHY: the count ticks on the next render; let the last coin
+				# land on the coin first.
+				if coins > 1:
+					var last := COIN_TIME + (mini(coins, 8) - 1) * 0.07
+					if last > FLY_TIME:
+						await get_tree().create_timer(last - FLY_TIME).timeout
 			"played":
 				var card: Dictionary = e.get("card", {})
 				var company := int(card.get("company", 0))
@@ -2059,15 +2087,9 @@ func _end_play_choice(note: String) -> void:
 
 ## A bronze (or gold) coin hops from one point to another after `delay`.
 func _fly_coin(from: Vector2, to: Vector2, gold: bool = false, delay: float = 0.0) -> void:
-	var coin := Panel.new()
+	var coin := Control.new()
 	var r := 9.0 * _s
-	var face := StyleBoxFlat.new()
-	face.bg_color = Companies.GOLD if gold else Companies.BRONZE
-	face.border_color = Companies.INK
-	face.set_border_width_all(2)
-	face.border_width_bottom = 4
-	face.set_corner_radius_all(int(r) + 2)
-	coin.add_theme_stylebox_override("panel", face)
+	coin.draw.connect(func() -> void: CapitalChip.coin(coin, Vector2(r, r), r, gold))
 	coin.size = Vector2(r, r) * 2.0
 	coin.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	coin.visible = delay <= 0.0
@@ -2095,13 +2117,13 @@ func _animate_dividends(result: Dictionary) -> void:
 		var company := int(div.get("company", 0))
 		# The payout, told where there is room for a sentence.
 		_prompt.text = "%s pays out to %s." % [Companies.name_of(company), seats[int(majority)].get("name", "?")]
-		var to := _seat_anchor(int(majority))
+		var to := _capital_anchor(int(majority), true)
 		var any := false
 		if not div.get("payments", []).is_empty():
 			sfx.play("gold")
 		for p in div.get("payments", []):
 			for i in mini(int(p.get("coins", 0)), 8):
-				_fly_coin(_seat_anchor(int(p.get("from", 0))), to, true)
+				_fly_coin(_capital_anchor(int(p.get("from", 0))), to, true)
 				any = true
 				await get_tree().create_timer(0.05).timeout
 		if any:

@@ -107,7 +107,9 @@ func _load_settings() -> void:
 		for id in cfg.get_value("social", "muted", PackedStringArray()):
 			muted[String(id)] = true
 		provider = String(cfg.get_value("player", "provider", ""))
-		bot_count = clampi(int(cfg.get_value("play", "bots", DEFAULT_BOTS)), MIN_BOTS, MAX_BOTS)
+		var bots: Variant = cfg.get_value("play", "bots", DEFAULT_BOTS)
+		if bots is int or bots is float:
+			bot_count = clampi(int(bots), MIN_BOTS, MAX_BOTS)
 
 
 func save_settings() -> void:

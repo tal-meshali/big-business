@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { matchInit, soloSeatCount } from './handler';
+import { matchInit } from './handler';
+import { soloSeatCount } from './protocol';
 import { rpcQuickPlay } from './rooms';
 import { ALICE, call, fakeNk, logger, userCtx } from './test_support';
 

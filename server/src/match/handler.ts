@@ -7,7 +7,7 @@
  * actions and decoding client messages live in actions.ts and emotes.ts.
  */
 import { autoAction, botAction, createGame, type SeatDef } from '../engine';
-import { BOT_NAMES, clampStepSeconds, DEFAULT_BOTS, DEFAULT_PARAMS, MAX_BOTS, MIN_BOTS, OP_ACTION, OP_ERROR, OP_LOBBY, type MatchParams } from './protocol';
+import { BOT_NAMES, clampStepSeconds, DEFAULT_PARAMS, OP_ACTION, OP_ERROR, OP_LOBBY, soloSeatCount, type MatchParams } from './protocol';
 import { apply, handleActions } from './actions';
 import { awardProgress } from './awards';
 import { handleEmotes } from './emotes';
@@ -58,13 +58,6 @@ function startGame(s: MatchState, nk: nkruntime.Nakama, logger: nkruntime.Logger
   // The look goes first so the table can fetch the art while it lays out.
   sendDeck(s, nk, dispatcher);
   sendViews(s, dispatcher);
-}
-
-/** Seats at a bot game: the player plus MIN_BOTS to MAX_BOTS bots. */
-export function soloSeatCount(requested: unknown): number {
-  const n = Math.floor(Number(requested));
-  if (!isFinite(n)) return 1 + DEFAULT_BOTS;
-  return Math.min(1 + MAX_BOTS, Math.max(1 + MIN_BOTS, n));
 }
 
 export const matchInit: nkruntime.MatchInitFunction<MatchState> = (ctx, logger, nk, params) => {

@@ -54,6 +54,9 @@ var _play_box: VBoxContainer
 ## A room or quick-play lobby: its code, who is in, ready, start now, leave.
 var _room_box: VBoxContainer
 var _join_sheet: Control
+## Vs bots: pick 2, 3 or 4 bots; a tap on a size starts that game.
+var _bots_sheet: Control
+var _bot_buttons: Array[Button] = []
 var _friends_sheet: Control
 var _more_sheet: Control
 ## Notch / Dynamic Island (x) and home indicator (y), canvas units.
@@ -168,7 +171,7 @@ func _build() -> void:
 	_buttons.append(play)
 	_play_box.add_child(_breathing(play))
 	var row := _row(_play_box)
-	_add_button(row, "Vs bots", _on_play_bots)
+	_add_button(row, "Vs bots", _open_bots_sheet)
 	_add_button(row, "How to play", _on_tutorial)
 	var rooms := _row(_play_box)
 	_add_button(rooms, "Create room", _on_create_room)
@@ -177,6 +180,7 @@ func _build() -> void:
 	_build_room_box(box)
 	_build_dock(dock_h)
 	_build_join_sheet()
+	_build_bots_sheet()
 	_build_friends_sheet()
 	_build_more_sheet()
 	_build_season_sheet()
@@ -653,6 +657,33 @@ func _build_join_sheet() -> void:
 func _open_join_sheet() -> void:
 	_join_sheet.visible = true
 	_code_edit.grab_focus()
+
+
+## Vs bots: three table sizes side by side. One tap picks the size and
+## starts the game; the size played last time wears the gold.
+func _build_bots_sheet() -> void:
+	var sheet := _sheet(UiTheme.VIOLET, "Play against bots")
+	_bots_sheet = sheet["root"]
+	var body: VBoxContainer = sheet["body"]
+	body.add_child(UiTheme.body("How many bots at your table? More players, longer game.", _px(UiTheme.TYPE_BODY)))
+	var sizes := _row(body)
+	_bot_buttons.clear()
+	for n in range(Net.MIN_BOTS, Net.MAX_BOTS + 1):
+		var b := UiTheme.button("%d bots" % n, _px(UiTheme.TYPE_HEADING), _px(56))
+		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		b.tooltip_text = "Start a game with %d players: you and %d bots" % [n + 1, n]
+		b.pressed.connect(_on_play_bots.bind(n))
+		b.set_meta("bots", n)
+		sizes.add_child(b)
+		_bot_buttons.append(b)
+		_buttons.append(b)
+	body.add_child(_close_button(_bots_sheet))
+
+
+func _open_bots_sheet() -> void:
+	for b in _bot_buttons:
+		b.theme_type_variation = &"PrimaryButton" if int(b.get_meta("bots")) == Net.bot_count else &""
+	_bots_sheet.visible = true
 
 
 ## Friends in a sheet that fills the screen between the safe insets.
@@ -1205,15 +1236,16 @@ func _on_quick_play() -> void:
 	_in_lobby = await Net.quick_play()
 
 
-func _on_play_bots() -> void:
+func _on_play_bots(count: int) -> void:
+	_bots_sheet.visible = false
 	# Leave a lobby we are waiting in first, as for an invite below.
 	if not Net.match_id.is_empty():
 		await Net.leave_match()
 		_in_lobby = false
 		_room_code = ""
 		_friends_panel.room_code = ""
-	_status.text = "Starting a game against bots…"
-	_in_lobby = await Net.play_bots()
+	_status.text = "Starting a game against %d bots…" % count
+	_in_lobby = await Net.play_bots(count)
 
 
 func _on_help() -> void:

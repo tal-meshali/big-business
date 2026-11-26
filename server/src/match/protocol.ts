@@ -119,6 +119,11 @@ export const DEFAULT_PARAMS: MatchParams = {
 
 export const TUTORIAL_SEED = 20260928;
 
+/** A bot game seats one player against this many bots (quick_play `botCount`). */
+export const MIN_BOTS = 2;
+export const MAX_BOTS = 4;
+export const DEFAULT_BOTS = 2;
+
 export const BOT_NAMES = ['Intern Ivy', 'Analyst Avi', 'Broker Bo', 'Auditor Ada', 'CEO Cal', 'Investor Ines'];
 
 /** Shortest and longest private-room step timer in seconds; 0 turns the timer off. */

@@ -1,6 +1,6 @@
 /** Room-code RPCs: create_room, join_room, quick_play. Registered by main.ts. */
 import { normalizeCode, parseBody, readBool, readInt, reject, requireUser } from './input';
-import { clampStepSeconds, DEFAULT_PARAMS, MATCH_MODULE, SYSTEM_USER, TUTORIAL_SEED } from './protocol';
+import { clampStepSeconds, DEFAULT_BOTS, DEFAULT_PARAMS, MATCH_MODULE, MAX_BOTS, MIN_BOTS, SYSTEM_USER, TUTORIAL_SEED } from './protocol';
 import { checkRate } from './ratelimit';
 import { readRemoteConfig } from './rpc_config';
 
@@ -87,6 +87,8 @@ export const rpcJoinRoom: nkruntime.RpcFunction = (ctx, logger, nk, payload) => 
  * Simpler than the matchmaker for a turn-based game with bot fill.
  * With {"tutorial": true} it creates a solo tutorial match instead, and with
  * {"bots": true} a game against bots that starts as soon as the caller joins.
+ * `botCount` (2 to 4, default 2) sets how many bots sit at that table; an
+ * older client that sends no count gets two.
  */
 export const rpcQuickPlay: nkruntime.RpcFunction = (ctx, logger, nk, payload) => {
   const userId = requireUser(ctx);
@@ -101,8 +103,9 @@ export const rpcQuickPlay: nkruntime.RpcFunction = (ctx, logger, nk, payload) =>
     return JSON.stringify({ matchId: tutorialId, tutorial: true });
   }
   if (readBool(body, 'bots')) {
-    const botsId = nk.matchCreate(MATCH_MODULE, { solo: true, hostId: userId });
-    logger.info('bot game created %s', botsId);
+    const botCount = readInt(body, 'botCount', MIN_BOTS, MAX_BOTS, DEFAULT_BOTS);
+    const botsId = nk.matchCreate(MATCH_MODULE, { solo: true, hostId: userId, minSeats: 1 + botCount });
+    logger.info('bot game created %s bots=%d', botsId, botCount);
     return JSON.stringify({ matchId: botsId, bots: true });
   }
   const query = '+label.mode:public +label.open:yes';

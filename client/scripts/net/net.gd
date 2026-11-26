@@ -253,17 +253,20 @@ func quick_play() -> bool:
 
 
 ## Start a game against `count` bots (MIN_BOTS to MAX_BOTS) right away
-## instead of waiting for players. The count is remembered for next time.
-func play_bots(count: int = DEFAULT_BOTS) -> bool:
+## instead of waiting for players. The count the server used is remembered
+## for next time.
+func play_bots(count: int) -> bool:
 	tutorial_mode = false
-	bot_count = clampi(count, MIN_BOTS, MAX_BOTS)
-	save_settings()
-	var payload := JSON.stringify({"bots": true, "botCount": bot_count})
+	var want := clampi(count, MIN_BOTS, MAX_BOTS)
+	var payload := JSON.stringify({"bots": true, "botCount": want})
 	var rpc: NakamaAPI.ApiRpc = await client.rpc_async(session, "quick_play", payload)
 	if rpc.is_exception():
 		server_error.emit("bot game failed: %s" % rpc.get_exception().message)
 		return false
 	var data: Dictionary = JSON.parse_string(rpc.payload)
+	# WHY the server's count: a server older than botCount seats two bots.
+	bot_count = clampi(int(data.get("botCount", DEFAULT_BOTS)), MIN_BOTS, MAX_BOTS)
+	save_settings()
 	return await _join_match(String(data.get("matchId", "")))
 
 

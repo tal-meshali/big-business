@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { matchInit, soloSeats } from './handler';
+import { matchInit, soloSeatCount } from './handler';
 import { rpcQuickPlay } from './rooms';
 import { ALICE, call, fakeNk, logger, userCtx } from './test_support';
 
@@ -11,7 +11,7 @@ function botGameParams(body: Record<string, unknown>): { [k: string]: unknown } 
     created = params;
     return 'match-1';
   };
-  expect(call(rpcQuickPlay, userCtx(ALICE), nk, body)).toEqual({ matchId: 'match-1', bots: true });
+  expect(call(rpcQuickPlay, userCtx(ALICE), nk, body)).toMatchObject({ matchId: 'match-1', bots: true, botCount: body.botCount === undefined ? 2 : expect.any(Number) });
   return created;
 }
 
@@ -41,10 +41,10 @@ describe('bot game size', () => {
     expect(botGameParams({ bots: true, botCount: 1 }).minSeats).toBe(3);
     expect(botGameParams({ bots: true, botCount: 9 }).minSeats).toBe(5);
     expect(botGameParams({ bots: true, botCount: 'four' }).minSeats).toBe(3);
-    expect(soloSeats(0)).toBe(3);
-    expect(soloSeats(99)).toBe(5);
-    expect(soloSeats('4')).toBe(4);
-    expect(soloSeats(undefined)).toBe(3);
+    expect(soloSeatCount(0)).toBe(3);
+    expect(soloSeatCount(99)).toBe(5);
+    expect(soloSeatCount('4')).toBe(4);
+    expect(soloSeatCount(undefined)).toBe(3);
   });
 
   it('leaves the tutorial at two bots', () => {

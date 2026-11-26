@@ -106,7 +106,7 @@ export const rpcQuickPlay: nkruntime.RpcFunction = (ctx, logger, nk, payload) =>
     const botCount = readInt(body, 'botCount', MIN_BOTS, MAX_BOTS, DEFAULT_BOTS);
     const botsId = nk.matchCreate(MATCH_MODULE, { solo: true, hostId: userId, minSeats: 1 + botCount });
     logger.info('bot game created %s bots=%d', botsId, botCount);
-    return JSON.stringify({ matchId: botsId, bots: true });
+    return JSON.stringify({ matchId: botsId, bots: true, botCount });
   }
   const query = '+label.mode:public +label.open:yes';
   const matches = nk.matchList(10, true, null, 0, DEFAULT_PARAMS.maxSeats - 1, query);

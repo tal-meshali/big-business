@@ -659,22 +659,28 @@ func _open_join_sheet() -> void:
 	_code_edit.grab_focus()
 
 
-## Vs bots: three table sizes side by side. One tap picks the size and
-## starts the game; the size played last time wears the gold.
+## Vs bots: three table sizes side by side (D28). One tap picks the size
+## and starts the game; the size played last time wears the gold.
 func _build_bots_sheet() -> void:
 	var sheet := _sheet(UiTheme.VIOLET, "Play against bots")
 	_bots_sheet = sheet["root"]
 	var body: VBoxContainer = sheet["body"]
-	body.add_child(UiTheme.body("How many bots at your table? More players, longer game.", _px(UiTheme.TYPE_BODY)))
+	body.add_child(UiTheme.body("Tap a table size to start. More bots, fewer turns for you.", _px(UiTheme.TYPE_BODY)))
 	var sizes := _row(body)
 	_bot_buttons.clear()
 	for n in range(Net.MIN_BOTS, Net.MAX_BOTS + 1):
+		var option := VBoxContainer.new()
+		option.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		option.add_theme_constant_override("separation", _px(4))
+		sizes.add_child(option)
 		var b := UiTheme.button("%d bots" % n, _px(UiTheme.TYPE_HEADING), _px(56))
-		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		b.tooltip_text = "Start a game with %d players: you and %d bots" % [n + 1, n]
 		b.pressed.connect(_on_play_bots.bind(n))
 		b.set_meta("bots", n)
-		sizes.add_child(b)
+		option.add_child(b)
+		# Touch has no tooltips, so the table size is spelled out underneath.
+		var players := UiTheme.caption("%d players" % (n + 1), _px(UiTheme.TYPE_CAPTION))
+		players.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		option.add_child(players)
 		_bot_buttons.append(b)
 		_buttons.append(b)
 	body.add_child(_close_button(_bots_sheet))
@@ -682,7 +688,7 @@ func _build_bots_sheet() -> void:
 
 func _open_bots_sheet() -> void:
 	for b in _bot_buttons:
-		b.theme_type_variation = &"PrimaryButton" if int(b.get_meta("bots")) == Net.bot_count else &""
+		b.theme_type_variation = "PrimaryButton" if int(b.get_meta("bots")) == Net.bot_count else ""
 	_bots_sheet.visible = true
 
 
@@ -1244,7 +1250,7 @@ func _on_play_bots(count: int) -> void:
 		_in_lobby = false
 		_room_code = ""
 		_friends_panel.room_code = ""
-	_status.text = "Starting a game against %d bots…" % count
+	_status.text = "Starting a game against bots…"
 	_in_lobby = await Net.play_bots(count)
 
 

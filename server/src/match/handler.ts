@@ -61,7 +61,7 @@ function startGame(s: MatchState, nk: nkruntime.Nakama, logger: nkruntime.Logger
 }
 
 /** Seats at a bot game: the player plus MIN_BOTS to MAX_BOTS bots. */
-export function soloSeats(requested: unknown): number {
+export function soloSeatCount(requested: unknown): number {
   const n = Math.floor(Number(requested));
   if (!isFinite(n)) return 1 + DEFAULT_BOTS;
   return Math.min(1 + MAX_BOTS, Math.max(1 + MIN_BOTS, n));
@@ -91,7 +91,7 @@ export const matchInit: nkruntime.MatchInitFunction<MatchState> = (ctx, logger, 
     // One human against 2 to 4 bots with the normal timer; it starts when
     // they join. The bots fill the table up to minSeats (startGame).
     p.isPrivate = false;
-    p.minSeats = soloSeats(params['minSeats']);
+    p.minSeats = soloSeatCount(params['minSeats']);
     p.maxSeats = 1;
   }
   const state: MatchState = {

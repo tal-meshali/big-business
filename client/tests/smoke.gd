@@ -644,10 +644,21 @@ func _feedback_checks() -> int:
 	root.add_child(table)
 	await process_frame
 	for sound_name in Sfx.NAMES:
-		var takes: Array = Sfx._streams.get(sound_name, [])
+		var entry = Sfx._streams.get(sound_name, [])
+		var takes: Array = entry if entry is Array else [entry]
 		if takes.is_empty() or takes.any(func(st): return not st is AudioStreamWAV or st.data.size() < 200):
 			push_error("sound %s should be synthesised" % sound_name)
 			failures += 1
+	# Card sounds come in takes, and the same take never plays twice running.
+	for sound_name in ["deal", "place", "coin"]:
+		var last: AudioStream = null
+		for k in 30:
+			var st: AudioStream = table.sfx._take(sound_name)
+			if st == last:
+				push_error("%s played the same take twice in a row" % sound_name)
+				failures += 1
+				break
+			last = st
 	var now := Time.get_unix_time_from_system() * 1000.0
 	var v := {
 		"you": 0,

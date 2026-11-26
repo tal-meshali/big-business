@@ -644,8 +644,8 @@ func _feedback_checks() -> int:
 	root.add_child(table)
 	await process_frame
 	for sound_name in Sfx.NAMES:
-		var st: AudioStreamWAV = Sfx._streams.get(sound_name)
-		if st == null or st.data.size() < 200:
+		var takes: Array = Sfx._streams.get(sound_name, [])
+		if takes.is_empty() or takes.any(func(st): return not st is AudioStreamWAV or st.data.size() < 200):
 			push_error("sound %s should be synthesised" % sound_name)
 			failures += 1
 	var now := Time.get_unix_time_from_system() * 1000.0

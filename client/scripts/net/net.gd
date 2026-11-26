@@ -185,6 +185,12 @@ func _make_client() -> void:
 	var key := server_key
 	if scheme == "https" and not AppInfo.SERVER_KEY.is_empty():
 		key = AppInfo.SERVER_KEY
+	# WHY no threads: a threaded HTTPRequest whose server stops answering
+	# mid-request spins in its worker, and when the timeout fires the main
+	# thread waits for that worker forever (Thread.wait_to_finish), which
+	# froze the whole app on iPhone. Polled on the main thread instead, a
+	# timeout just closes the connection.
+	Nakama.get_client_adapter().use_threads = false
 	client = Nakama.create_client(key, host, port, scheme, Nakama.DEFAULT_TIMEOUT, NakamaLogger.LOG_LEVEL.WARNING)
 
 

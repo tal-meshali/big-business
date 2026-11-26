@@ -42,7 +42,7 @@ func _run() -> void:
 	net.port = port
 	net.scheme = "http"
 	var start := Time.get_ticks_msec()
-	# Two sign-ins in a row: each one waits out the request timeout.
+	# Sign-ins in a row: each one waits out the request timeout.
 	var ok: bool = await net.connect_to_server()
 	if ok:
 		_finish("SILENT SERVER FAILED: connected to a server that never answers", 1)
@@ -52,6 +52,13 @@ func _run() -> void:
 	ok = await net.connect_to_server()
 	if ok:
 		_finish("SILENT SERVER FAILED: connected to a server that never answers", 1)
+		return
+	# Phones talk https: the TLS handshake to a silent peer must time out
+	# on the main thread without stalling it either.
+	net.scheme = "https"
+	ok = await net.connect_to_server()
+	if ok:
+		_finish("SILENT SERVER FAILED: connected over https to a server that never answers", 1)
 		return
 	_finish("SILENT SERVER OK", 0)
 

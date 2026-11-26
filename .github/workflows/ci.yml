@@ -44,6 +44,7 @@ jobs:
       - name: Smoke test
         run: ./godot --headless --path client --script res://tests/smoke.gd
       - name: Silent server does not freeze the app
+        timeout-minutes: 3
         run: ./godot --headless --path client --script res://tests/silent_server.gd
 
   e2e:

@@ -2,7 +2,7 @@
  * Nakama runtime entry point. Registers the Big Business match handler, the
  * room-code, profile, player-name, moderation, social, account-link, quest, cosmetic,
  * shop, push-token, Remote Config, analytics and Designer (custom card art)
- * RPCs, and clubs with their weekly league.
+ * RPCs, clubs with their weekly league, and player feedback to the team.
  *
  * Every RPC goes through `guardRpc` (only messages raised with `reject`
  * reach the client) and reads its payload through the validators in
@@ -55,6 +55,7 @@ import {
 import * as social from './match/guarded_social';
 import { beforeChannelJoin, beforeGroupChange } from './match/rpc_clubs';
 import * as names from './match/rpc_names';
+import * as feedback from './match/guarded_feedback';
 
 function InitModule(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, initializer: nkruntime.Initializer): void {
   void ctx;
@@ -106,12 +107,15 @@ function InitModule(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkrunt
   initializer.registerRpc('claim_gifts', social.guardedClaimGifts);
   initializer.registerRpc('friends_playing', social.guardedFriendsPlaying);
   initializer.registerRpc('watch_friend', social.guardedWatchFriend);
+  initializer.registerRpc('send_feedback', feedback.guardedSendFeedback);
   // Server-to-server only (runtime http_key; they refuse player sessions).
   initializer.registerRpc('revenuecat_webhook', guardedRevenueCatWebhook);
   initializer.registerRpc('set_remote_config', guardedSetRemoteConfig);
   initializer.registerRpc('analytics_report', guardedAnalyticsReport);
   initializer.registerRpc('moderation_queue', guardedModerationQueue);
   initializer.registerRpc('moderate_card_art', guardedModerateCardArt);
+  initializer.registerRpc('feedback_list', feedback.guardedFeedbackList);
+  initializer.registerRpc('feedback_done', feedback.guardedFeedbackDone);
   initializer.registerBeforeAddFriends(beforeAddFriends);
   initializer.registerBeforeAuthenticateDevice(names.beforeAuthenticateDevice);
   initializer.registerBeforeAuthenticateApple(names.beforeAuthenticateApple);

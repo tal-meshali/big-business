@@ -122,6 +122,7 @@ func _run() -> void:
 	failures += await _friends_checks()
 	failures += await _quests_checks()
 	failures += await _account_checks()
+	failures += await _send_feedback_checks()
 	failures += await _shop_checks()
 	failures += await _designer_checks()
 	failures += await _plus_checks()
@@ -1761,6 +1762,75 @@ func _quests_checks() -> int:
 
 ## Account linking: no token provider on Linux, so the lobby shows the guest
 ## label and hides both link buttons; the pure helpers behave.
+## Send feedback: the form's rules, the device details it may send, the
+## offline answer, and the More sheet's way in.
+func _send_feedback_checks() -> int:
+	var failures := 0
+	var api = load("res://scripts/net/feedback_api.gd")
+	if api.problem("  ok ") == "" or api.problem("Cards froze") != "":
+		push_error("feedback needs at least 3 characters after trimming")
+		failures += 1
+	var details: Dictionary = api.device_details()
+	for key in details.keys():
+		if not ["app", "os", "model", "screen"].has(key):
+			push_error("device details must not carry %s" % key)
+			failures += 1
+	if not api.describe(details).begins_with("Big Business "):
+		push_error("device details line should start with the app name and version")
+		failures += 1
+	# Offline: nothing is sent and the draft is kept.
+	if await api.send("bug", "Cards froze", true) != api.OFFLINE:
+		push_error("sending offline should answer the offline sentence")
+		failures += 1
+
+	var panel = load("res://scripts/ui/feedback_panel.gd").new()
+	panel.s = 1.0
+	root.add_child(panel)
+	await process_frame
+	if panel.category() != "bug" or not panel._details_switch.button_pressed or not panel._send.disabled:
+		push_error("feedback opens on Bug, details on, Send off until there is text")
+		failures += 1
+	panel._kinds._pick(1)
+	if panel.category() != "idea" or panel._details_switch.button_pressed:
+		push_error("an idea should not add device details by default")
+		failures += 1
+	panel._details_switch.button_pressed = true
+	panel._kinds._pick(2)
+	if not panel._details_switch.button_pressed:
+		push_error("the player's own details choice should stand across kinds")
+		failures += 1
+	panel._edit.text = "x".repeat(1200)
+	panel._on_text_changed()
+	if panel._edit.text.length() != 1000 or panel._count.text != "1000 / 1000":
+		push_error("feedback should stop at 1000 characters and show the count")
+		failures += 1
+	panel._edit.text = "The market froze after I sold"
+	panel._on_text_changed()
+	if panel._send.disabled or panel._count.text != "":
+		push_error("Send should be on with text, and the count quiet below the limit")
+		failures += 1
+	await panel._on_send()
+	if not panel._note.visible or panel._note.text != api.OFFLINE or panel._edit.text.is_empty() or panel._thanks.visible:
+		push_error("a failed send should say why and keep the draft")
+		failures += 1
+	panel.queue_free()
+
+	var main = root.get_children().filter(func(n: Node) -> bool: return n.has_method("_open_feedback_sheet"))
+	if main.is_empty():
+		push_error("the lobby should offer Send feedback")
+		failures += 1
+	else:
+		main[0]._open_feedback_sheet()
+		if not main[0]._feedback_sheet.visible:
+			push_error("Send feedback should open its sheet")
+			failures += 1
+		main[0]._feedback_panel.closed.emit()
+		if main[0]._feedback_sheet.visible:
+			push_error("Close should hide the feedback sheet")
+			failures += 1
+	return failures
+
+
 func _account_checks() -> int:
 	var failures := 0
 	var avail: Dictionary = SocialTokens.available()

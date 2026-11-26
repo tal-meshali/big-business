@@ -5,7 +5,7 @@ extends SceneTree
 ##   xvfb-run -a godot --rendering-driver opengl3 --path client --script res://tests/screenshot_panels.gd -- out_dir
 ## Output: quests.png, quests_looks.png, shop.png, clubs_start.png, clubs_member.png,
 ## friends.png, friend_menu.png, designer.png, designer_editor.png,
-## stats.png, season.png, season_full.png, join.png, more.png, room.png,
+## stats.png, season.png, season_full.png, join.png, more.png, feedback*.png, room.png,
 ## waiting.png, notice.png, emotes.png, reconnect.png, seat_menu.png,
 ## long_names.png, friends_long.png, notch.png.
 ## After the folder: a locale ("en" is the default; the layout stays left
@@ -156,6 +156,27 @@ func _run() -> void:
 	main._link_google_button.visible = true
 	await _shot(out_dir, "more")
 	main._more_sheet.visible = false
+
+	# Send feedback: empty bug form, an idea with text, the keyboard up, the thank-you.
+	main._open_feedback_sheet()
+	await _shot(out_dir, "feedback")
+	var fp = main._feedback_panel
+	fp._kinds._pick(1)
+	fp._edit.text = "A way to see how much each company paid out over the whole game would be great. Maybe a little chart at the end?"
+	fp._on_text_changed()
+	await _shot(out_dir, "feedback_idea")
+	fp._note.text = load("res://scripts/net/feedback_api.gd").OFFLINE
+	fp._note.visible = true
+	fp._edit.grab_focus()
+	main.keyboard_override = main.get_viewport_rect().size.y * 0.4
+	await _shot(out_dir, "feedback_keyboard")
+	main.keyboard_override = -1.0
+	fp._edit.release_focus()
+	fp._form.visible = false
+	fp._thanks.visible = true
+	await _shot(out_dir, "feedback_sent")
+	main._feedback_sheet.visible = false
+	fp.reset_view()
 
 	# Waiting in a private room.
 	main._room_code = "ABC123"

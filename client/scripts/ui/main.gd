@@ -59,6 +59,8 @@ var _bots_sheet: Control
 var _bot_buttons: Array[Button] = []
 var _friends_sheet: Control
 var _more_sheet: Control
+var _feedback_sheet: Control
+var _feedback_panel: FeedbackPanel
 ## Notch / Dynamic Island (x) and home indicator (y), canvas units.
 var _insets := Vector2.ZERO
 ## Games on the profile; -1 until the profile has loaded.
@@ -183,6 +185,7 @@ func _build() -> void:
 	_build_bots_sheet()
 	_build_friends_sheet()
 	_build_more_sheet()
+	_build_feedback_sheet()
 	_build_season_sheet()
 
 	# Quests overlay above the lobby, toggled by its button.
@@ -732,7 +735,8 @@ func _build_friends_sheet() -> void:
 	_friends_panel.visible = false
 
 
-## More: rules and help, your account (guest or linked) and the server.
+## More: rules and help, feedback to the team, your account (guest or
+## linked) and the server.
 func _build_more_sheet() -> void:
 	var sheet := _sheet(UiTheme.VIOLET, "More")
 	_more_sheet = sheet["root"]
@@ -742,6 +746,11 @@ func _build_more_sheet() -> void:
 		_more_sheet.visible = false
 		_on_help())
 	body.add_child(rules)
+	var feedback := UiTheme.button("Send feedback or report a bug", _px(14), _px(48))
+	feedback.pressed.connect(func() -> void:
+		_more_sheet.visible = false
+		_open_feedback_sheet())
+	body.add_child(feedback)
 
 	# Account row: guest or linked providers, with link buttons where a
 	# token provider exists (iOS / Android with the plugin installed).
@@ -789,6 +798,21 @@ func _build_more_sheet() -> void:
 	body.add_child(_close_button(_more_sheet))
 
 
+## Feedback to the team (FeedbackPanel), from More.
+func _build_feedback_sheet() -> void:
+	var sheet := _sheet(UiTheme.VIOLET, "Send feedback")
+	_feedback_sheet = sheet["root"]
+	_feedback_panel = FeedbackPanel.new()
+	_feedback_panel.s = _s
+	_feedback_panel.closed.connect(func() -> void: _feedback_sheet.visible = false)
+	sheet["body"].add_child(_feedback_panel)
+
+
+func _open_feedback_sheet() -> void:
+	_feedback_panel.reset_view()
+	_feedback_sheet.visible = true
+
+
 ## Lifts the lobby so a focused text field stays above the on-screen
 ## keyboard (phones report its height; desktops report 0).
 func _process(_delta: float) -> void:
@@ -797,7 +821,7 @@ func _process(_delta: float) -> void:
 	# The name step sizes its card to the room the keyboard leaves.
 	_name_prompt.keyboard_height = kb
 	var focus := get_viewport().gui_get_focus_owner()
-	if kb > 0 and focus is LineEdit and is_ancestor_of(focus):
+	if kb > 0 and (focus is LineEdit or focus is TextEdit) and is_ancestor_of(focus):
 		var keyboard_top := get_viewport_rect().size.y - kb
 		# A field may name a control under it that must stay in view with it
 		# (the name step's error line and its Save button).

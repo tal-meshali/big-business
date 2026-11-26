@@ -128,6 +128,21 @@ static func get_theme() -> Theme:
 	t.set_color("caret_color", "LineEdit", GOLD)
 	t.set_color("selection_color", "LineEdit", Color(VIOLET, 0.7))
 	t.set_font_size("font_size", "LineEdit", 24)
+	# Longer text (feedback) uses the same well as a one-line field.
+	var area := edit.duplicate()
+	area.content_margin_top = 10
+	area.content_margin_bottom = 10
+	t.set_stylebox("normal", "TextEdit", area)
+	var area_focus := edit_focus.duplicate()
+	area_focus.content_margin_top = 10
+	area_focus.content_margin_bottom = 10
+	t.set_stylebox("focus", "TextEdit", area_focus)
+	t.set_stylebox("read_only", "TextEdit", area)
+	t.set_color("font_color", "TextEdit", TEXT)
+	t.set_color("font_placeholder_color", "TextEdit", Color(TEXT_SOFT, 0.8))
+	t.set_color("caret_color", "TextEdit", GOLD)
+	t.set_color("selection_color", "TextEdit", Color(VIOLET, 0.7))
+	t.set_color("background_color", "TextEdit", Color(0, 0, 0, 0))
 
 	t.set_color("font_color", "Label", Companies.INK)
 	t.set_font_size("font_size", "Label", 19)

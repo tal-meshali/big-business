@@ -12,6 +12,7 @@ import { ART_COLLECTION, ART_QUEUE_COLLECTION, DECK_COLLECTION, STANDING_COLLECT
 import { STATS_COLLECTION } from './stats';
 import { GIFT_COLLECTION } from './gifts';
 import { PLAYING_COLLECTION } from './watch';
+import { FEEDBACK_COLLECTION } from './feedback';
 
 export const REPORT_COLLECTION = 'reports';
 const REPORT_REASONS = ['name', 'behaviour', 'cheating', 'other'];
@@ -116,6 +117,7 @@ export const SERVER_COLLECTIONS = [
   STATS_COLLECTION,
   GIFT_COLLECTION,
   PLAYING_COLLECTION,
+  FEEDBACK_COLLECTION,
 ];
 
 /** True when a client storage request touches a server-only collection. */

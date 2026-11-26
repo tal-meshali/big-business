@@ -89,6 +89,8 @@ var _s := 1.85
 ## A keyboard height in canvas units for tests and screenshots, which have
 ## no on-screen keyboard; below 0 the phone's own is used.
 var keyboard_override := -1.0
+## Metadata on the panels _sheet() makes, so the keyboard lift can find them.
+const LOBBY_SHEET := &"lobby_sheet"
 
 
 func _ready() -> void:
@@ -613,6 +615,7 @@ func _sheet(color: Color, title: String) -> Dictionary:
 	sheet.offset_right = -_px(16)
 	sheet.offset_bottom = -_px(16) - _insets.y
 	shade.add_child(sheet)
+	sheet.set_meta(LOBBY_SHEET, true)
 	var body := VBoxContainer.new()
 	body.add_theme_constant_override("separation", _px(12))
 	deed["body"].add_child(body)
@@ -828,8 +831,23 @@ func _process(_delta: float) -> void:
 		var keep: Control = focus.get_meta(NamePrompt.KEEP_IN_VIEW, focus)
 		var field_bottom := keep.get_global_rect().end.y - position.y + _px(12)
 		lift = maxf(0.0, field_bottom - keyboard_top)
+		# Never past the top: a sheet's title stays below the status bar.
+		var sheet := _sheet_of(focus)
+		if sheet != null:
+			lift = minf(lift, maxf(0.0, sheet.get_global_rect().position.y - position.y - _insets.x - _px(8)))
+	_feedback_panel.compact = kb > 0 and focus != null and _feedback_panel.is_ancestor_of(focus)
 	if absf(position.y + lift) > 0.5:
 		position.y = -lift
+
+
+## The sheet made by _sheet() a control sits in, or null.
+func _sheet_of(c: Control) -> Control:
+	var n: Node = c
+	while n != null and n != self:
+		if n.has_meta(LOBBY_SHEET):
+			return n as Control
+		n = n.get_parent()
+	return null
 
 
 ## Height of the on-screen keyboard in canvas units; 0 when it is down.

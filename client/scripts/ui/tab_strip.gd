@@ -19,6 +19,10 @@ const IDLE_ICON_ALPHA := 0.6
 var tabs: Array = []
 ## Design point size (px per dp).
 var s := 1.85
+## The picked tab's pill. Gold where the strip leads the screen (rules,
+## quests); cream inside a form, so the form's gold button stays the only
+## gold (docs/design/theme.md). Set before setup().
+var pill_color := UiTheme.GOLD
 var current := 0
 ## Where the pill is drawn, in tab units (animated between whole numbers).
 var _pill_at := 0.0
@@ -43,8 +47,8 @@ func setup(p_tabs: Array, p_s: float) -> void:
 	tabs = p_tabs
 	s = p_s
 	custom_minimum_size.y = (62.0 if _has_icons() else 46.0) * s
-	_pill = GlossBox.make(UiTheme.GOLD, 11 * s, 3 * s, 2 * s)
-	_pill_down = GlossBox.make(UiTheme.GOLD, 11 * s, 3 * s, 2 * s, true)
+	_pill = GlossBox.make(pill_color, 11 * s, 3 * s, 2 * s)
+	_pill_down = GlossBox.make(pill_color, 11 * s, 3 * s, 2 * s, true)
 	_track = StyleBoxFlat.new()
 	# Opaque, so the strip reads the same on any surface behind it.
 	_track.bg_color = UiTheme.NIGHT

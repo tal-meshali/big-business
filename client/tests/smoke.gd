@@ -1804,6 +1804,17 @@ func _send_feedback_checks() -> int:
 	if panel._edit.text.length() != 1000 or panel._count.text != "1000 / 1000":
 		push_error("feedback should stop at 1000 characters and show the count")
 		failures += 1
+	# A paste past the limit loses the pasted tail, never the player's own words after the caret.
+	panel._edit.text = "x".repeat(990) + "END"
+	panel._set_caret_index(990)
+	panel._edit.insert_text_at_caret("y".repeat(50))
+	panel._on_text_changed()
+	if panel._edit.text.length() != 1000 or not panel._edit.text.ends_with("END"):
+		push_error("a paste past the limit should keep the text after the caret")
+		failures += 1
+	if api.problem(String.chr(0x200b).repeat(5)) == "":
+		push_error("invisible characters alone are not feedback")
+		failures += 1
 	panel._edit.text = "The market froze after I sold"
 	panel._on_text_changed()
 	if panel._send.disabled or panel._count.text != "":

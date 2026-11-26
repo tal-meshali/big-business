@@ -10,15 +10,19 @@ const MIN_LENGTH := 3
 const MAX_LENGTH := 1000
 
 const TOO_SHORT := "Write a few words first."
-const OFFLINE := "You're offline. Connect, then send. Your message is kept."
+const OFFLINE := "You're offline. Keep this open, connect, then send."
 const BUSY := "That's a lot of messages at once. Wait a minute, then send."
 const DAILY := "That's today's limit of messages. Thank you for so many! Try again tomorrow."
 const FAILED := "Couldn't send. Try again in a moment."
 
 
-## Trimmed, as the server will store it.
+## Trimmed and without invisible characters, as the server will store it
+## (server/src/match/feedback.ts cleanFeedbackText).
 static func clean(typed: String) -> String:
-	return typed.strip_edges()
+	var out := typed
+	for code in [0x200b, 0x200c, 0x200d, 0x200e, 0x200f, 0x202a, 0x202b, 0x202c, 0x202d, 0x202e, 0x2066, 0x2067, 0x2068, 0x2069]:
+		out = out.replace(String.chr(code), "")
+	return out.strip_edges()
 
 
 ## Why the typed text cannot be sent yet; "" when it can.

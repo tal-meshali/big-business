@@ -22,11 +22,11 @@ export const FEEDBACK_COLLECTION = 'feedback';
 export const FEEDBACK_CATEGORIES = ['bug', 'idea', 'other'];
 export const FEEDBACK_TEXT_MIN = 3;
 export const FEEDBACK_TEXT_MAX = 1000;
-/** Messages one account may send per UTC day, on top of the per-minute limit. */
+/** Messages one account may send in 24 hours (from its first), on top of the per-minute limit. */
 export const FEEDBACK_PER_DAY = 20;
 const DAY_MS = 86_400_000;
 /** Device detail fields the client may send, each a short string. */
-export const DEVICE_FIELDS = ['app', 'os', 'model', 'screen', 'where'];
+export const DEVICE_FIELDS = ['app', 'os', 'model', 'screen'];
 const DEVICE_FIELD_MAX = 64;
 
 export interface FeedbackRow {
@@ -45,7 +45,7 @@ export interface FeedbackRow {
 export function cleanFeedbackText(raw: string): string {
   let out = raw.replace(/\r\n?/g, '\n');
   // eslint-disable-next-line no-control-regex
-  out = out.replace(/[\u0000-\u0009\u000b-\u001f\u007f​-‏‪-‮⁦-⁩]/g, '');
+  out = out.replace(/[\u0000-\u0009\u000b-\u001f\u007f\u200b-\u200f\u202a-\u202e\u2066-\u2069]/g, '');
   out = out.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n');
   return out.trim();
 }
@@ -102,8 +102,11 @@ function chargeDaily(nk: nkruntime.Nakama, userId: string, now: number): string 
 
 /** Why this text cannot be stored, as a sentence for the player; '' when it can. */
 export function feedbackTextProblem(text: string): string {
-  if (text.length < FEEDBACK_TEXT_MIN) return 'Write a few words first.';
-  if (text.length > FEEDBACK_TEXT_MAX) return `Keep it under ${FEEDBACK_TEXT_MAX} characters.`;
+  // WHY code points: the client (Godot) counts an emoji as one character,
+  // while JS `.length` counts it as two.
+  const length = Array.from(text).length;
+  if (length < FEEDBACK_TEXT_MIN) return 'Write a few words first.';
+  if (length > FEEDBACK_TEXT_MAX) return `Keep it under ${FEEDBACK_TEXT_MAX} characters.`;
   return '';
 }
 
@@ -135,6 +138,8 @@ export const rpcSendFeedback: nkruntime.RpcFunction = (ctx, logger, nk, payload)
   // WHY one refusal point: input.ts's reject() is near the graph's
   // god-node limit (docs/conventions.md), so the checks return sentences.
   let problem = feedbackTextProblem(text);
+  // The day's allowance is charged before the store; a failed store (rare)
+  // still uses one of the 20.
   if (!problem) {
     checkRate(nk, userId, 'send_feedback', now);
     problem = chargeDaily(nk, userId, now);
@@ -161,14 +166,50 @@ export const rpcFeedbackList: nkruntime.RpcFunction = (ctx, logger, nk, payload)
   return JSON.stringify({ items, cursor: page.cursor || '' });
 };
 
-/** RPC feedback_done {key} or {keys: [...]} (operator only): deletes handled messages. */
+/** Messages older than this are deleted by `feedback_done {olderThanDays}` (D29). */
+export const FEEDBACK_KEEP_DAYS = 90;
+const FEEDBACK_KEY_RE = /^\d{13}-[0-9a-f-]{36}$/;
+
+/** Every stored message's key and value, newest first (the operator's purges). */
+function allFeedback(nk: nkruntime.Nakama): nkruntime.StorageObject[] {
+  const out: nkruntime.StorageObject[] = [];
+  let cursor: string | undefined;
+  for (let page = 0; page < 1000; page++) {
+    const res = nk.storageList(SYSTEM_USER, FEEDBACK_COLLECTION, 100, cursor);
+    for (const o of res.objects || []) out.push(o);
+    cursor = res.cursor || undefined;
+    if (!cursor) break;
+  }
+  return out;
+}
+
+/**
+ * RPC feedback_done (operator only) deletes messages, by one of:
+ * {key} or {keys: [...]} (handled ones), {userId} (everything one player
+ * sent, for a deletion request), or {olderThanDays} (at least 30; the
+ * retention purge home\feedback.ps1 runs with FEEDBACK_KEEP_DAYS).
+ * Answers {deleted, skipped}; skipped counts keys that were not feedback keys.
+ */
 export const rpcFeedbackDone: nkruntime.RpcFunction = (ctx, logger, nk, payload) => {
   requireServer(ctx);
   const req = parseBody(payload);
-  const raw = Array.isArray(req['keys']) ? (req['keys'] as unknown[]) : [req['key']];
-  const keys = raw.filter((k): k is string => typeof k === 'string' && /^\d{13}-[0-9a-f-]{36}$/.test(k)).slice(0, 100);
-  if (keys.length === 0) return JSON.stringify({ deleted: 0, error: 'invalid key' });
-  nk.storageDelete(keys.map((key) => ({ collection: FEEDBACK_COLLECTION, key, userId: SYSTEM_USER })));
-  logger.info('feedback done: %d message(s)', keys.length);
-  return JSON.stringify({ deleted: keys.length });
+  let keys: string[] = [];
+  let skipped = 0;
+  const userId = req['userId'];
+  const days = req['olderThanDays'];
+  if (typeof userId === 'string' && userId) {
+    keys = allFeedback(nk).filter((o) => (o.value as { userId?: unknown }).userId === userId).map((o) => o.key);
+  } else if (typeof days === 'number' && isFinite(days) && days >= 30) {
+    const cutoff = Date.now() - days * DAY_MS;
+    keys = allFeedback(nk).filter((o) => feedbackKeyTime(o.key) < cutoff).map((o) => o.key);
+  } else {
+    const raw = Array.isArray(req['keys']) ? (req['keys'] as unknown[]) : [req['key']];
+    keys = raw.filter((k): k is string => typeof k === 'string' && FEEDBACK_KEY_RE.test(k)).slice(0, 100);
+    skipped = raw.length - keys.length;
+  }
+  for (let i = 0; i < keys.length; i += 100) {
+    nk.storageDelete(keys.slice(i, i + 100).map((key) => ({ collection: FEEDBACK_COLLECTION, key, userId: SYSTEM_USER })));
+  }
+  if (keys.length) logger.info('feedback done: %d message(s)', keys.length);
+  return JSON.stringify({ deleted: keys.length, skipped });
 };

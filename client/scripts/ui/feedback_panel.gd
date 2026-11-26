@@ -26,6 +26,7 @@ const COUNT_FROM := 800
 const PROBLEM := Color("#FF9AA6")
 
 var _form: VBoxContainer
+var _intro: Label
 var _thanks: VBoxContainer
 var _kinds: TabStrip
 var _edit: TextEdit
@@ -56,11 +57,12 @@ func _build_form() -> void:
 	_form = VBoxContainer.new()
 	_form.add_theme_constant_override("separation", _px(10))
 	add_child(_form)
-	var intro := UiTheme.body("A bug, an idea, anything. The team reads every message.", _px(UiTheme.TYPE_BODY))
-	intro.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_form.add_child(intro)
+	_intro = UiTheme.body("A bug, an idea, anything. The team reads every message.", _px(UiTheme.TYPE_BODY))
+	_intro.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_form.add_child(_intro)
 
 	_kinds = TabStrip.new()
+	_kinds.pill_color = UiTheme.CREAM
 	_kinds.setup(KINDS, s)
 	_kinds.tab_selected.connect(_pick_kind)
 	_form.add_child(_kinds)
@@ -79,7 +81,7 @@ func _build_form() -> void:
 	_form.add_child(under)
 	# WHY body, not caption: captions are spaced capitals for section names,
 	# too hard to read as a sentence.
-	var privacy := UiTheme.body("Please leave out your email, phone number or address.", _px(UiTheme.TYPE_LABEL), UiTheme.TEXT_SOFT)
+	var privacy := UiTheme.body("Please leave out your real name, email, phone number or address.", _px(UiTheme.TYPE_LABEL), UiTheme.TEXT_SOFT)
 	privacy.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	privacy.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	under.add_child(privacy)
@@ -129,7 +131,7 @@ func _build_thanks() -> void:
 	_thanks.visible = false
 	add_child(_thanks)
 	_thanks.add_child(UiTheme.title("Thank you!", _px(UiTheme.TYPE_TITLE), UiTheme.GOLD))
-	var line := UiTheme.body("Your message reached the team. We can't answer in the app, but every message helps.", _px(UiTheme.TYPE_BODY))
+	var line := UiTheme.body("Your message reached the team. We can't reply here, but every message helps.", _px(UiTheme.TYPE_BODY))
 	line.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_thanks.add_child(line)
 	var done := UiTheme.button("Done", _px(14), _px(48), "primary")
@@ -142,6 +144,19 @@ func reset_view() -> void:
 	_thanks.visible = false
 	_form.visible = true
 	_note.visible = false
+
+
+## With the keyboard up the sheet gives up room: the intro (the tabs and
+## the field's prompt say the same) goes, and the field gets shorter, so the
+## title, the field and Send all fit above the keyboard. The lobby sets it.
+var compact := false:
+	set(v):
+		if compact == v:
+			return
+		compact = v
+		if _intro != null:
+			_intro.visible = not v
+			_edit.custom_minimum_size.y = _px(72 if v else 108)
 
 
 func category() -> String:
@@ -163,16 +178,36 @@ func _show_details() -> void:
 
 
 func _on_text_changed() -> void:
-	if _edit.text.length() > FeedbackApi.MAX_LENGTH:
-		var line := _edit.get_caret_line()
-		var column := _edit.get_caret_column()
+	var over := _edit.text.length() - FeedbackApi.MAX_LENGTH
+	if over > 0:
+		# WHY cut just before the caret: that is what was just typed or
+		# pasted; cutting the end would drop the player's own later words.
+		var at := _caret_index()
+		var cut_from := maxi(0, at - over)
+		_edit.text = _edit.text.left(cut_from) + _edit.text.substr(at)
 		_edit.text = _edit.text.left(FeedbackApi.MAX_LENGTH)
-		_edit.set_caret_line(mini(line, _edit.get_line_count() - 1))
-		_edit.set_caret_column(column)
+		_set_caret_index(cut_from)
 	var n := _edit.text.length()
 	_count.text = "%d / %d" % [n, FeedbackApi.MAX_LENGTH] if n >= COUNT_FROM else ""
 	_note.visible = false
 	_refresh_send()
+
+
+## The caret as an index into the whole text.
+func _caret_index() -> int:
+	var at := 0
+	for line in _edit.get_caret_line():
+		at += _edit.get_line(line).length() + 1
+	return at + _edit.get_caret_column()
+
+
+func _set_caret_index(at: int) -> void:
+	var line := 0
+	while line < _edit.get_line_count() - 1 and at > _edit.get_line(line).length():
+		at -= _edit.get_line(line).length() + 1
+		line += 1
+	_edit.set_caret_line(line)
+	_edit.set_caret_column(at)
 
 
 func _refresh_send() -> void:
@@ -200,3 +235,7 @@ func _on_send() -> void:
 	_refresh_send()
 	_form.visible = false
 	_thanks.visible = true
+	# A short fade so the swap reads as one sheet changing, not a jump.
+	if not UiTheme.reduce_motion():
+		_thanks.modulate.a = 0.0
+		create_tween().tween_property(_thanks, "modulate:a", 1.0, 0.15)

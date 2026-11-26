@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   cleanFeedbackText,
   FEEDBACK_COLLECTION,
+  FEEDBACK_KEEP_DAYS,
   FEEDBACK_PER_DAY,
   FEEDBACK_TEXT_MAX,
   feedbackKey,
@@ -58,12 +59,12 @@ describe('feedbackKey', () => {
 describe('send_feedback', () => {
   it('stores a server-only row with the name, category, text and device', () => {
     const { nk, rows } = fakeNk();
-    expect(call(rpcSendFeedback, named(ALICE, 'Tal'), nk, { category: 'bug', text: 'Cards froze', device: { app: '0.1.0', where: 'table' } })).toEqual({ ok: true });
+    expect(call(rpcSendFeedback, named(ALICE, 'Tal'), nk, { category: 'bug', text: 'Cards froze', device: { app: '0.1.0', os: 'iOS 18' } })).toEqual({ ok: true });
     const stored = [...rows.values()].filter((r) => r.collection === FEEDBACK_COLLECTION);
     expect(stored).toHaveLength(1);
     expect(stored[0]!.permissionRead).toBe(0);
     expect(stored[0]!.permissionWrite).toBe(0);
-    expect(stored[0]!.value).toMatchObject({ userId: ALICE, name: 'Tal', category: 'bug', text: 'Cards froze', device: { app: '0.1.0', where: 'table' } });
+    expect(stored[0]!.value).toMatchObject({ userId: ALICE, name: 'Tal', category: 'bug', text: 'Cards froze', device: { app: '0.1.0', os: 'iOS 18' } });
   });
 
   it('files unknown categories as other and keeps no device when none is sent', () => {
@@ -78,6 +79,8 @@ describe('send_feedback', () => {
     expect(() => call(rpcSendFeedback, userCtx(ALICE), nk, { category: 'idea' })).toThrow('Write a few words first.');
     expect(() => call(rpcSendFeedback, userCtx(ALICE), nk, { category: 'idea', text: ' \n a ' })).toThrow('Write a few words first.');
     expect(() => call(rpcSendFeedback, userCtx(ALICE), nk, { category: 'idea', text: 'x'.repeat(FEEDBACK_TEXT_MAX + 1) })).toThrow('under');
+    // Emoji count as one character each, as the client counts them.
+    expect(call(rpcSendFeedback, userCtx(BOB), nk, { category: 'idea', text: '😀'.repeat(FEEDBACK_TEXT_MAX) })).toEqual({ ok: true });
   });
 
   it('refuses callers without a session', () => {
@@ -120,12 +123,36 @@ describe('feedback_list and feedback_done', () => {
     const listed = call(rpcFeedbackList, serverCtx, nk, { limit: 10 });
     expect(listed.items).toHaveLength(1);
     expect(listed.items[0]).toMatchObject({ category: 'idea', text: 'More bots', userId: ALICE });
-    expect(call(rpcFeedbackDone, serverCtx, nk, { key: listed.items[0].key })).toEqual({ deleted: 1 });
+    expect(call(rpcFeedbackDone, serverCtx, nk, { key: listed.items[0].key })).toEqual({ deleted: 1, skipped: 0 });
     expect(call(rpcFeedbackList, serverCtx, nk, {}).items).toHaveLength(0);
+  });
+
+  it('deletes everything one player sent, and only that', () => {
+    const { nk } = fakeNk();
+    call(rpcSendFeedback, userCtx(ALICE), nk, { text: 'first one' });
+    call(rpcSendFeedback, userCtx(ALICE), nk, { text: 'second one' });
+    call(rpcSendFeedback, userCtx(BOB), nk, { text: 'from bob' });
+    expect(call(rpcFeedbackDone, serverCtx, nk, { userId: ALICE }).deleted).toBe(2);
+    expect(call(rpcFeedbackList, serverCtx, nk, {}).items.map((i: { userId: string }) => i.userId)).toEqual([BOB]);
+  });
+
+  it('purges messages past the retention period and keeps newer ones', () => {
+    const { nk, rows } = fakeNk();
+    const old = Date.now() - 100 * 86_400_000;
+    const key = feedbackKey(old, ALICE);
+    rows.set(`${FEEDBACK_COLLECTION}/${key}/00000000-0000-0000-0000-000000000000`, {
+      collection: FEEDBACK_COLLECTION, key, userId: '00000000-0000-0000-0000-000000000000', value: { userId: ALICE, text: 'old', at: old },
+      version: 'v1', permissionRead: 0, permissionWrite: 0, createTime: 0, updateTime: 0,
+    } as nkruntime.StorageObject);
+    call(rpcSendFeedback, userCtx(BOB), nk, { text: 'fresh one' });
+    expect(call(rpcFeedbackDone, serverCtx, nk, { olderThanDays: FEEDBACK_KEEP_DAYS }).deleted).toBe(1);
+    expect(call(rpcFeedbackList, serverCtx, nk, {}).items).toHaveLength(1);
+    // Too short a period is ignored rather than wiping recent messages.
+    expect(call(rpcFeedbackDone, serverCtx, nk, { olderThanDays: 0 }).deleted).toBe(0);
   });
 
   it('refuses keys that are not feedback keys', () => {
     const { nk } = fakeNk();
-    expect(call(rpcFeedbackDone, serverCtx, nk, { key: '../profile' })).toEqual({ deleted: 0, error: 'invalid key' });
+    expect(call(rpcFeedbackDone, serverCtx, nk, { key: '../profile' })).toEqual({ deleted: 0, skipped: 1 });
   });
 });

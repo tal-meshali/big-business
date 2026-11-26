@@ -652,6 +652,7 @@ func _feedback_checks() -> int:
 	# Card sounds come in takes, and the same take never plays twice running.
 	for sound_name in ["deal", "place", "coin"]:
 		var last: AudioStream = null
+		var seen := {}
 		for k in 30:
 			var st: AudioStream = table.sfx._take(sound_name)
 			if st == last:
@@ -659,6 +660,10 @@ func _feedback_checks() -> int:
 				failures += 1
 				break
 			last = st
+			seen[st] = true
+		if seen.size() < 3:
+			push_error("%s should rotate through all its takes, saw %d" % [sound_name, seen.size()])
+			failures += 1
 	var now := Time.get_unix_time_from_system() * 1000.0
 	var v := {
 		"you": 0,

@@ -5,11 +5,11 @@ extends Node
 ## commissioned sound set replaces `_build` one name at a time.
 ##
 ## The sound is meant to settle, not to grab: card sounds (the most frequent)
-## are the quietest and darkest, chime notes stay at or under C6 (1047 Hz)
+## are the quietest to the ear and the darkest, chime notes stay at or under C6 (1047 Hz)
 ## with only faint overtones, and every sound fades in and out so nothing
 ## clicks. Card and coin sounds come in a few takes, each played a hair
 ## higher or lower, so repeats do not sound mechanical. Card sounds keep a
-## little body around 300-900 Hz so a phone speaker still plays them.
+## little body above 300 Hz so a phone speaker still plays them.
 ##
 ## Settings (sound, vibration) are saved in SETTINGS_PATH and toggled from
 ## the rules and help screen.
@@ -19,7 +19,8 @@ const MIX_RATE := 22050
 const VOICES := 6
 ## Names every caller may play; `play` ignores anything else.
 const NAMES := ["deal", "place", "coin", "gold", "turn", "tick", "fanfare"]
-## Sounds whose pitch drifts a little on each play. Chimes stay in tune.
+## Sounds whose pitch drifts a little on each play. The bells (turn, gold,
+## fanfare) and the countdown tick stay in tune.
 const DRIFT := {"deal": 0.04, "place": 0.03, "coin": 0.02}
 
 static var sound_on := true
@@ -63,7 +64,7 @@ func play(sound_name: String, volume_db: float = 0.0) -> void:
 
 
 ## An idle voice if there is one, so a ringing chime is not cut short;
-## otherwise the voice used longest ago.
+## otherwise the next voice in turn.
 func _free_player() -> AudioStreamPlayer:
 	for k in _players.size():
 		var p := _players[(_next + k) % _players.size()]
@@ -81,6 +82,8 @@ func _take(sound_name: String) -> AudioStream:
 	if entry is AudioStream:
 		return entry
 	var takes: Array = entry
+	if takes.is_empty():
+		return null
 	var last := int(_last_take.get(sound_name, -1))
 	var i := 0
 	if takes.size() > 1:
@@ -130,9 +133,9 @@ static func _build() -> void:
 		_wav(_slide(0.15, 0.15, 1700.0, 600.0, 23)),
 		_wav(_slide(0.18, 0.16, 2000.0, 700.0, 37)),
 	]
-	# Playing a card: a muted pat on felt. The body sits around 250-750 Hz
-	# (low enough to feel soft, high enough for a phone speaker) under a
-	# short felt brush.
+	# Playing a card: a muted pat on felt. The thud starts at 200-320 Hz with
+	# soft harmonics up to about 1 kHz (low enough to feel soft, high enough
+	# for a phone speaker), under a short felt brush.
 	_streams["place"] = [
 		_wav(_mix([_thump(300.0, 215.0, 0.15, 0.17), _slide(0.08, 0.13, 1400.0, 600.0, 5)])),
 		_wav(_mix([_thump(280.0, 200.0, 0.15, 0.17), _slide(0.08, 0.13, 1300.0, 560.0, 17)])),
@@ -238,9 +241,9 @@ static func _thump(f_start: float, f_end: float, seconds: float, gain: float) ->
 ## resonance) whose cutoff glides from `cut_start` to `cut_end`: a card
 ## sliding (long) or brushing the felt (short). The envelope swells in over
 ## the first fifth and eases out, so there is no hiss spike at the start.
-static func _slide(seconds: float, gain: float, cut_start: float, cut_end: float, seed: int) -> PackedFloat32Array:
+static func _slide(seconds: float, gain: float, cut_start: float, cut_end: float, noise_seed: int) -> PackedFloat32Array:
 	var rng := RandomNumberGenerator.new()
-	rng.seed = seed
+	rng.seed = noise_seed
 	var n := int(seconds * MIX_RATE)
 	var out := PackedFloat32Array()
 	out.resize(n)

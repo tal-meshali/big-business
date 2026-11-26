@@ -27,8 +27,10 @@ describe('cleanFeedbackText', () => {
     expect(cleanFeedbackText('a\n\n\n\n\nb')).toBe('a\n\nb');
   });
 
-  it('keeps non-Latin text and emoji', () => {
+  it('keeps non-Latin text and emoji, joined ones too', () => {
     expect(cleanFeedbackText('שלום 👋')).toBe('שלום 👋');
+    const family = 'A👨ZWJ👩ZWJ👧 میZWNJخواهم'.replace(/ZWJ/g, String.fromCharCode(0x200d)).replace(/ZWNJ/g, String.fromCharCode(0x200c));
+    expect(cleanFeedbackText(family)).toBe(family);
   });
 });
 
@@ -78,6 +80,8 @@ describe('send_feedback', () => {
     const { nk } = fakeNk();
     expect(() => call(rpcSendFeedback, userCtx(ALICE), nk, { category: 'idea' })).toThrow('Write a few words first.');
     expect(() => call(rpcSendFeedback, userCtx(ALICE), nk, { category: 'idea', text: ' \n a ' })).toThrow('Write a few words first.');
+    const joiners = String.fromCharCode(0x200d, 0x200c, 0x200d, 0x200c);
+    expect(() => call(rpcSendFeedback, userCtx(ALICE), nk, { category: 'idea', text: joiners })).toThrow('Write a few words first.');
     expect(() => call(rpcSendFeedback, userCtx(ALICE), nk, { category: 'idea', text: 'x'.repeat(FEEDBACK_TEXT_MAX + 1) })).toThrow('under');
     // Emoji count as one character each, as the client counts them.
     expect(call(rpcSendFeedback, userCtx(BOB), nk, { category: 'idea', text: '😀'.repeat(FEEDBACK_TEXT_MAX) })).toEqual({ ok: true });
@@ -125,6 +129,8 @@ describe('feedback_list and feedback_done', () => {
     expect(listed.items[0]).toMatchObject({ category: 'idea', text: 'More bots', userId: ALICE });
     expect(call(rpcFeedbackDone, serverCtx, nk, { key: listed.items[0].key })).toEqual({ deleted: 1, skipped: 0 });
     expect(call(rpcFeedbackList, serverCtx, nk, {}).items).toHaveLength(0);
+    // Already gone: nothing deleted.
+    expect(call(rpcFeedbackDone, serverCtx, nk, { key: listed.items[0].key })).toEqual({ deleted: 0, skipped: 0 });
   });
 
   it('deletes everything one player sent, and only that', () => {

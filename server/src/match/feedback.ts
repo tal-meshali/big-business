@@ -45,7 +45,9 @@ export interface FeedbackRow {
 export function cleanFeedbackText(raw: string): string {
   let out = raw.replace(/\r\n?/g, '\n');
   // eslint-disable-next-line no-control-regex
-  out = out.replace(/[\u0000-\u0009\u000b-\u001f\u007f\u200b-\u200f\u202a-\u202e\u2066-\u2069]/g, '');
+  // WHY joiners (U+200C, U+200D) stay: emoji families, flags and Persian
+  // words are built with them.
+  out = out.replace(/[\u0000-\u0009\u000b-\u001f\u007f\u200b\u200e\u200f\u202a-\u202e\u2066-\u2069]/g, '');
   out = out.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n');
   return out.trim();
 }
@@ -105,7 +107,7 @@ export function feedbackTextProblem(text: string): string {
   // WHY code points: the client (Godot) counts an emoji as one character,
   // while JS `.length` counts it as two.
   const length = Array.from(text).length;
-  if (length < FEEDBACK_TEXT_MIN) return 'Write a few words first.';
+  if (Array.from(text.replace(/[\u200c\u200d\s]/g, '')).length < FEEDBACK_TEXT_MIN) return 'Write a few words first.';
   if (length > FEEDBACK_TEXT_MAX) return `Keep it under ${FEEDBACK_TEXT_MAX} characters.`;
   return '';
 }
@@ -203,9 +205,11 @@ export const rpcFeedbackDone: nkruntime.RpcFunction = (ctx, logger, nk, payload)
     const cutoff = Date.now() - days * DAY_MS;
     keys = allFeedback(nk).filter((o) => feedbackKeyTime(o.key) < cutoff).map((o) => o.key);
   } else {
-    const raw = Array.isArray(req['keys']) ? (req['keys'] as unknown[]) : [req['key']];
-    keys = raw.filter((k): k is string => typeof k === 'string' && FEEDBACK_KEY_RE.test(k)).slice(0, 100);
-    skipped = raw.length - keys.length;
+    const raw = Array.isArray(req['keys']) ? (req['keys'] as unknown[]) : req['key'] === undefined ? [] : [req['key']];
+    const wellFormed = raw.filter((k): k is string => typeof k === 'string' && FEEDBACK_KEY_RE.test(k)).slice(0, 100);
+    skipped = raw.length - wellFormed.length;
+    // Only rows that exist count as deleted, so a stale key reads as 0.
+    keys = wellFormed.length ? nk.storageRead(wellFormed.map((key) => ({ collection: FEEDBACK_COLLECTION, key, userId: SYSTEM_USER }))).map((o) => o.key) : [];
   }
   for (let i = 0; i < keys.length; i += 100) {
     nk.storageDelete(keys.slice(i, i + 100).map((key) => ({ collection: FEEDBACK_COLLECTION, key, userId: SYSTEM_USER })));

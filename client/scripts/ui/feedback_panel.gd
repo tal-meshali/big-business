@@ -42,6 +42,18 @@ var _busy := false
 var _details_chosen := false
 
 
+## With the keyboard up the sheet gives up room: the intro (the tabs and
+## the field's prompt say the same) goes, and the field gets shorter, so the
+## title, the field and Send all fit above the keyboard. The lobby sets it.
+var compact := false:
+	set(v):
+		if compact == v:
+			return
+		compact = v
+		if _intro != null:
+			_intro.visible = not v
+			_edit.custom_minimum_size.y = _px(72 if v else 108)
+
 func _px(dp: float) -> int:
 	return int(round(dp * s))
 
@@ -144,19 +156,6 @@ func reset_view() -> void:
 	_thanks.visible = false
 	_form.visible = true
 	_note.visible = false
-
-
-## With the keyboard up the sheet gives up room: the intro (the tabs and
-## the field's prompt say the same) goes, and the field gets shorter, so the
-## title, the field and Send all fit above the keyboard. The lobby sets it.
-var compact := false:
-	set(v):
-		if compact == v:
-			return
-		compact = v
-		if _intro != null:
-			_intro.visible = not v
-			_edit.custom_minimum_size.y = _px(72 if v else 108)
 
 
 func category() -> String:

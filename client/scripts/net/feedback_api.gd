@@ -20,14 +20,16 @@ const FAILED := "Couldn't send. Try again in a moment."
 ## (server/src/match/feedback.ts cleanFeedbackText).
 static func clean(typed: String) -> String:
 	var out := typed
-	for code in [0x200b, 0x200c, 0x200d, 0x200e, 0x200f, 0x202a, 0x202b, 0x202c, 0x202d, 0x202e, 0x2066, 0x2067, 0x2068, 0x2069]:
+	# Joiners (U+200C, U+200D) stay: emoji families and Persian words need them.
+	for code in [0x200b, 0x200e, 0x200f, 0x202a, 0x202b, 0x202c, 0x202d, 0x202e, 0x2066, 0x2067, 0x2068, 0x2069]:
 		out = out.replace(String.chr(code), "")
 	return out.strip_edges()
 
 
 ## Why the typed text cannot be sent yet; "" when it can.
 static func problem(typed: String) -> String:
-	return TOO_SHORT if clean(typed).length() < MIN_LENGTH else ""
+	var visible := clean(typed).replace(String.chr(0x200c), "").replace(String.chr(0x200d), "").strip_edges()
+	return TOO_SHORT if visible.length() < MIN_LENGTH else ""
 
 
 ## What "device details" means on this phone: {app, os, model, screen}.

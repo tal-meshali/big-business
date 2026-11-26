@@ -21,7 +21,7 @@ var tabs: Array = []
 var s := 1.85
 ## The picked tab's pill. Gold where the strip leads the screen (rules,
 ## quests); cream inside a form, so the form's gold button stays the only
-## gold (docs/design/theme.md). Set before setup().
+## gold (docs/design/theme.md, Type). Set before setup().
 var pill_color := UiTheme.GOLD
 var current := 0
 ## Where the pill is drawn, in tab units (animated between whole numbers).

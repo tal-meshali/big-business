@@ -9,7 +9,7 @@
   powershell -ExecutionPolicy Bypass -File home\feedback.ps1 -Done 9998235...,9998236...
   powershell -ExecutionPolicy Bypass -File home\feedback.ps1 -Player <player id>
 
-  Each run also deletes messages older than 90 days (decision D29).
+  Listing also deletes messages older than 90 days (decision D29).
   -Player deletes everything one player sent, for a deletion request.
 #>
 param(
@@ -17,13 +17,17 @@ param(
     # Keys printed above each message; those messages are deleted.
     [string[]]$Done = @(),
     # A player id printed under a message: deletes all of that player's messages.
-    [string]$Player = ''
+    [string]$Player = '',
+    # WHY: parameters bind by position, so "-Done a, b" under -File would
+    # hand "b" to -Limit; extra words land here and join -Done instead.
+    [Parameter(ValueFromRemainingArguments = $true)][string[]]$Rest = @()
 )
 $ErrorActionPreference = 'Stop'
 # WHY: under `powershell -File`, "-Done a, b" arrives as "a," and "b"; split
 # on commas and spaces so every form works.
-$Done = @($Done -split '[,\s]+' | Where-Object { $_ })
-[Console]::OutputEncoding = [Text.Encoding]::UTF8
+$Done = @((@($Done) + @($Rest)) -split '[,\s]+' | Where-Object { $_ })
+# Without a console (a scheduled task) the encoding cannot be set; that is fine.
+try { [Console]::OutputEncoding = [Text.Encoding]::UTF8 } catch { }
 $Root = Split-Path -Parent $PSScriptRoot
 $EnvFile = Join-Path $Root '.env.home'
 if (-not (Test-Path $EnvFile)) { throw '.env.home not found; run home\setup.ps1 first.' }

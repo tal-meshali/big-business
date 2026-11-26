@@ -7,7 +7,7 @@
  * actions and decoding client messages live in actions.ts and emotes.ts.
  */
 import { autoAction, botAction, createGame, type SeatDef } from '../engine';
-import { BOT_NAMES, clampStepSeconds, DEFAULT_PARAMS, OP_ACTION, OP_ERROR, OP_LOBBY, type MatchParams } from './protocol';
+import { BOT_NAMES, clampStepSeconds, DEFAULT_PARAMS, OP_ACTION, OP_ERROR, OP_LOBBY, soloSeatCount, type MatchParams } from './protocol';
 import { apply, handleActions } from './actions';
 import { awardProgress } from './awards';
 import { handleEmotes } from './emotes';
@@ -81,9 +81,10 @@ export const matchInit: nkruntime.MatchInitFunction<MatchState> = (ctx, logger, 
     p.lobbyWaitSeconds = 0;
   }
   if (p.solo && !p.tutorial) {
-    // One human against bots with the normal timer; it starts when they join.
+    // One human against 2 to 4 bots with the normal timer; it starts when
+    // they join. The bots fill the table up to minSeats (startGame).
     p.isPrivate = false;
-    p.minSeats = DEFAULT_PARAMS.minSeats;
+    p.minSeats = soloSeatCount(params['minSeats']);
     p.maxSeats = 1;
   }
   const state: MatchState = {

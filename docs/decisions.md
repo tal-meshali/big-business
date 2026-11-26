@@ -99,7 +99,7 @@ Decisions made by the project owner on 2026-09-27, after the research in `docs/r
 
 ## D16. "Play vs bots" instead of waiting, on the server (2026-10-02)
 
-- **Decision:** the lobby offers "Play vs bots now" (a one-player game with two bots and the normal timer that starts as soon as you join) and, while waiting in a lobby, "Start now with bots" (bots fill the empty seats at once). In a public lobby anyone waiting may start it; in a private room only the host may. These are real games: they count for XP, quests and stats like a quick play game that bots filled.
+- **Decision:** the lobby offers "Play vs bots now" (a one-player game with two bots, now 2 to 4, see D28, and the normal timer that starts as soon as you join) and, while waiting in a lobby, "Start now with bots" (bots fill the empty seats at once). In a public lobby anyone waiting may start it; in a private room only the host may. These are real games: they count for XP, quests and stats like a quick play game that bots filled.
 - **Why:** waiting 20 seconds for players who are not there is the worst part of a quiet server. The rules engine runs only on the server (TypeScript in `server/src/engine`), so a truly offline game would need a second engine in GDScript; the bot game reuses the server's bots and anti-cheat for free.
 - **Implies:** a bot game is labelled `solo`, so quick play never lists it, and only its creator may join it. Playing with no network at all still needs a client-side engine; the browser table (web/) is that for now.
 
@@ -115,3 +115,9 @@ Decisions made by the project owner on 2026-09-27, after the research in `docs/r
 - **Decision:** only a share taken from the Market restricts the Play step: the player may not sell a share of that company back to the Market that turn. After a Supply draw any share in hand, the drawn one included, may be sold.
 - **Why:** the owner's call on how the game should play; it departs from most rules summaries, which restrict after a draw too.
 - **Implies:** draw-then-sell cycling is bounded only by the draw cost and the finite Supply (rules-spec section 9). `tookCompany` in the state and view is set only by a Market take. Numbered D22 because D17 to D21 are taken by open PRs.
+
+## D28. The player picks 2, 3 or 4 bots (2026-11-26)
+
+- **Decision:** "Vs bots" opens a small sheet with three table sizes: 2, 3 or 4 bots (3 to 5 players). A tap starts that game at once; there is no confirm step. The size played last is remembered on the device and shown gold; a new player sees 2 gold. `quick_play` takes `botCount` (clamped 2 to 4, default 2) and answers with the count it used.
+- **Why:** Tal asked to choose how many bots to play against. A bigger table plays differently: the share supply is fixed, so each player gets fewer turns (bot-only simulation: about 17 turns each at 3 seats, 11 at 4, 7.5 at 5) and a win is harder.
+- **Implies:** an older client sends no count and gets 2 bots, as before. The server must be deployed before a client that sends `botCount`; until then the client is told 2 and remembers 2.

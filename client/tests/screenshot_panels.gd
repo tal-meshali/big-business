@@ -143,6 +143,13 @@ func _run() -> void:
 	await _shot(out_dir, "join")
 	main._join_sheet.visible = false
 
+	main._set_online_buttons(true)
+	root.get_node("Net").bot_count = 3
+	main._open_bots_sheet()
+	await _shot(out_dir, "bots")
+	main._bots_sheet.visible = false
+	main._set_online_buttons(false)
+
 	main._more_sheet.visible = true
 	main._link_row.visible = true
 	main._link_apple_button.visible = true

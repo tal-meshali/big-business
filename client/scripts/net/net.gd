@@ -26,6 +26,10 @@ signal remote_config_updated
 signal custom_deck_changed
 
 const SETTINGS_PATH := "user://net.cfg"
+## A bot game seats the player with 2 to 4 bots (server quick_play botCount).
+const MIN_BOTS := 2
+const MAX_BOTS := 4
+const DEFAULT_BOTS := 2
 const DEFAULT_PORT := 7350
 ## Nakama friend state 3 is "blocked by me".
 const FRIEND_STATE_BLOCKED := 3
@@ -59,6 +63,8 @@ var tutorial_mode: bool = false
 ## Sign-in provider used last ("apple", "google" or "" for the device id),
 ## persisted so the next launch tries it first when a token is available.
 var provider: String = ""
+## How many bots the last bot game had; the picker opens on it.
+var bot_count: int = DEFAULT_BOTS
 ## Players muted locally (user id -> true), saved in SETTINGS_PATH.
 var muted: Dictionary = {}
 ## Players this account has blocked (user id -> true), loaded from the
@@ -101,6 +107,9 @@ func _load_settings() -> void:
 		for id in cfg.get_value("social", "muted", PackedStringArray()):
 			muted[String(id)] = true
 		provider = String(cfg.get_value("player", "provider", ""))
+		var bots: Variant = cfg.get_value("play", "bots", DEFAULT_BOTS)
+		if bots is int or bots is float:
+			bot_count = clampi(int(bots), MIN_BOTS, MAX_BOTS)
 
 
 func save_settings() -> void:
@@ -113,6 +122,7 @@ func save_settings() -> void:
 	cfg.set_value("player", "named", named)
 	cfg.set_value("player", "provider", provider)
 	cfg.set_value("social", "muted", PackedStringArray(muted.keys()))
+	cfg.set_value("play", "bots", bot_count)
 	cfg.save(SETTINGS_PATH)
 
 
@@ -250,14 +260,21 @@ func quick_play() -> bool:
 	return await _join_match(String(data.get("matchId", "")))
 
 
-## Start a game against bots right away instead of waiting for players.
-func play_bots() -> bool:
+## Start a game against `count` bots (MIN_BOTS to MAX_BOTS) right away
+## instead of waiting for players. The count the server used is remembered
+## for next time.
+func play_bots(count: int) -> bool:
 	tutorial_mode = false
-	var rpc: NakamaAPI.ApiRpc = await client.rpc_async(session, "quick_play", JSON.stringify({"bots": true}))
+	var want := clampi(count, MIN_BOTS, MAX_BOTS)
+	var payload := JSON.stringify({"bots": true, "botCount": want})
+	var rpc: NakamaAPI.ApiRpc = await client.rpc_async(session, "quick_play", payload)
 	if rpc.is_exception():
 		server_error.emit("bot game failed: %s" % rpc.get_exception().message)
 		return false
 	var data: Dictionary = JSON.parse_string(rpc.payload)
+	# WHY the server's count: a server older than botCount seats two bots.
+	bot_count = clampi(int(data.get("botCount", DEFAULT_BOTS)), MIN_BOTS, MAX_BOTS)
+	save_settings()
 	return await _join_match(String(data.get("matchId", "")))
 
 

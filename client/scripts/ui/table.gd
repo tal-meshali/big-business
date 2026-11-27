@@ -4,15 +4,17 @@ extends Control
 ##
 ## Layout, after the "3D table" design (sizes in design points, see
 ## UiTheme.layout_scale):
-##   top bar      brand, whose turn it is, timer pill, Leave / Forfeit
+##   top bar      cream band from the screen's top edge: logo, a status for
+##                the states around the turns, timer pill, Leave / Forfeit
 ##   plates       opponents around the far side of the felt
 ##   felt         tilted table (TableBoard): Supply, the Market, your Portfolio,
 ##                and each opponent's hand and kept shares
 ##   hand         your 3-4 cards standing at the near edge of the felt
 ##   bottom bar   you (capital, holdings), emotes, rules, prompt and buttons
 ##
-## Where the words go: the top bar only names the state in a few words
-## ("Your turn", "Bo's turn"); sentences go where there is room for them,
+## Where the words go: the top bar names only the states around the turns
+## in a few words ("Get ready", "Connection lost"; whose turn it is shows on
+## the gold plate and the timer pill's gold rim); sentences go where there is room for them,
 ## the prompt in the bottom bar (what to do, what the others just did) or
 ## a notice under the top bar (anything that happened once: an error, a
 ## mute, a forfeit).
@@ -58,9 +60,9 @@ const PLATE_H := 66.0
 const MARKET_PER_ROW := 5
 ## The top bar's row (dp from the top on phones without a notch, and its
 ## height), and the band's room under the row.
-const TOP_BAR_Y := 8.0
+const TOP_BAR_Y := 10.0
 const TOP_BAR_H := 48.0
-const TOP_BAR_PAD := 4.0
+const TOP_BAR_PAD := 8.0
 ## Room between the top bar's row and the highest seat plate, dp.
 const PLATE_GAP := 6.0
 ## Least room between two plates that stand above one another, dp, when
@@ -138,9 +140,11 @@ var _glow: Panel
 var _last_tick := -1
 var _announced_turn := -1
 var _leave_button: Button
-## The top bar (brand, status, timer, Leave); lifted over the get-ready shade.
+## The top bar's band (brand, status, timer, Leave); lifted over the
+## get-ready shade.
 var _top_bar: PanelContainer
 var _top_bar_home := 0
+var _was_mine := false
 ## How far the plates close up towards the felt on a short screen (1 = as
 ## designed); set by _layout.
 var _plate_ky := 1.0
@@ -386,9 +390,9 @@ func _plate_dy(slot: Array) -> float:
 
 
 ## A cream band from the screen's top edge, mirroring the bottom bar: the
-## logo on the left, whose turn it is, the step timer, then Leave (Forfeit
-## in a live game) on the right. The band runs up behind the status bar,
-## notch or Dynamic Island; its row starts under the safe area.
+## logo on the left, the status, the step timer, then Leave (Forfeit in a
+## live game) on the right. The band runs up behind the notch or Dynamic
+## Island; its row starts under the safe area.
 func _build_top_bar() -> void:
 	var band := PanelContainer.new()
 	band.set_anchors_and_offsets_preset(Control.PRESET_TOP_WIDE)
@@ -626,8 +630,8 @@ func _layout() -> void:
 
 ## The countdown before the first turn: a gold 3-2-1 over rays, who starts,
 ## then the seat order on a royal card. The shade covers the whole screen,
-## notch and home indicator included; the top bar is lifted above it while
-## it shows so Forfeit stays in reach.
+## home indicator included; the top bar's band is lifted above it while it
+## shows so Forfeit stays in reach, and dimmed so the countdown leads.
 func _build_get_ready() -> void:
 	_ready_overlay = ColorRect.new()
 	_ready_overlay.color = Color(UiTheme.NIGHT, 0.82)
@@ -887,7 +891,7 @@ func _show_bubble(seat: int, text: String, font_size: int = 0) -> void:
 	var sz := bubble.get_combined_minimum_size()
 	var at := _seat_anchor(seat) + Vector2(_px(12), -_px(16) - sz.y)
 	at.x = clampf(at.x, _px(6), get_viewport_rect().size.x - sz.x - _px(6))
-	at.y = maxf(at.y, _px(6) + _insets.x)
+	at.y = maxf(at.y, _top_bar_bottom() + _px(4))
 	bubble.global_position = at
 	# It grows out of the corner nearest the avatar it speaks for.
 	bubble.pivot_offset = Vector2(clampf(_seat_anchor(seat).x - at.x, 0.0, sz.x), sz.y)
@@ -1258,7 +1262,10 @@ func _end_get_ready() -> void:
 ## Puts the top bar just above the get-ready shade (lift) or back in its
 ## place under the felt's overlays (dividend day, flying cards, emotes).
 ## WHY: the shade covers the full screen, but Forfeit must stay tappable.
+## The band's cream dims to the shade's tone while lifted (self_modulate
+## leaves the logo, timer and Forfeit at full strength).
 func _lift_top_bar(lift: bool) -> void:
+	_top_bar.self_modulate = Color(0.22, 0.2, 0.32) if lift else Color.WHITE
 	if lift:
 		if _top_bar.get_index() < _ready_overlay.get_index():
 			move_child(_top_bar, _ready_overlay.get_index())
@@ -1278,6 +1285,14 @@ func _update_urgency(remaining: int) -> void:
 		var pill: StyleBoxFlat = _timer_pill.get_theme_stylebox("panel")
 		pill.bg_color = UiTheme.BADGE if urgent else UiTheme.NIGHT
 		_timer_label.add_theme_color_override("font_color", Color.WHITE if urgent else UiTheme.GOLD)
+	# On your own turn the pill wears a gold rim: with no turn words in the
+	# top bar, this is the band's sign that the move is yours.
+	var mine := _is_my_turn()
+	if mine != _was_mine:
+		_was_mine = mine
+		var rim: StyleBoxFlat = _timer_pill.get_theme_stylebox("panel")
+		rim.border_color = UiTheme.GOLD if mine else UiTheme.OUTLINE
+		rim.set_border_width_all(maxi(3, _px(2.5)) if mine else maxi(2, _px(1.5)))
 	if not urgent:
 		_last_tick = -1
 		return
@@ -1363,7 +1378,7 @@ func _render() -> void:
 		_forfeit_overlay.visible = false
 
 	_layout()
-	_render_status(phase, seats, active)
+	_render_status(phase)
 	_render_seats(seats, active, phase)
 	_render_market(phase)
 	_render_portfolio(seats)
@@ -1447,7 +1462,7 @@ func _slam_banner(text: String, hint := "") -> void:
 	tw.chain().tween_callback(holder.queue_free)
 
 
-func _render_status(phase: String, _seats: Array, _active: int) -> void:
+func _render_status(phase: String) -> void:
 	if phase == "ended":
 		_status.text = "Dividend day!"
 	elif _ready_ends_msec > 0:

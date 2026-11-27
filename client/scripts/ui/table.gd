@@ -1266,6 +1266,8 @@ func _end_get_ready() -> void:
 ## leaves the logo, timer and Forfeit at full strength).
 func _lift_top_bar(lift: bool) -> void:
 	_top_bar.self_modulate = Color(0.22, 0.2, 0.32) if lift else Color.WHITE
+	# The status turns cream on the dimmed band, as text on the night shade.
+	_status.add_theme_color_override("font_color", UiTheme.TEXT if lift else UiTheme.OUTLINE)
 	if lift:
 		if _top_bar.get_index() < _ready_overlay.get_index():
 			move_child(_top_bar, _ready_overlay.get_index())

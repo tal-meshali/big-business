@@ -63,6 +63,10 @@ const MARKET_PER_ROW := 5
 const TOP_BAR_Y := 8.0
 const TOP_BAR_H := 48.0
 const TOP_BAR_PAD := 4.0
+## Room from the screen's side for the top bar beside a cut-out, dp (the
+## phone's rounded corners), and its least scale there.
+const CUTOUT_EDGE := 20.0
+const CUTOUT_MIN_SCALE := 0.75
 ## Room between the top bar's row and the highest seat plate, dp.
 const PLATE_GAP := 6.0
 ## Least room between two plates that stand above one another, dp, when
@@ -141,9 +145,14 @@ var _glow: Panel
 var _last_tick := -1
 var _announced_turn := -1
 var _leave_button: Button
-## The top bar (brand, timer, Leave); lifted over the
-## get-ready shade.
-var _top_bar: PanelContainer
+## The top bar (brand; timer and Leave); lifted over the get-ready shade.
+var _top_bar: Control
+var _top_left: HBoxContainer
+var _top_right: HBoxContainer
+## The camera cut-out at the top (UiTheme.top_cutout), canvas units.
+var _cutout := Rect2()
+var _beside_cutout := false
+var _bar_foot := 0.0
 var _top_bar_home := 0
 var _was_mine := false
 ## How far the plates close up towards the felt on a short screen (1 = as
@@ -297,18 +306,52 @@ func _build_layout() -> void:
 	_layout()
 
 
-## Top of the top bar's row, px. On a phone with a notch or Dynamic Island
-## the row starts right at the safe area's edge (which already leaves a gap
-## under the cut-out); elsewhere TOP_BAR_Y below the screen's edge.
-## WHY the OS safe area and no model table: iOS reports it for the phone and
-## the iOS version it runs (notch, Dynamic Island, none), Android likewise.
+## Top of the top bar's row, px, when it sits under the safe area: right at
+## the safe area's edge on a phone with a notch or Dynamic Island, TOP_BAR_Y
+## below the screen's edge elsewhere. Beside a cut-out, see _place_top_bar.
 func _top_bar_y() -> float:
 	return maxf(float(_px(TOP_BAR_Y)), _insets.x)
 
 
 ## Foot of the top bar, px: everything else on the table starts here.
 func _top_bar_bottom() -> float:
-	return _top_bar_y() + _px(TOP_BAR_H + TOP_BAR_PAD)
+	return _bar_foot
+
+
+## Puts the logo and the timer and Forfeit beside the camera cut-out (the
+## Dynamic Island, a notch, a punch hole) when they fit there at
+## CUTOUT_MIN_SCALE or more, in the strip the safe area leaves above the
+## table; otherwise in a row under the safe area. Sets _bar_foot.
+## WHY: that strip was empty, and the row under it pushed the seats down
+## (Tal's call, 2026-11-27).
+func _place_top_bar() -> void:
+	var width := get_viewport_rect().size.x
+	var row_h := float(_px(TOP_BAR_H))
+	var lw := _top_left.get_combined_minimum_size().x
+	# WHY the widest the right side gets (timer shown, "Forfeit"), not its
+	# width now: the side must not jump between the two places mid-game.
+	var rw := _timer_pill.get_combined_minimum_size().x + _top_right.get_theme_constant("separation") + _leave_button.custom_minimum_size.x
+	var margin := float(_px(12))
+	var y := _top_bar_y()
+	var f := 1.0
+	_beside_cutout = false
+	if _cutout.has_area():
+		var edge := float(_px(CUTOUT_EDGE))
+		var gap := float(_px(8))
+		var fit := minf(1.0, minf((_cutout.position.x - gap - edge) / maxf(lw, 1.0), (width - edge - _cutout.end.x - gap) / maxf(rw, 1.0)))
+		if fit >= CUTOUT_MIN_SCALE:
+			_beside_cutout = true
+			f = fit
+			margin = edge
+			y = maxf(0.0, _cutout.get_center().y - row_h * f / 2.0)
+	_top_left.size = Vector2(lw, row_h)
+	_top_right.size = Vector2(rw, row_h)
+	for group: Control in [_top_left, _top_right]:
+		group.scale = Vector2.ONE * f
+		group.position.y = y
+	_top_left.position.x = margin
+	_top_right.position.x = width - margin - rw * f
+	_bar_foot = maxf(y + row_h * f, _insets.x if _beside_cutout else 0.0) + _px(TOP_BAR_PAD)
 
 
 ## Highest place for the notice pill, px: just under the top bar.
@@ -390,39 +433,33 @@ func _plate_dy(slot: Array) -> float:
 	return (y - 400.0) * _s * (1.0 if y >= PLATE_FIXED_Y else _plate_ky)
 
 
-## The top bar, on the room's own background (no band: Tal's call,
-## 2026-11-27): the logo on the left, the step timer, then Leave (Forfeit in
-## a live game) on the right. It hugs the screen's top edge; its row starts
-## under the safe area.
+## The top bar, on the room's own background with no words (Tal's call,
+## 2026-11-27): the logo on the left, the step timer and Leave (Forfeit in a
+## live game) on the right, beside the camera cut-out where they fit
+## (_place_top_bar). Whose turn it is shows on the gold plate.
 func _build_top_bar() -> void:
-	var band := PanelContainer.new()
-	band.set_anchors_and_offsets_preset(Control.PRESET_TOP_WIDE)
-	band.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var style := StyleBoxEmpty.new()
-	style.content_margin_left = _px(12)
-	style.content_margin_right = _px(12)
-	style.content_margin_top = _top_bar_y()
-	style.content_margin_bottom = _px(TOP_BAR_PAD)
-	band.add_theme_stylebox_override("panel", style)
-	add_child(band)
-	_top_bar = band
-	_top_bar_home = band.get_index()
-	var top := HBoxContainer.new()
-	top.custom_minimum_size = Vector2(0, _px(TOP_BAR_H))
-	top.add_theme_constant_override("separation", _px(10))
-	band.add_child(top)
+	var holder := Control.new()
+	holder.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	holder.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(holder)
+	_top_bar = holder
+	_top_bar_home = holder.get_index()
+	# WHY two groups and not one row: beside a cut-out each side scales on
+	# its own, and a container would put the scale back to 1.
+	_top_left = HBoxContainer.new()
+	_top_left.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	holder.add_child(_top_left)
+	_top_right = HBoxContainer.new()
+	_top_right.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_top_right.add_theme_constant_override("separation", _px(8))
+	_top_right.alignment = BoxContainer.ALIGNMENT_END
+	holder.add_child(_top_right)
+	var top := _top_right
 	var brand := LogoTitle.new()
 	brand.px = _px(17)
 	brand.tilt = 0.0
 	brand.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	top.add_child(brand)
-	# WHY no status words: the gold plate says whose turn it is, the panels
-	# and the prompt say the rest (Tal's call, 2026-11-27). The gap keeps
-	# the logo left and the timer and Forfeit right.
-	var gap := Control.new()
-	gap.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	gap.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	top.add_child(gap)
+	_top_left.add_child(brand)
 	# The step timer in a dark pill, like the streak in the lobby's HUD; it
 	# turns red and ticks while your own step runs out.
 	_timer_pill = PanelContainer.new()
@@ -446,6 +483,16 @@ func _build_top_bar() -> void:
 	_leave_button.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	_leave_button.pressed.connect(_on_leave_pressed)
 	top.add_child(_leave_button)
+	# Leave is as wide as Forfeit, so the right side keeps its width.
+	_leave_button.text = "Forfeit"
+	var forfeit_w := _leave_button.get_combined_minimum_size().x
+	_leave_button.text = "Leave"
+	_leave_button.custom_minimum_size.x = forfeit_w
+	_cutout = UiTheme.top_cutout(self)
+	_place_top_bar()
+	# WHY: the timer shows and Leave turns into Forfeit after the build, and
+	# the right side must stay clear of the cut-out as it widens.
+	_top_right.minimum_size_changed.connect(_layout, CONNECT_DEFERRED)
 
 
 ## The cream bar at the bottom: you, then the prompt in ink, then the move
@@ -570,7 +617,7 @@ func _layout() -> void:
 	var screen := get_viewport_rect().size
 	if screen.x < 200:
 		screen = Vector2(720, 1280)
-	var bar_y := _top_bar_y()
+	_place_top_bar()
 	var top := _top_bar_bottom()
 	var bar_top := screen.y - maxf(_bar.size.y, _bar.get_combined_minimum_size().y)
 	var origin_y := (top + bar_top) / 2.0 + 18.0 * _s
@@ -606,17 +653,21 @@ func _layout() -> void:
 	# never higher than just under the top bar.
 	# WHY the second case: on notched phones and under a tall prompt the
 	# plates close up right under the top bar, leaving too little strip for
-	# a line; the pill then lies on the top bar's own row, over the status
-	# words, instead of on the players' names.
+	# a line; the pill then lies on the top bar's own row, between the logo
+	# and Forfeit, instead of on the players' names. Beside a cut-out that
+	# row holds the camera, so the pill stays just under the top bar.
 	var strip_top := _notice_top()
 	var plate_top := _board.origin.y - reach * _plate_ky
 	var one_line := _px(UiTheme.TYPE_LABEL * 1.35 + 7)
 	if plate_top - strip_top >= one_line:
 		_notice_holder.offset_top = maxf(_notice_top(), (strip_top + plate_top - one_line) / 2.0)
+	elif _beside_cutout:
+		_notice_holder.offset_top = _notice_top()
 	else:
-		_notice_holder.offset_top = bar_y + (_px(TOP_BAR_H) - one_line) / 2.0
+		_notice_holder.offset_top = _top_bar_y() + (_px(TOP_BAR_H) - one_line) / 2.0
 	# The get-ready content centres between the top bar and the bottom bar.
 	if _ready_center != null:
+		_ready_center.offset_top = _top_bar_bottom()
 		_ready_center.offset_bottom = bar_top - screen.y
 	_place_supply()
 

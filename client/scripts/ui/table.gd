@@ -56,11 +56,11 @@ const PLATE_SLOTS := [
 const PLATE_H := 66.0
 ## Shares in one Market row before a second row starts.
 const MARKET_PER_ROW := 5
-## Highest place for the notice pill (dp from the top): the logo's foot.
-const NOTICE_TOP := 46.0
-## The top bar's row (dp from the top, and its height).
+## The top bar's row (dp from the top on phones without a notch, and its
+## height), and the band's room under the row.
 const TOP_BAR_Y := 8.0
 const TOP_BAR_H := 48.0
+const TOP_BAR_PAD := 4.0
 ## Room between the top bar's row and the highest seat plate, dp.
 const PLATE_GAP := 6.0
 ## Least room between two plates that stand above one another, dp, when
@@ -139,7 +139,7 @@ var _last_tick := -1
 var _announced_turn := -1
 var _leave_button: Button
 ## The top bar (brand, status, timer, Leave); lifted over the get-ready shade.
-var _top_bar: HBoxContainer
+var _top_bar: PanelContainer
 var _top_bar_home := 0
 ## How far the plates close up towards the felt on a short screen (1 = as
 ## designed); set by _layout.
@@ -295,13 +295,20 @@ func _build_layout() -> void:
 ## Top of the top bar's row, px. On a phone with a notch or Dynamic Island
 ## the row starts right at the safe area's edge (which already leaves a gap
 ## under the cut-out); elsewhere TOP_BAR_Y below the screen's edge.
+## WHY the OS safe area and no model table: iOS reports it for the phone and
+## the iOS version it runs (notch, Dynamic Island, none), Android likewise.
 func _top_bar_y() -> float:
 	return maxf(float(_px(TOP_BAR_Y)), _insets.x)
 
 
-## Highest place for the notice pill, px: the logo's foot.
+## Foot of the top bar's band, px: everything else on the table starts here.
+func _top_bar_bottom() -> float:
+	return _top_bar_y() + _px(TOP_BAR_H + TOP_BAR_PAD)
+
+
+## Highest place for the notice pill, px: just under the top bar's band.
 func _notice_top() -> float:
-	return _top_bar_y() + _px(NOTICE_TOP - TOP_BAR_Y)
+	return _top_bar_bottom() + _px(4)
 
 
 ## The plate slots for the opponents in the current view.
@@ -378,24 +385,41 @@ func _plate_dy(slot: Array) -> float:
 	return (y - 400.0) * _s * (1.0 if y >= PLATE_FIXED_Y else _plate_ky)
 
 
-## Brand, whose turn it is, the step timer and Leave (Forfeit in a live game).
+## A cream band from the screen's top edge, mirroring the bottom bar: the
+## logo on the left, whose turn it is, the step timer, then Leave (Forfeit
+## in a live game) on the right. The band runs up behind the status bar,
+## notch or Dynamic Island; its row starts under the safe area.
 func _build_top_bar() -> void:
+	var band := PanelContainer.new()
+	band.set_anchors_and_offsets_preset(Control.PRESET_TOP_WIDE)
+	var style := StyleBoxFlat.new()
+	style.bg_color = UiTheme.CREAM
+	style.border_color = UiTheme.OUTLINE
+	style.border_width_bottom = _px(2)
+	style.corner_radius_bottom_left = _px(20)
+	style.corner_radius_bottom_right = _px(20)
+	style.anti_aliasing = true
+	style.content_margin_left = _px(12)
+	style.content_margin_right = _px(12)
+	style.content_margin_top = _top_bar_y()
+	style.content_margin_bottom = _px(TOP_BAR_PAD)
+	style.shadow_color = Color(0, 0, 0, 0.3)
+	style.shadow_size = _px(14)
+	band.add_theme_stylebox_override("panel", style)
+	add_child(band)
+	_top_bar = band
+	_top_bar_home = band.get_index()
 	var top := HBoxContainer.new()
-	top.set_anchors_and_offsets_preset(Control.PRESET_TOP_WIDE)
-	top.offset_left = _px(12)
-	top.offset_right = -_px(12)
-	top.offset_top = _top_bar_y()
 	top.custom_minimum_size = Vector2(0, _px(TOP_BAR_H))
 	top.add_theme_constant_override("separation", _px(10))
-	add_child(top)
-	_top_bar = top
-	_top_bar_home = top.get_index()
+	band.add_child(top)
 	var brand := LogoTitle.new()
 	brand.px = _px(17)
 	brand.tilt = 0.0
 	brand.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	top.add_child(brand)
-	_status = UiTheme.title("Connecting…", _px(UiTheme.TYPE_HEADING))
+	# Ink on the cream band, like the names in the bottom bar.
+	_status = UiTheme.label("Connecting…", _px(UiTheme.TYPE_HEADING), UiTheme.OUTLINE, true)
 	_status.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_status.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -405,7 +429,7 @@ func _build_top_bar() -> void:
 	# The step timer in a dark pill, like the streak in the lobby's HUD; it
 	# turns red and ticks while your own step runs out.
 	_timer_pill = PanelContainer.new()
-	var pill := UiTheme.ink_box(Color(UiTheme.NIGHT, 0.6), _px(15), maxi(2, _px(1.5)))
+	var pill := UiTheme.ink_box(UiTheme.NIGHT, _px(15), maxi(2, _px(1.5)))
 	pill.content_margin_left = _px(9)
 	pill.content_margin_right = _px(9)
 	pill.content_margin_top = _px(3)
@@ -550,7 +574,7 @@ func _layout() -> void:
 	if screen.x < 200:
 		screen = Vector2(720, 1280)
 	var bar_y := _top_bar_y()
-	var top := bar_y + _px(TOP_BAR_H + 4)
+	var top := _top_bar_bottom()
 	var bar_top := screen.y - maxf(_bar.size.y, _bar.get_combined_minimum_size().y)
 	var origin_y := (top + bar_top) / 2.0 + 18.0 * _s
 	# The highest plate stands clear under the top bar's row.
@@ -562,7 +586,7 @@ func _layout() -> void:
 	# keeps as much room above your hand as it can.
 	var slots := _current_slots()
 	var reach := (400.0 - _highest_slot_y(slots)) * _s
-	var clear_y := bar_y + _px(TOP_BAR_H + PLATE_GAP)
+	var clear_y := _top_bar_bottom() + _px(PLATE_GAP)
 	_plate_ky = 1.0
 	_slots = slots
 	var short := clear_y - (origin_y - reach)
@@ -582,12 +606,12 @@ func _layout() -> void:
 	_emote_bar.offset_bottom = bar_top - screen.y - _px(6)
 	# The notice stands in the strip between the top bar and the highest
 	# seat plate, which grows with the screen's height: centred in it, and
-	# never higher than the logo's foot.
+	# never higher than just under the top bar's band.
 	# WHY the second case: on notched phones and under a tall prompt the
 	# plates close up right under the top bar, leaving too little strip for
 	# a line; the pill then lies on the top bar's own row, over the status
 	# words, instead of on the players' names.
-	var strip_top := _notice_top() + _px(4)
+	var strip_top := _notice_top()
 	var plate_top := _board.origin.y - reach * _plate_ky
 	var one_line := _px(UiTheme.TYPE_LABEL * 1.35 + 7)
 	if plate_top - strip_top >= one_line:
@@ -612,7 +636,7 @@ func _build_get_ready() -> void:
 	add_child(_ready_overlay)
 	var center := CenterContainer.new()
 	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	center.offset_top = _top_bar_y() + _px(TOP_BAR_H)
+	center.offset_top = _top_bar_bottom()
 	center.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_ready_overlay.add_child(center)
 	_ready_center = center
@@ -1252,7 +1276,7 @@ func _update_urgency(remaining: int) -> void:
 	if urgent != _was_urgent:
 		_was_urgent = urgent
 		var pill: StyleBoxFlat = _timer_pill.get_theme_stylebox("panel")
-		pill.bg_color = UiTheme.BADGE if urgent else Color(UiTheme.NIGHT, 0.6)
+		pill.bg_color = UiTheme.BADGE if urgent else UiTheme.NIGHT
 		_timer_label.add_theme_color_override("font_color", Color.WHITE if urgent else UiTheme.GOLD)
 	if not urgent:
 		_last_tick = -1

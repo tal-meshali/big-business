@@ -61,6 +61,16 @@ const NOTICE_TOP := 46.0
 ## The top bar's row (dp from the top, and its height).
 const TOP_BAR_Y := 8.0
 const TOP_BAR_H := 48.0
+## Room between the top bar's row and the highest seat plate, dp.
+const PLATE_GAP := 6.0
+## Least room between two plates that stand above one another, dp, when
+## the plates close up under the top bar.
+const PLATE_MIN_GAP := 6.0
+## The plates close up towards the felt by at most this much (their
+## distance from the felt's centre times this).
+const PLATE_KY_FLOOR := 0.85
+## Width of a narrow plate (no "capital" word), dp.
+const PLATE_W_NARROW := 118
 
 var view: Dictionary = {}
 var _my_seat: int = -1
@@ -128,6 +138,11 @@ var _leave_button: Button
 ## The top bar (brand, status, timer, Leave); lifted over the get-ready shade.
 var _top_bar: HBoxContainer
 var _top_bar_home := 0
+## How far the plates close up towards the felt on a short screen (1 = as
+## designed); set by _layout.
+var _plate_ky := 1.0
+## The plate slots in use, as _layout fitted them for this screen.
+var _slots: Array = []
 var _forfeit_overlay: ColorRect
 var _ready_overlay: ColorRect
 var _ready_seats: Label
@@ -274,13 +289,81 @@ func _build_layout() -> void:
 	_layout()
 
 
+## Top of the top bar's row, px. On a phone with a notch or Dynamic Island
+## the row starts right at the safe area's edge (which already leaves a gap
+## under the cut-out); elsewhere TOP_BAR_Y below the screen's edge.
+func _top_bar_y() -> float:
+	return maxf(float(_px(TOP_BAR_Y)), _insets.x)
+
+
+## Highest place for the notice pill, px: the logo's foot.
+func _notice_top() -> float:
+	return _top_bar_y() + _px(NOTICE_TOP - TOP_BAR_Y)
+
+
+## The plate slots for the opponents in the current view.
+func _current_slots() -> Array:
+	var n: int = (view.get("seats", []) as Array).size() - 1 if not view.is_empty() else 1
+	return PLATE_SLOTS[clampi(n, 1, PLATE_SLOTS.size()) - 1]
+
+
+## The design y (dp, felt centre at 400) of the highest plate in `slots`.
+static func _highest_slot_y(slots: Array) -> float:
+	var y := INF
+	for slot in slots:
+		y = minf(y, float(slot[2]))
+	return y
+
+
+## `slots` with every wide plate in the middle made as narrow as the others.
+static func _narrowed(slots: Array) -> Array:
+	var out := []
+	for slot in slots:
+		var copy: Array = slot.duplicate()
+		if String(copy[0]) == "C" and int(copy[3]) > PLATE_W_NARROW and slots.size() > 1:
+			copy[3] = PLATE_W_NARROW
+		out.append(copy)
+	return out
+
+
+## Left edge (px) of a plate in `slot` on a screen `screen_w` px wide.
+func _slot_x(slot: Array, screen_w: float) -> float:
+	var w: float = float(slot[3]) * _s
+	var x: float = float(slot[1]) * _s
+	match String(slot[0]):
+		"R":
+			x = screen_w - x - w
+		"C":
+			x = screen_w / 2.0 + x - w / 2.0
+	return x
+
+
+## How far the plates in `slots` may close up towards the felt (1 = as
+## designed): plates that stand above one another keep PLATE_MIN_GAP
+## between them.
+func _plate_ky_min(slots: Array, screen_w: float) -> float:
+	var ky := PLATE_KY_FLOOR
+	for i in slots.size():
+		for j in range(i + 1, slots.size()):
+			var a: Array = slots[i]
+			var b: Array = slots[j]
+			var ax := _slot_x(a, screen_w)
+			var bx := _slot_x(b, screen_w)
+			if ax + float(a[3]) * _s <= bx or bx + float(b[3]) * _s <= ax:
+				continue
+			var dy := absf(float(a[2]) - float(b[2]))
+			if dy > 0.0:
+				ky = maxf(ky, (PLATE_H + PLATE_MIN_GAP) / dy)
+	return minf(ky, 1.0)
+
+
 ## Brand, whose turn it is, the step timer and Leave (Forfeit in a live game).
 func _build_top_bar() -> void:
 	var top := HBoxContainer.new()
 	top.set_anchors_and_offsets_preset(Control.PRESET_TOP_WIDE)
 	top.offset_left = _px(12)
 	top.offset_right = -_px(12)
-	top.offset_top = _px(TOP_BAR_Y) + _insets.x
+	top.offset_top = _top_bar_y()
 	top.custom_minimum_size = Vector2(0, _px(TOP_BAR_H))
 	top.add_theme_constant_override("separation", _px(10))
 	add_child(top)
@@ -444,9 +527,32 @@ func _layout() -> void:
 	var screen := get_viewport_rect().size
 	if screen.x < 200:
 		screen = Vector2(720, 1280)
-	var top := 60.0 * _s + _insets.x
+	var bar_y := _top_bar_y()
+	var top := bar_y + _px(TOP_BAR_H + 4)
 	var bar_top := screen.y - maxf(_bar.size.y, _bar.get_combined_minimum_size().y)
-	_board.origin = Vector2(screen.x / 2.0, (top + bar_top) / 2.0 + 18.0 * _s)
+	var origin_y := (top + bar_top) / 2.0 + 18.0 * _s
+	# The highest plate stands clear under the top bar's row.
+	# WHY: safe-area insets (the notch or Dynamic Island) and the tall bar
+	# both take height from the artboard, and centring the felt between them
+	# pushed the top plates up under the logo, the turn and Forfeit. The
+	# plates first close up towards the felt (never onto each other), and
+	# only what is still missing moves the felt down, so your Portfolio
+	# keeps as much room above your hand as it can.
+	var slots := _current_slots()
+	var reach := (400.0 - _highest_slot_y(slots)) * _s
+	var clear_y := bar_y + _px(TOP_BAR_H + PLATE_GAP)
+	_plate_ky = 1.0
+	_slots = slots
+	var short := clear_y - (origin_y - reach)
+	if short > 0.0:
+		# A wide plate in the middle that would run into the plates beside
+		# it as they close up turns narrow (it loses only the word "capital").
+		var narrow := _narrowed(slots)
+		if _plate_ky_min(narrow, screen.x) < _plate_ky_min(slots, screen.x):
+			_slots = narrow
+		_plate_ky = maxf(_plate_ky_min(_slots, screen.x), 1.0 - short / reach)
+		origin_y = maxf(origin_y, clear_y + reach * _plate_ky)
+	_board.origin = Vector2(screen.x / 2.0, origin_y)
 	_board.queue_redraw()
 	var hand_h := CardView.H * _hand_scale + 40.0 * _s
 	_hand_layer.offset_bottom = bar_top - screen.y
@@ -459,13 +565,13 @@ func _layout() -> void:
 	# prompt both push the plates up until no strip is left; the pill then
 	# lies on the top bar's own row, over the status words, instead of on
 	# the players' names.
-	var strip_top := _px(NOTICE_TOP + 4) + _insets.x
-	var plate_top := _board.origin.y + (float(PLATE_SLOTS[0][0][2]) - 400.0) * _s
+	var strip_top := _notice_top() + _px(4)
+	var plate_top := _board.origin.y - reach * _plate_ky
 	var one_line := _px(UiTheme.TYPE_LABEL * 1.35 + 7)
 	if plate_top - strip_top >= one_line:
-		_notice_holder.offset_top = maxf(_px(NOTICE_TOP) + _insets.x, (strip_top + plate_top - one_line) / 2.0)
+		_notice_holder.offset_top = maxf(_notice_top(), (strip_top + plate_top - one_line) / 2.0)
 	else:
-		_notice_holder.offset_top = _px(TOP_BAR_Y) + _insets.x + (_px(TOP_BAR_H) - one_line) / 2.0
+		_notice_holder.offset_top = bar_y + (_px(TOP_BAR_H) - one_line) / 2.0
 	# The get-ready content centres between the top bar and the bottom bar.
 	if _ready_center != null:
 		_ready_center.offset_bottom = bar_top - screen.y
@@ -484,7 +590,7 @@ func _build_get_ready() -> void:
 	add_child(_ready_overlay)
 	var center := CenterContainer.new()
 	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	center.offset_top = _px(56) + _insets.x
+	center.offset_top = _top_bar_y() + _px(TOP_BAR_H)
 	center.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_ready_overlay.add_child(center)
 	_ready_center = center
@@ -569,7 +675,7 @@ func _build_notice() -> void:
 	var holder := CenterContainer.new()
 	_notice_holder = holder
 	holder.set_anchors_and_offsets_preset(Control.PRESET_TOP_WIDE)
-	holder.offset_top = _px(NOTICE_TOP) + _insets.x
+	holder.offset_top = _notice_top()
 	holder.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(holder)
 	_notice = PanelContainer.new()
@@ -1334,7 +1440,7 @@ func _render_seats(seats: Array, active: int, phase: String) -> void:
 	var screen := get_viewport_rect().size
 	if screen.x < 200:
 		screen = Vector2(720, 1280)
-	var slots: Array = PLATE_SLOTS[clampi(order.size(), 1, PLATE_SLOTS.size()) - 1]
+	var slots: Array = _slots if _slots.size() == order.size() else PLATE_SLOTS[clampi(order.size(), 1, PLATE_SLOTS.size()) - 1]
 	var spots := TableBoard.hand_spots(order.size())
 	var hands := []
 	var portfolios := []
@@ -1344,15 +1450,10 @@ func _render_seats(seats: Array, active: int, phase: String) -> void:
 		var slot: Array = slots[i]
 		var sv := plates[i]
 		var w: float = float(slot[3]) * _s
-		var x: float = float(slot[1]) * _s
-		match String(slot[0]):
-			"R":
-				x = screen.x - x - w
-			"C":
-				x = screen.x / 2.0 + x - w / 2.0
+		var x := _slot_x(slot, screen.x)
 		sv.custom_minimum_size = Vector2(w, PLATE_H * _s)
 		sv.size = sv.custom_minimum_size
-		sv.position = Vector2(x, _board.origin.y + (float(slot[2]) - 400.0) * _s)
+		sv.position = Vector2(x, _board.origin.y + (float(slot[2]) - 400.0) * _s * _plate_ky)
 		sv.wide = int(slot[3]) >= 170
 		sv.avatar_color = SeatView.AVATARS[(i + 1) % SeatView.AVATARS.size()]
 		sv.visible = true

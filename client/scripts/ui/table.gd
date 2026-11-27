@@ -4,7 +4,7 @@ extends Control
 ##
 ## Layout, after the "3D table" design (sizes in design points, see
 ## UiTheme.layout_scale):
-##   top bar      cream band from the screen's top edge: logo, timer pill,
+##   top bar      row hugging the screen's top edge: logo, timer pill,
 ##                Leave / Forfeit
 ##   plates       opponents around the far side of the felt
 ##   felt         tilted table (TableBoard): Supply, the Market, your Portfolio,
@@ -59,10 +59,10 @@ const PLATE_H := 66.0
 ## Shares in one Market row before a second row starts.
 const MARKET_PER_ROW := 5
 ## The top bar's row (dp from the top on phones without a notch, and its
-## height), and the band's room under the row.
-const TOP_BAR_Y := 10.0
+## height), and the room under the row.
+const TOP_BAR_Y := 8.0
 const TOP_BAR_H := 48.0
-const TOP_BAR_PAD := 8.0
+const TOP_BAR_PAD := 4.0
 ## Room between the top bar's row and the highest seat plate, dp.
 const PLATE_GAP := 6.0
 ## Least room between two plates that stand above one another, dp, when
@@ -141,7 +141,7 @@ var _glow: Panel
 var _last_tick := -1
 var _announced_turn := -1
 var _leave_button: Button
-## The top bar's band (brand, timer, Leave); lifted over the
+## The top bar (brand, timer, Leave); lifted over the
 ## get-ready shade.
 var _top_bar: PanelContainer
 var _top_bar_home := 0
@@ -306,12 +306,12 @@ func _top_bar_y() -> float:
 	return maxf(float(_px(TOP_BAR_Y)), _insets.x)
 
 
-## Foot of the top bar's band, px: everything else on the table starts here.
+## Foot of the top bar, px: everything else on the table starts here.
 func _top_bar_bottom() -> float:
 	return _top_bar_y() + _px(TOP_BAR_H + TOP_BAR_PAD)
 
 
-## Highest place for the notice pill, px: just under the top bar's band.
+## Highest place for the notice pill, px: just under the top bar.
 func _notice_top() -> float:
 	return _top_bar_bottom() + _px(4)
 
@@ -390,26 +390,19 @@ func _plate_dy(slot: Array) -> float:
 	return (y - 400.0) * _s * (1.0 if y >= PLATE_FIXED_Y else _plate_ky)
 
 
-## A cream band from the screen's top edge, mirroring the bottom bar: the
-## logo on the left, the step timer, then Leave (Forfeit in a live game) on
-## the right. The band runs up behind the notch or Dynamic
-## Island; its row starts under the safe area.
+## The top bar, on the room's own background (no band: Tal's call,
+## 2026-11-27): the logo on the left, the step timer, then Leave (Forfeit in
+## a live game) on the right. It hugs the screen's top edge; its row starts
+## under the safe area.
 func _build_top_bar() -> void:
 	var band := PanelContainer.new()
 	band.set_anchors_and_offsets_preset(Control.PRESET_TOP_WIDE)
-	var style := StyleBoxFlat.new()
-	style.bg_color = UiTheme.CREAM
-	style.border_color = UiTheme.OUTLINE
-	style.border_width_bottom = _px(2)
-	style.corner_radius_bottom_left = _px(20)
-	style.corner_radius_bottom_right = _px(20)
-	style.anti_aliasing = true
+	band.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var style := StyleBoxEmpty.new()
 	style.content_margin_left = _px(12)
 	style.content_margin_right = _px(12)
 	style.content_margin_top = _top_bar_y()
 	style.content_margin_bottom = _px(TOP_BAR_PAD)
-	style.shadow_color = Color(0, 0, 0, 0.3)
-	style.shadow_size = _px(14)
 	band.add_theme_stylebox_override("panel", style)
 	add_child(band)
 	_top_bar = band
@@ -610,7 +603,7 @@ func _layout() -> void:
 	_emote_bar.offset_bottom = bar_top - screen.y - _px(6)
 	# The notice stands in the strip between the top bar and the highest
 	# seat plate, which grows with the screen's height: centred in it, and
-	# never higher than just under the top bar's band.
+	# never higher than just under the top bar.
 	# WHY the second case: on notched phones and under a tall prompt the
 	# plates close up right under the top bar, leaving too little strip for
 	# a line; the pill then lies on the top bar's own row, over the status
@@ -630,8 +623,8 @@ func _layout() -> void:
 
 ## The countdown before the first turn: a gold 3-2-1 over rays, who starts,
 ## then the seat order on a royal card. The shade covers the whole screen,
-## home indicator included; the top bar's band is lifted above it while it
-## shows so Forfeit stays in reach, and dimmed so the countdown leads.
+## home indicator included; the top bar is lifted above it while it
+## shows so Forfeit stays in reach.
 func _build_get_ready() -> void:
 	_ready_overlay = ColorRect.new()
 	_ready_overlay.color = Color(UiTheme.NIGHT, 0.82)
@@ -1278,10 +1271,7 @@ func _end_get_ready() -> void:
 ## Puts the top bar just above the get-ready shade (lift) or back in its
 ## place under the felt's overlays (dividend day, flying cards, emotes).
 ## WHY: the shade covers the full screen, but Forfeit must stay tappable.
-## The band's cream dims to the shade's tone while lifted (self_modulate
-## leaves the logo, timer and Forfeit at full strength).
 func _lift_top_bar(lift: bool) -> void:
-	_top_bar.self_modulate = Color(0.22, 0.2, 0.32) if lift else Color.WHITE
 	if lift:
 		if _top_bar.get_index() < _ready_overlay.get_index():
 			move_child(_top_bar, _ready_overlay.get_index())
@@ -1302,7 +1292,7 @@ func _update_urgency(remaining: int) -> void:
 		pill.bg_color = UiTheme.BADGE if urgent else UiTheme.NIGHT
 		_timer_label.add_theme_color_override("font_color", Color.WHITE if urgent else UiTheme.GOLD)
 	# On your own turn the pill wears a gold rim: with no turn words in the
-	# top bar, this is the band's sign that the move is yours.
+	# top bar, this is its sign that the move is yours.
 	var mine := _is_my_turn()
 	if mine != _was_mine:
 		_was_mine = mine

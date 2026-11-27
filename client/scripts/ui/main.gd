@@ -100,7 +100,12 @@ func _ready() -> void:
 	Net.server_error.connect(func(m: String) -> void: _status.text = m)
 	Net.account_switched.connect(_on_account_switched)
 	Net.remote_config_updated.connect(_apply_remote_config)
-	if not Net.is_connected_to_server():
+	if Net.is_reconnecting():
+		# WHY: back from a table that was still reconnecting; a second
+		# connection would race it. Its connected or connection_failed
+		# signal reaches this lobby when it ends.
+		_status.text = "Reconnecting…"
+	elif not Net.is_connected_to_server():
 		_on_connect_pressed.call_deferred()
 	else:
 		# Back from a game on a live socket: no connected signal will come,

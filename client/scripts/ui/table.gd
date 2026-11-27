@@ -103,6 +103,9 @@ var _notice: PanelContainer
 var _notice_holder: CenterContainer
 var _notice_label: Label
 var _notice_tween: Tween
+## True while the notice lies on the top bar's row, between the logo and
+## the timer (it is kept to that gap so Forfeit stays in sight).
+var _notice_on_row := false
 var _seats_layer: Control
 var _seat_views: Array[SeatView] = []
 var _me_view: SeatView
@@ -138,6 +141,8 @@ var _reconnect_overlay: ColorRect
 var _reconnect_label: Label
 var _reconnect_leave: Button
 var _reconnect_title: Label
+var _reconnect_text := ""
+var _reconnect_dead := false
 var sfx: Sfx
 ## Tutorial: the coached move for this view ({} = anything legal).
 var _restriction: Dictionary = {}
@@ -653,18 +658,20 @@ func _layout() -> void:
 	# never higher than just under the top bar.
 	# WHY the second case: on notched phones and under a tall prompt the
 	# plates close up right under the top bar, leaving too little strip for
-	# a line; the pill then lies on the top bar's own row, between the logo
-	# and Forfeit, instead of on the players' names. Beside a cut-out that
-	# row holds the camera, so the pill stays just under the top bar.
+	# two lines; the pill then lies on the top bar's own row, in the gap
+	# between the logo and the timer, instead of on the players' names.
+	# Beside a cut-out that row holds the camera, so the pill stays under
+	# the top bar.
 	var strip_top := _notice_top()
 	var plate_top := _board.origin.y - reach * _plate_ky
-	var one_line := _px(UiTheme.TYPE_LABEL * 1.35 + 7)
-	if plate_top - strip_top >= one_line:
-		_notice_holder.offset_top = maxf(_notice_top(), (strip_top + plate_top - one_line) / 2.0)
-	elif _beside_cutout:
-		_notice_holder.offset_top = _notice_top()
+	# WHY two lines: a long notice wraps, and must not reach the names.
+	var two_lines := _px(UiTheme.TYPE_LABEL * 1.35 * 2 + 7)
+	_notice_on_row = false
+	if plate_top - strip_top >= two_lines or _beside_cutout:
+		_notice_holder.offset_top = maxf(_notice_top(), (strip_top + plate_top - two_lines) / 2.0)
 	else:
-		_notice_holder.offset_top = _top_bar_y() + (_px(TOP_BAR_H) - one_line) / 2.0
+		_notice_on_row = true
+		_notice_holder.offset_top = _top_bar_y() + (_px(TOP_BAR_H) - two_lines) / 2.0
 	# The get-ready content centres between the top bar and the bottom bar.
 	if _ready_center != null:
 		_ready_center.offset_top = _top_bar_bottom()
@@ -805,6 +812,9 @@ func _show_notice(text: String) -> void:
 	_notice_label.text = text.substr(0, 1).to_upper() + text.substr(1)
 	var px := _px(UiTheme.TYPE_LABEL)
 	var room := get_viewport_rect().size.x - _px(32 + 28)
+	if _notice_on_row:
+		var gap := _top_right.position.x - (_top_left.position.x + _top_left.size.x * _top_left.scale.x)
+		room = minf(room, gap - _px(16 + 28))
 	var wide := UiTheme.body_font().get_string_size(_notice_label.text, HORIZONTAL_ALIGNMENT_LEFT, -1, px).x
 	# WHY: a wrapping label in a centring container shrinks to one word
 	# unless it is told its width.
@@ -900,7 +910,7 @@ func _build_social_layer() -> void:
 	stack.add_child(_reconnect_label)
 	# WHY a way out: in a game the reconnect does not give up on its own.
 	_reconnect_leave = UiTheme.button("Back to lobby", _px(15), _px(44), "ghost")
-	_reconnect_leave.pressed.connect(_on_leave)
+	_reconnect_leave.pressed.connect(_on_reconnect_leave)
 	stack.add_child(_reconnect_leave)
 	rc.add_child(deed["panel"])
 
@@ -1003,18 +1013,25 @@ func _on_seat_menu(id: int) -> void:
 
 ## The table dims under the Reconnecting panel while Net keeps trying; in
 ## a game it tries until the network is back (Net._try_reconnect).
+## On the results the standings stay in view: there is no game to rejoin.
 func _on_reconnecting(_attempt: int) -> void:
-	_show_reconnect("Connection lost. Reconnecting…", false)
+	if view.get("phase") == "ended":
+		return
+	_show_reconnect("Connection lost. Reconnecting", false)
 
 
 func _on_reconnected() -> void:
-	if Net.match_id.is_empty():
+	if Net.match_id.is_empty() and view.get("phase") != "ended":
 		_show_reconnect("Could not rejoin this game.", true)
 	else:
 		_reconnect_overlay.visible = false
 
 
 func _on_connection_failed(_reason: String) -> void:
+	# WHY: each failed attempt inside the reconnect reports a failure too;
+	# only the end of the reconnect is final.
+	if Net.is_reconnecting() or view.get("phase") == "ended":
+		return
 	_show_reconnect("Could not reach the server.", true)
 
 
@@ -1024,10 +1041,37 @@ func _show_reconnect(text: String, dead: bool) -> void:
 	# Above the get-ready shade and any panel that opened after it.
 	move_child(_reconnect_overlay, -1)
 	_reconnect_overlay.visible = true
-	_reconnect_label.text = text
+	_reconnect_text = text
+	_reconnect_dead = dead
+	_reconnect_label.text = text if dead else text + "..."
 	_reconnect_title.text = "Connection lost" if dead else "Reconnecting"
+	# While it still tries, the way out is a small quiet button; once it
+	# cannot come back, it is the gold main action. Leaving a live game
+	# goes through the forfeit question, as from the top bar.
+	_reconnect_leave.text = "Leave game" if _can_forfeit() and not dead else "Back to lobby"
 	_reconnect_leave.theme_type_variation = "PrimaryButton" if dead else "GhostButton"
 	_reconnect_leave.add_theme_constant_override("outline_size", maxi(4, int(round(_px(15) * 0.3))) if dead else 0)
+	_reconnect_leave.size_flags_horizontal = Control.SIZE_FILL if dead else Control.SIZE_SHRINK_CENTER
+	_reconnect_leave.add_theme_font_size_override("font_size", _px(15) if dead else _px(13))
+
+
+## The dots after "Reconnecting" step while it tries, so a long wait does
+## not look frozen.
+func _step_reconnect_dots() -> void:
+	if not _reconnect_overlay.visible or _reconnect_dead:
+		return
+	var n := int(Time.get_ticks_msec() / 500) % 4
+	var text := _reconnect_text + ".".repeat(n)
+	if _reconnect_label.text != text:
+		_reconnect_label.text = text
+
+
+func _on_reconnect_leave() -> void:
+	if _can_forfeit() and not _reconnect_dead:
+		move_child(_forfeit_overlay, -1)
+		_forfeit_overlay.visible = true
+	else:
+		_on_leave()
 
 
 ## A move or dialog button, hidden until a step shows it.
@@ -1215,12 +1259,15 @@ func _on_view(v: Dictionary) -> void:
 
 
 func _process(_delta: float) -> void:
+	_step_reconnect_dots()
 	if _ready_ends_msec > 0:
 		_update_countdown()
 	if view.is_empty():
 		return
 	var deadline := float(view.get("deadline", 0))
-	if deadline <= 0 or view.get("phase") == "ended" or _ready_overlay.visible:
+	# WHY the reconnect check: the deadline is stale while the connection is
+	# down, and its red pulse and ticks would play under the panel.
+	if deadline <= 0 or view.get("phase") == "ended" or _ready_overlay.visible or _reconnect_overlay.visible:
 		_timer_label.text = ""
 		_timer_pill.visible = false
 		_glow.visible = false

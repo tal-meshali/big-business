@@ -69,6 +69,9 @@ const PLATE_MIN_GAP := 6.0
 ## The plates close up towards the felt by at most this much (their
 ## distance from the felt's centre times this).
 const PLATE_KY_FLOOR := 0.85
+## Plates this low (design y) stand beside the Market and never close up,
+## or they would cover its outer shares.
+const PLATE_FIXED_Y := 250.0
 ## Width of a narrow plate (no "capital" word), dp.
 const PLATE_W_NARROW := 118
 
@@ -340,7 +343,7 @@ func _slot_x(slot: Array, screen_w: float) -> float:
 
 ## How far the plates in `slots` may close up towards the felt (1 = as
 ## designed): plates that stand above one another keep PLATE_MIN_GAP
-## between them.
+## between them, including above a plate that stays put (PLATE_FIXED_Y).
 func _plate_ky_min(slots: Array, screen_w: float) -> float:
 	var ky := PLATE_KY_FLOOR
 	for i in slots.size():
@@ -351,10 +354,28 @@ func _plate_ky_min(slots: Array, screen_w: float) -> float:
 			var bx := _slot_x(b, screen_w)
 			if ax + float(a[3]) * _s <= bx or bx + float(b[3]) * _s <= ax:
 				continue
-			var dy := absf(float(a[2]) - float(b[2]))
-			if dy > 0.0:
-				ky = maxf(ky, (PLATE_H + PLATE_MIN_GAP) / dy)
+			var ya := float(a[2])
+			var yb := float(b[2])
+			if ya > yb:
+				var t := ya
+				ya = yb
+				yb = t
+			if ya == yb or ya >= PLATE_FIXED_Y:
+				continue
+			# a (higher) closes up; b too unless it stands beside the Market.
+			var room := PLATE_H + PLATE_MIN_GAP
+			if yb >= PLATE_FIXED_Y:
+				ky = maxf(ky, (room + 400.0 - yb) / (400.0 - ya))
+			else:
+				ky = maxf(ky, room / (yb - ya))
 	return minf(ky, 1.0)
+
+
+## A plate's top (px) below the felt's centre for `slot`, as closed up by
+## _plate_ky. Plates as low as the Market stay where they are designed.
+func _plate_dy(slot: Array) -> float:
+	var y := float(slot[2])
+	return (y - 400.0) * _s * (1.0 if y >= PLATE_FIXED_Y else _plate_ky)
 
 
 ## Brand, whose turn it is, the step timer and Leave (Forfeit in a live game).
@@ -520,7 +541,8 @@ func _on_resized() -> void:
 
 ## Places the felt, the plates and the hand for the current screen size.
 ## The felt's centre sits midway between the top bar and the bottom bar,
-## as on the design artboard.
+## as on the design artboard, unless the plates need it lower to clear the
+## top bar.
 func _layout() -> void:
 	if _board == null or _bar == null:
 		return
@@ -561,10 +583,10 @@ func _layout() -> void:
 	# The notice stands in the strip between the top bar and the highest
 	# seat plate, which grows with the screen's height: centred in it, and
 	# never higher than the logo's foot.
-	# WHY the second case: safe-area insets (notched phones) and a tall
-	# prompt both push the plates up until no strip is left; the pill then
-	# lies on the top bar's own row, over the status words, instead of on
-	# the players' names.
+	# WHY the second case: on notched phones and under a tall prompt the
+	# plates close up right under the top bar, leaving too little strip for
+	# a line; the pill then lies on the top bar's own row, over the status
+	# words, instead of on the players' names.
 	var strip_top := _notice_top() + _px(4)
 	var plate_top := _board.origin.y - reach * _plate_ky
 	var one_line := _px(UiTheme.TYPE_LABEL * 1.35 + 7)
@@ -1453,7 +1475,7 @@ func _render_seats(seats: Array, active: int, phase: String) -> void:
 		var x := _slot_x(slot, screen.x)
 		sv.custom_minimum_size = Vector2(w, PLATE_H * _s)
 		sv.size = sv.custom_minimum_size
-		sv.position = Vector2(x, _board.origin.y + (float(slot[2]) - 400.0) * _s * _plate_ky)
+		sv.position = Vector2(x, _board.origin.y + _plate_dy(slot))
 		sv.wide = int(slot[3]) >= 170
 		sv.avatar_color = SeatView.AVATARS[(i + 1) % SeatView.AVATARS.size()]
 		sv.visible = true

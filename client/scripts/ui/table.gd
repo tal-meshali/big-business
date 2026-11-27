@@ -4,17 +4,17 @@ extends Control
 ##
 ## Layout, after the "3D table" design (sizes in design points, see
 ## UiTheme.layout_scale):
-##   top bar      cream band from the screen's top edge: logo, a status for
-##                the states around the turns, timer pill, Leave / Forfeit
+##   top bar      cream band from the screen's top edge: logo, timer pill,
+##                Leave / Forfeit
 ##   plates       opponents around the far side of the felt
 ##   felt         tilted table (TableBoard): Supply, the Market, your Portfolio,
 ##                and each opponent's hand and kept shares
 ##   hand         your 3-4 cards standing at the near edge of the felt
 ##   bottom bar   you (capital, holdings), emotes, rules, prompt and buttons
 ##
-## Where the words go: the top bar names only the states around the turns
-## in a few words ("Get ready", "Connection lost"; whose turn it is shows on
-## the gold plate and the timer pill's gold rim); sentences go where there is room for them,
+## Where the words go: the top bar holds no words (whose turn it is shows on
+## the gold plate and the timer pill's gold rim; a lost connection dims the
+## table under a Reconnecting panel); sentences go where there is room for them,
 ## the prompt in the bottom bar (what to do, what the others just did) or
 ## a notice under the top bar (anything that happened once: an error, a
 ## mute, a forfeit).
@@ -89,7 +89,6 @@ var _hand_scale: float = 1.5
 # Widgets
 var _room: TextureRect
 var _board: TableBoard
-var _status: Label
 var _timer_label: Label
 var _timer_pill: PanelContainer
 var _timer_tween: Tween
@@ -133,6 +132,8 @@ var _seat_menu: PopupMenu
 var _seat_menu_target: int = -1
 var _reconnect_overlay: ColorRect
 var _reconnect_label: Label
+var _reconnect_leave: Button
+var _reconnect_title: Label
 var sfx: Sfx
 ## Tutorial: the coached move for this view ({} = anything legal).
 var _restriction: Dictionary = {}
@@ -140,7 +141,7 @@ var _glow: Panel
 var _last_tick := -1
 var _announced_turn := -1
 var _leave_button: Button
-## The top bar's band (brand, status, timer, Leave); lifted over the
+## The top bar's band (brand, timer, Leave); lifted over the
 ## get-ready shade.
 var _top_bar: PanelContainer
 var _top_bar_home := 0
@@ -390,8 +391,8 @@ func _plate_dy(slot: Array) -> float:
 
 
 ## A cream band from the screen's top edge, mirroring the bottom bar: the
-## logo on the left, the status, the step timer, then Leave (Forfeit in a
-## live game) on the right. The band runs up behind the notch or Dynamic
+## logo on the left, the step timer, then Leave (Forfeit in a live game) on
+## the right. The band runs up behind the notch or Dynamic
 ## Island; its row starts under the safe area.
 func _build_top_bar() -> void:
 	var band := PanelContainer.new()
@@ -422,14 +423,13 @@ func _build_top_bar() -> void:
 	brand.tilt = 0.0
 	brand.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	top.add_child(brand)
-	# Ink on the cream band, like the names in the bottom bar.
-	_status = UiTheme.label("Connecting…", _px(UiTheme.TYPE_HEADING), UiTheme.OUTLINE, true)
-	_status.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_status.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_status.max_lines_visible = 2
-	_status.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
-	top.add_child(_status)
+	# WHY no status words: the gold plate says whose turn it is, the panels
+	# and the prompt say the rest (Tal's call, 2026-11-27). The gap keeps
+	# the logo left and the timer and Forfeit right.
+	var gap := Control.new()
+	gap.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	gap.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	top.add_child(gap)
 	# The step timer in a dark pill, like the streak in the lobby's HUD; it
 	# turns red and ticks while your own step runs out.
 	_timer_pill = PanelContainer.new()
@@ -849,7 +849,15 @@ func _build_social_layer() -> void:
 	deed["panel"].custom_minimum_size = Vector2(minf(get_viewport_rect().size.x - _px(48), _px(280)), 0)
 	_reconnect_label = UiTheme.body("", _px(UiTheme.TYPE_BODY))
 	_reconnect_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	deed["body"].add_child(_reconnect_label)
+	_reconnect_title = deed["title"]
+	var stack := VBoxContainer.new()
+	stack.add_theme_constant_override("separation", _px(12))
+	deed["body"].add_child(stack)
+	stack.add_child(_reconnect_label)
+	# WHY a way out: in a game the reconnect does not give up on its own.
+	_reconnect_leave = UiTheme.button("Back to lobby", _px(15), _px(44), "ghost")
+	_reconnect_leave.pressed.connect(_on_leave)
+	stack.add_child(_reconnect_leave)
 	rc.add_child(deed["panel"])
 
 
@@ -949,24 +957,33 @@ func _on_seat_menu(id: int) -> void:
 			_show_notice("%s blocked" % who)
 
 
-func _on_reconnecting(attempt: int) -> void:
-	# Above the get-ready shade and any panel that opened after it.
-	move_child(_reconnect_overlay, -1)
-	_reconnect_overlay.visible = true
-	_reconnect_label.text = "Connection lost. Trying again (%d/5)…" % attempt
+## The table dims under the Reconnecting panel while Net keeps trying; in
+## a game it tries until the network is back (Net._try_reconnect).
+func _on_reconnecting(_attempt: int) -> void:
+	_show_reconnect("Connection lost. Reconnecting…", false)
 
 
 func _on_reconnected() -> void:
-	_reconnect_overlay.visible = false
 	if Net.match_id.is_empty():
-		_status.text = "Could not rejoin"
+		_show_reconnect("Could not rejoin this game.", true)
+	else:
+		_reconnect_overlay.visible = false
 
 
-func _on_connection_failed(reason: String) -> void:
-	_reconnect_overlay.visible = false
-	_status.text = "Connection lost"
-	var why := reason.rstrip(".! ")
-	_prompt.text = "%s. Go back to the lobby to play again." % (why.substr(0, 1).to_upper() + why.substr(1))
+func _on_connection_failed(_reason: String) -> void:
+	_show_reconnect("Could not reach the server.", true)
+
+
+## Shows the dimmed Reconnecting panel with `text`; `dead` when it will not
+## come back, which turns the way out into the main button.
+func _show_reconnect(text: String, dead: bool) -> void:
+	# Above the get-ready shade and any panel that opened after it.
+	move_child(_reconnect_overlay, -1)
+	_reconnect_overlay.visible = true
+	_reconnect_label.text = text
+	_reconnect_title.text = "Connection lost" if dead else "Reconnecting"
+	_reconnect_leave.theme_type_variation = "PrimaryButton" if dead else "GhostButton"
+	_reconnect_leave.add_theme_constant_override("outline_size", maxi(4, int(round(_px(15) * 0.3))) if dead else 0)
 
 
 ## A move or dialog button, hidden until a step shows it.
@@ -1105,7 +1122,6 @@ func _on_play_again() -> void:
 	_turns_announced = 0
 	# A new game starts with the usual two-line prompt again.
 	_prompt.custom_minimum_size.y = maxf(_px(38), _prompt_height(2))
-	_status.text = "Finding a new game…"
 	_result_backdrop.visible = false
 	# The new game's capital is not a change to pop. WHY on the next view
 	# too: a re-render of the old view meanwhile (a resize) would remember
@@ -1266,8 +1282,6 @@ func _end_get_ready() -> void:
 ## leaves the logo, timer and Forfeit at full strength).
 func _lift_top_bar(lift: bool) -> void:
 	_top_bar.self_modulate = Color(0.22, 0.2, 0.32) if lift else Color.WHITE
-	# The status turns cream on the dimmed band, as text on the night shade.
-	_status.add_theme_color_override("font_color", UiTheme.TEXT if lift else UiTheme.OUTLINE)
 	if lift:
 		if _top_bar.get_index() < _ready_overlay.get_index():
 			move_child(_top_bar, _ready_overlay.get_index())
@@ -1380,7 +1394,6 @@ func _render() -> void:
 		_forfeit_overlay.visible = false
 
 	_layout()
-	_render_status(phase)
 	_render_seats(seats, active, phase)
 	_render_market(phase)
 	_render_portfolio(seats)
@@ -1462,19 +1475,6 @@ func _slam_banner(text: String, hint := "") -> void:
 	tw.chain().tween_property(holder, "modulate:a", 0.0, 0.3)
 	tw.parallel().tween_property(holder, "scale", Vector2.ONE * 0.85, 0.3).set_ease(Tween.EASE_IN)
 	tw.chain().tween_callback(holder.queue_free)
-
-
-func _render_status(phase: String) -> void:
-	if phase == "ended":
-		_status.text = "Dividend day!"
-	elif _ready_ends_msec > 0:
-		_status.text = "Get ready"
-	else:
-		# WHY no "Bo's turn": the gold plate and its timer ring already say
-		# whose turn it is, and the prompt below says what they are doing
-		# (Tal's call, 2026-11-27). The status speaks only for the states
-		# around the turns.
-		_status.text = ""
 
 
 ## Opponents in turn order from your left, on plates around the far side of
@@ -2291,5 +2291,4 @@ func _animate_dividends(result: Dictionary) -> void:
 				await get_tree().create_timer(0.05).timeout
 		if any:
 			await get_tree().create_timer(0.45).timeout
-	_status.text = "Dividend day!"
 	sfx.play("fanfare")

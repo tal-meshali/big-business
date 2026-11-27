@@ -71,6 +71,8 @@ var muted: Dictionary = {}
 ## server's friends list on connect so blocks survive reinstalls too.
 var blocked: Dictionary = {}
 var _reconnect_attempts: int = 0
+## Reconnect attempts before giving up when not in a game.
+const RECONNECT_TRIES := 5
 var _closing: bool = false
 var _reconnecting: bool = false
 ## True while the server holds a newer name than the session token carries.
@@ -551,7 +553,11 @@ func check_connection() -> void:
 
 
 ## Reconnect with backoff and rejoin the match we were in; the server keeps
-## the seat and sends a fresh view on rejoin.
+## the seat and sends a fresh view on rejoin. In a game it keeps trying (every
+## 5 s once backed off) until it gets through or the player leaves the game;
+## out of one it gives up after RECONNECT_TRIES.
+## WHY no limit in a game: the table stays dimmed and waits for the network
+## to come back, rather than ending on a dead screen (Tal's call, 2026-11-27).
 func _try_reconnect() -> void:
 	if _reconnecting:
 		return
@@ -559,13 +565,20 @@ func _try_reconnect() -> void:
 	var previous_match := match_id
 	var previous_code := room_code
 	var previous_tutorial := tutorial_mode
-	for attempt in range(1, 6):
+	var attempt := 0
+	while true:
+		attempt += 1
+		var in_game := not previous_match.is_empty() and match_id == previous_match
+		if attempt > RECONNECT_TRIES and not in_game:
+			break
 		_reconnect_attempts = attempt
 		reconnecting.emit(attempt)
 		await get_tree().create_timer(minf(1.0 * attempt, 5.0)).timeout
 		if await _reconnect_session():
 			_reconnecting = false
-			if not previous_match.is_empty():
+			# WHY the match_id check: the player may have left the game while
+			# this was trying; do not pull them back into it.
+			if not previous_match.is_empty() and match_id == previous_match:
 				tutorial_mode = previous_tutorial
 				if await _join_match(previous_match, previous_code):
 					reconnected.emit()

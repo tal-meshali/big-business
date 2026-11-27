@@ -103,9 +103,6 @@ var _notice: PanelContainer
 var _notice_holder: CenterContainer
 var _notice_label: Label
 var _notice_tween: Tween
-## True while the notice lies on the top bar's row, between the logo and
-## the timer (it is kept to that gap so Forfeit stays in sight).
-var _notice_on_row := false
 var _seats_layer: Control
 var _seat_views: Array[SeatView] = []
 var _me_view: SeatView
@@ -336,7 +333,7 @@ func _place_top_bar() -> void:
 	# WHY the widest the right side gets (timer shown, "Forfeit"), not its
 	# width now: the side must not jump between the two places mid-game.
 	var rw := _timer_pill.get_combined_minimum_size().x + _top_right.get_theme_constant("separation") + _leave_button.custom_minimum_size.x
-	var margin := float(_px(12))
+	var margin := float(_px(16))
 	var y := _top_bar_y()
 	var f := 1.0
 	_beside_cutout = false
@@ -655,23 +652,19 @@ func _layout() -> void:
 	_emote_bar.offset_bottom = bar_top - screen.y - _px(6)
 	# The notice stands in the strip between the top bar and the highest
 	# seat plate, which grows with the screen's height: centred in it, and
-	# never higher than just under the top bar.
-	# WHY the second case: on notched phones and under a tall prompt the
-	# plates close up right under the top bar, leaving too little strip for
-	# two lines; the pill then lies on the top bar's own row, in the gap
-	# between the logo and the timer, instead of on the players' names.
-	# Beside a cut-out that row holds the camera, so the pill stays under
-	# the top bar.
+	# never higher than just under the top bar. Where that strip has no room
+	# for two lines (notched phones, many players, a tall prompt) it stands
+	# over the felt just above your hand instead.
+	# WHY not on the top bar's row or the plates: the row holds the camera
+	# or is too narrow beside the timer, and the plates' names must stay in
+	# sight (a long notice wraps to two lines).
 	var strip_top := _notice_top()
 	var plate_top := _board.origin.y - reach * _plate_ky
-	# WHY two lines: a long notice wraps, and must not reach the names.
 	var two_lines := _px(UiTheme.TYPE_LABEL * 1.35 * 2 + 7)
-	_notice_on_row = false
-	if plate_top - strip_top >= two_lines or _beside_cutout:
+	if plate_top - strip_top >= two_lines:
 		_notice_holder.offset_top = maxf(_notice_top(), (strip_top + plate_top - two_lines) / 2.0)
 	else:
-		_notice_on_row = true
-		_notice_holder.offset_top = _top_bar_y() + (_px(TOP_BAR_H) - two_lines) / 2.0
+		_notice_holder.offset_top = screen.y + _hand_layer.offset_top - two_lines - _px(6)
 	# The get-ready content centres between the top bar and the bottom bar.
 	if _ready_center != null:
 		_ready_center.offset_top = _top_bar_bottom()
@@ -812,9 +805,6 @@ func _show_notice(text: String) -> void:
 	_notice_label.text = text.substr(0, 1).to_upper() + text.substr(1)
 	var px := _px(UiTheme.TYPE_LABEL)
 	var room := get_viewport_rect().size.x - _px(32 + 28)
-	if _notice_on_row:
-		var gap := _top_right.position.x - (_top_left.position.x + _top_left.size.x * _top_left.scale.x)
-		room = minf(room, gap - _px(16 + 28))
 	var wide := UiTheme.body_font().get_string_size(_notice_label.text, HORIZONTAL_ALIGNMENT_LEFT, -1, px).x
 	# WHY: a wrapping label in a centring container shrinks to one word
 	# unless it is told its width.

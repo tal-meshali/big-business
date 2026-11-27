@@ -1447,18 +1447,17 @@ func _slam_banner(text: String, hint := "") -> void:
 	tw.chain().tween_callback(holder.queue_free)
 
 
-func _render_status(phase: String, seats: Array, active: int) -> void:
+func _render_status(phase: String, _seats: Array, _active: int) -> void:
 	if phase == "ended":
 		_status.text = "Dividend day!"
 	elif _ready_ends_msec > 0:
 		_status.text = "Get ready"
-	elif _is_my_turn():
-		_status.text = "Your turn"
 	else:
-		# WHY only the name: the bar has room for a few words; what they
-		# are doing is spelled out in the prompt below.
-		var who: Dictionary = seats[active] if active < seats.size() else {}
-		_status.text = "%s's turn" % SeatView.short_name(who, 9)
+		# WHY no "Bo's turn": the gold plate and its timer ring already say
+		# whose turn it is, and the prompt below says what they are doing
+		# (Tal's call, 2026-11-27). The status speaks only for the states
+		# around the turns.
+		_status.text = ""
 
 
 ## Opponents in turn order from your left, on plates around the far side of

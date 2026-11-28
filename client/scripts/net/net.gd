@@ -25,6 +25,8 @@ signal remote_config_updated
 ## The room's custom deck (CardArt.room_deck) or its pictures changed; cards redraw.
 signal custom_deck_changed
 
+## Reconnect attempts before giving up when not in a game.
+const RECONNECT_TRIES := 5
 const SETTINGS_PATH := "user://net.cfg"
 ## A bot game seats the player with 2 to 4 bots (server quick_play botCount).
 const MIN_BOTS := 2
@@ -71,6 +73,9 @@ var muted: Dictionary = {}
 ## server's friends list on connect so blocks survive reinstalls too.
 var blocked: Dictionary = {}
 var _reconnect_attempts: int = 0
+## Counts leave_match calls, so a reconnect can tell the player left the
+## game while it was trying.
+var _leave_count: int = 0
 var _closing: bool = false
 var _reconnecting: bool = false
 ## True while the server holds a newer name than the session token carries.
@@ -359,6 +364,7 @@ func watch_friend(target_user_id: String) -> bool:
 
 
 func leave_match() -> void:
+	_leave_count += 1
 	if socket != null and not match_id.is_empty():
 		await socket.leave_match_async(match_id)
 	match_id = ""
@@ -542,6 +548,12 @@ func _notification(what: int) -> void:
 		check_connection()
 
 
+## True while a reconnect is under way (the lobby waits for it rather than
+## opening a second connection).
+func is_reconnecting() -> bool:
+	return _reconnecting
+
+
 ## Reconnects (and rejoins the match) if we had a session but the socket is gone.
 func check_connection() -> void:
 	if _closing or _reconnecting or session == null or socket == null:
@@ -551,7 +563,11 @@ func check_connection() -> void:
 
 
 ## Reconnect with backoff and rejoin the match we were in; the server keeps
-## the seat and sends a fresh view on rejoin.
+## the seat and sends a fresh view on rejoin. In a game it keeps trying (every
+## 5 s once backed off) until it gets through or the player leaves the game;
+## out of one it gives up after RECONNECT_TRIES.
+## WHY no limit in a game: the table stays dimmed and waits for the network
+## to come back, rather than ending on a dead screen (Tal's call, 2026-11-27).
 func _try_reconnect() -> void:
 	if _reconnecting:
 		return
@@ -559,15 +575,30 @@ func _try_reconnect() -> void:
 	var previous_match := match_id
 	var previous_code := room_code
 	var previous_tutorial := tutorial_mode
-	for attempt in range(1, 6):
+	var leaves := _leave_count
+	var attempt := 0
+	while true:
+		attempt += 1
+		# WHY not on the results: the match is over, there is nothing to
+		# rejoin (the table keeps the standings up instead).
+		var in_game := not previous_match.is_empty() and match_id == previous_match and String(last_view.get("phase", "")) != "ended"
+		if attempt > RECONNECT_TRIES and not in_game:
+			break
 		_reconnect_attempts = attempt
 		reconnecting.emit(attempt)
 		await get_tree().create_timer(minf(1.0 * attempt, 5.0)).timeout
 		if await _reconnect_session():
 			_reconnecting = false
-			if not previous_match.is_empty():
+			# WHY the match_id check: the player may have left the game while
+			# this was trying; do not pull them back into it.
+			if not previous_match.is_empty() and match_id == previous_match:
 				tutorial_mode = previous_tutorial
 				if await _join_match(previous_match, previous_code):
+					# The player left while the join was on its way: leave
+					# again rather than seat them back in that game.
+					if _leave_count != leaves:
+						await leave_match()
+						return
 					reconnected.emit()
 					return
 			match_id = ""

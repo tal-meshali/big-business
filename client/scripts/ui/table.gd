@@ -4,15 +4,17 @@ extends Control
 ##
 ## Layout, after the "3D table" design (sizes in design points, see
 ## UiTheme.layout_scale):
-##   top bar      brand, whose turn it is, timer pill, Leave / Forfeit
+##   top bar      row hugging the screen's top edge: logo, timer pill,
+##                Leave / Forfeit
 ##   plates       opponents around the far side of the felt
 ##   felt         tilted table (TableBoard): Supply, the Market, your Portfolio,
 ##                and each opponent's hand and kept shares
 ##   hand         your 3-4 cards standing at the near edge of the felt
 ##   bottom bar   you (capital, holdings), emotes, rules, prompt and buttons
 ##
-## Where the words go: the top bar only names the state in a few words
-## ("Your turn", "Bo's turn"); sentences go where there is room for them,
+## Where the words go: the top bar holds no words (whose turn it is shows on
+## the gold plate and the timer pill's gold rim; a lost connection dims the
+## table under a Reconnecting panel); sentences go where there is room for them,
 ## the prompt in the bottom bar (what to do, what the others just did) or
 ## a notice under the top bar (anything that happened once: an error, a
 ## mute, a forfeit).
@@ -56,11 +58,15 @@ const PLATE_SLOTS := [
 const PLATE_H := 66.0
 ## Shares in one Market row before a second row starts.
 const MARKET_PER_ROW := 5
-## Highest place for the notice pill (dp from the top): the logo's foot.
-const NOTICE_TOP := 46.0
-## The top bar's row (dp from the top, and its height).
+## The top bar's row (dp from the top on phones without a notch, and its
+## height), and the room under the row.
 const TOP_BAR_Y := 8.0
 const TOP_BAR_H := 48.0
+const TOP_BAR_PAD := 4.0
+## Room from the screen's side for the top bar beside a cut-out, dp (the
+## phone's rounded corners), and its least scale there.
+const CUTOUT_EDGE := 20.0
+const CUTOUT_MIN_SCALE := 0.75
 ## Room between the top bar's row and the highest seat plate, dp.
 const PLATE_GAP := 6.0
 ## Least room between two plates that stand above one another, dp, when
@@ -87,7 +93,6 @@ var _hand_scale: float = 1.5
 # Widgets
 var _room: TextureRect
 var _board: TableBoard
-var _status: Label
 var _timer_label: Label
 var _timer_pill: PanelContainer
 var _timer_tween: Tween
@@ -131,6 +136,10 @@ var _seat_menu: PopupMenu
 var _seat_menu_target: int = -1
 var _reconnect_overlay: ColorRect
 var _reconnect_label: Label
+var _reconnect_leave: Button
+var _reconnect_title: Label
+var _reconnect_text := ""
+var _reconnect_dead := false
 var sfx: Sfx
 ## Tutorial: the coached move for this view ({} = anything legal).
 var _restriction: Dictionary = {}
@@ -138,9 +147,16 @@ var _glow: Panel
 var _last_tick := -1
 var _announced_turn := -1
 var _leave_button: Button
-## The top bar (brand, status, timer, Leave); lifted over the get-ready shade.
-var _top_bar: HBoxContainer
+## The top bar (brand; timer and Leave); lifted over the get-ready shade.
+var _top_bar: Control
+var _top_left: HBoxContainer
+var _top_right: HBoxContainer
+## The camera cut-out at the top (UiTheme.top_cutout), canvas units.
+var _cutout := Rect2()
+var _beside_cutout := false
+var _bar_foot := 0.0
 var _top_bar_home := 0
+var _was_mine := false
 ## How far the plates close up towards the felt on a short screen (1 = as
 ## designed); set by _layout.
 var _plate_ky := 1.0
@@ -292,16 +308,57 @@ func _build_layout() -> void:
 	_layout()
 
 
-## Top of the top bar's row, px. On a phone with a notch or Dynamic Island
-## the row starts right at the safe area's edge (which already leaves a gap
-## under the cut-out); elsewhere TOP_BAR_Y below the screen's edge.
+## Top of the top bar's row, px, when it sits under the safe area: right at
+## the safe area's edge on a phone with a notch or Dynamic Island, TOP_BAR_Y
+## below the screen's edge elsewhere. Beside a cut-out, see _place_top_bar.
 func _top_bar_y() -> float:
 	return maxf(float(_px(TOP_BAR_Y)), _insets.x)
 
 
-## Highest place for the notice pill, px: the logo's foot.
+## Foot of the top bar, px: everything else on the table starts here.
+func _top_bar_bottom() -> float:
+	return _bar_foot
+
+
+## Puts the logo and the timer and Forfeit beside the camera cut-out (the
+## Dynamic Island, a notch, a punch hole) when they fit there at
+## CUTOUT_MIN_SCALE or more, in the strip the safe area leaves above the
+## table; otherwise in a row under the safe area. Sets _bar_foot.
+## WHY: that strip was empty, and the row under it pushed the seats down
+## (Tal's call, 2026-11-27).
+func _place_top_bar() -> void:
+	var width := get_viewport_rect().size.x
+	var row_h := float(_px(TOP_BAR_H))
+	var lw := _top_left.get_combined_minimum_size().x
+	# WHY the widest the right side gets (timer shown, "Forfeit"), not its
+	# width now: the side must not jump between the two places mid-game.
+	var rw := _timer_pill.get_combined_minimum_size().x + _top_right.get_theme_constant("separation") + _leave_button.custom_minimum_size.x
+	var margin := float(_px(16))
+	var y := _top_bar_y()
+	var f := 1.0
+	_beside_cutout = false
+	if _cutout.has_area():
+		var edge := float(_px(CUTOUT_EDGE))
+		var gap := float(_px(8))
+		var fit := minf(1.0, minf((_cutout.position.x - gap - edge) / maxf(lw, 1.0), (width - edge - _cutout.end.x - gap) / maxf(rw, 1.0)))
+		if fit >= CUTOUT_MIN_SCALE:
+			_beside_cutout = true
+			f = fit
+			margin = edge
+			y = maxf(0.0, _cutout.get_center().y - row_h * f / 2.0)
+	_top_left.size = Vector2(lw, row_h)
+	_top_right.size = Vector2(rw, row_h)
+	for group: Control in [_top_left, _top_right]:
+		group.scale = Vector2.ONE * f
+		group.position.y = y
+	_top_left.position.x = margin
+	_top_right.position.x = width - margin - rw * f
+	_bar_foot = maxf(y + row_h * f, _insets.x if _beside_cutout else 0.0) + _px(TOP_BAR_PAD)
+
+
+## Highest place for the notice pill, px: just under the top bar.
 func _notice_top() -> float:
-	return _top_bar_y() + _px(NOTICE_TOP - TOP_BAR_Y)
+	return _top_bar_bottom() + _px(4)
 
 
 ## The plate slots for the opponents in the current view.
@@ -378,34 +435,37 @@ func _plate_dy(slot: Array) -> float:
 	return (y - 400.0) * _s * (1.0 if y >= PLATE_FIXED_Y else _plate_ky)
 
 
-## Brand, whose turn it is, the step timer and Leave (Forfeit in a live game).
+## The top bar, on the room's own background with no words (Tal's call,
+## 2026-11-27): the logo on the left, the step timer and Leave (Forfeit in a
+## live game) on the right, beside the camera cut-out where they fit
+## (_place_top_bar). Whose turn it is shows on the gold plate.
 func _build_top_bar() -> void:
-	var top := HBoxContainer.new()
-	top.set_anchors_and_offsets_preset(Control.PRESET_TOP_WIDE)
-	top.offset_left = _px(12)
-	top.offset_right = -_px(12)
-	top.offset_top = _top_bar_y()
-	top.custom_minimum_size = Vector2(0, _px(TOP_BAR_H))
-	top.add_theme_constant_override("separation", _px(10))
-	add_child(top)
-	_top_bar = top
-	_top_bar_home = top.get_index()
+	var holder := Control.new()
+	holder.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	holder.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(holder)
+	_top_bar = holder
+	_top_bar_home = holder.get_index()
+	# WHY two groups and not one row: beside a cut-out each side scales on
+	# its own, and a container would put the scale back to 1.
+	_top_left = HBoxContainer.new()
+	_top_left.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	holder.add_child(_top_left)
+	_top_right = HBoxContainer.new()
+	_top_right.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_top_right.add_theme_constant_override("separation", _px(8))
+	_top_right.alignment = BoxContainer.ALIGNMENT_END
+	holder.add_child(_top_right)
+	var top := _top_right
 	var brand := LogoTitle.new()
 	brand.px = _px(17)
 	brand.tilt = 0.0
 	brand.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	top.add_child(brand)
-	_status = UiTheme.title("Connecting…", _px(UiTheme.TYPE_HEADING))
-	_status.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_status.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_status.max_lines_visible = 2
-	_status.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
-	top.add_child(_status)
+	_top_left.add_child(brand)
 	# The step timer in a dark pill, like the streak in the lobby's HUD; it
 	# turns red and ticks while your own step runs out.
 	_timer_pill = PanelContainer.new()
-	var pill := UiTheme.ink_box(Color(UiTheme.NIGHT, 0.6), _px(15), maxi(2, _px(1.5)))
+	var pill := UiTheme.ink_box(UiTheme.NIGHT, _px(15), maxi(2, _px(1.5)))
 	pill.content_margin_left = _px(9)
 	pill.content_margin_right = _px(9)
 	pill.content_margin_top = _px(3)
@@ -425,6 +485,16 @@ func _build_top_bar() -> void:
 	_leave_button.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	_leave_button.pressed.connect(_on_leave_pressed)
 	top.add_child(_leave_button)
+	# Leave is as wide as Forfeit, so the right side keeps its width.
+	_leave_button.text = "Forfeit"
+	var forfeit_w := _leave_button.get_combined_minimum_size().x
+	_leave_button.text = "Leave"
+	_leave_button.custom_minimum_size.x = forfeit_w
+	_cutout = UiTheme.top_cutout(self)
+	_place_top_bar()
+	# WHY: the timer shows and Leave turns into Forfeit after the build, and
+	# the right side must stay clear of the cut-out as it widens.
+	_top_right.minimum_size_changed.connect(_layout, CONNECT_DEFERRED)
 
 
 ## The cream bar at the bottom: you, then the prompt in ink, then the move
@@ -549,8 +619,8 @@ func _layout() -> void:
 	var screen := get_viewport_rect().size
 	if screen.x < 200:
 		screen = Vector2(720, 1280)
-	var bar_y := _top_bar_y()
-	var top := bar_y + _px(TOP_BAR_H + 4)
+	_place_top_bar()
+	var top := _top_bar_bottom()
 	var bar_top := screen.y - maxf(_bar.size.y, _bar.get_combined_minimum_size().y)
 	var origin_y := (top + bar_top) / 2.0 + 18.0 * _s
 	# The highest plate stands clear under the top bar's row.
@@ -562,7 +632,7 @@ func _layout() -> void:
 	# keeps as much room above your hand as it can.
 	var slots := _current_slots()
 	var reach := (400.0 - _highest_slot_y(slots)) * _s
-	var clear_y := bar_y + _px(TOP_BAR_H + PLATE_GAP)
+	var clear_y := _top_bar_bottom() + _px(PLATE_GAP)
 	_plate_ky = 1.0
 	_slots = slots
 	var short := clear_y - (origin_y - reach)
@@ -582,28 +652,30 @@ func _layout() -> void:
 	_emote_bar.offset_bottom = bar_top - screen.y - _px(6)
 	# The notice stands in the strip between the top bar and the highest
 	# seat plate, which grows with the screen's height: centred in it, and
-	# never higher than the logo's foot.
-	# WHY the second case: on notched phones and under a tall prompt the
-	# plates close up right under the top bar, leaving too little strip for
-	# a line; the pill then lies on the top bar's own row, over the status
-	# words, instead of on the players' names.
-	var strip_top := _notice_top() + _px(4)
+	# never higher than just under the top bar. Where that strip has no room
+	# for two lines (notched phones, many players, a tall prompt) it stands
+	# over the felt just above your hand instead.
+	# WHY not on the top bar's row or the plates: the row holds the camera
+	# or is too narrow beside the timer, and the plates' names must stay in
+	# sight (a long notice wraps to two lines).
+	var strip_top := _notice_top()
 	var plate_top := _board.origin.y - reach * _plate_ky
-	var one_line := _px(UiTheme.TYPE_LABEL * 1.35 + 7)
-	if plate_top - strip_top >= one_line:
-		_notice_holder.offset_top = maxf(_notice_top(), (strip_top + plate_top - one_line) / 2.0)
+	var two_lines := _px(UiTheme.TYPE_LABEL * 1.35 * 2 + 7)
+	if plate_top - strip_top >= two_lines:
+		_notice_holder.offset_top = maxf(_notice_top(), (strip_top + plate_top - two_lines) / 2.0)
 	else:
-		_notice_holder.offset_top = bar_y + (_px(TOP_BAR_H) - one_line) / 2.0
+		_notice_holder.offset_top = screen.y + _hand_layer.offset_top - two_lines - _px(6)
 	# The get-ready content centres between the top bar and the bottom bar.
 	if _ready_center != null:
+		_ready_center.offset_top = _top_bar_bottom()
 		_ready_center.offset_bottom = bar_top - screen.y
 	_place_supply()
 
 
 ## The countdown before the first turn: a gold 3-2-1 over rays, who starts,
 ## then the seat order on a royal card. The shade covers the whole screen,
-## notch and home indicator included; the top bar is lifted above it while
-## it shows so Forfeit stays in reach.
+## home indicator included; the top bar is lifted above it while it
+## shows so Forfeit stays in reach.
 func _build_get_ready() -> void:
 	_ready_overlay = ColorRect.new()
 	_ready_overlay.color = Color(UiTheme.NIGHT, 0.82)
@@ -612,7 +684,7 @@ func _build_get_ready() -> void:
 	add_child(_ready_overlay)
 	var center := CenterContainer.new()
 	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	center.offset_top = _top_bar_y() + _px(TOP_BAR_H)
+	center.offset_top = _top_bar_bottom()
 	center.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_ready_overlay.add_child(center)
 	_ready_center = center
@@ -821,7 +893,15 @@ func _build_social_layer() -> void:
 	deed["panel"].custom_minimum_size = Vector2(minf(get_viewport_rect().size.x - _px(48), _px(280)), 0)
 	_reconnect_label = UiTheme.body("", _px(UiTheme.TYPE_BODY))
 	_reconnect_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	deed["body"].add_child(_reconnect_label)
+	_reconnect_title = deed["title"]
+	var stack := VBoxContainer.new()
+	stack.add_theme_constant_override("separation", _px(12))
+	deed["body"].add_child(stack)
+	stack.add_child(_reconnect_label)
+	# WHY a way out: in a game the reconnect does not give up on its own.
+	_reconnect_leave = UiTheme.button("Back to lobby", _px(15), _px(44), "ghost")
+	_reconnect_leave.pressed.connect(_on_reconnect_leave)
+	stack.add_child(_reconnect_leave)
 	rc.add_child(deed["panel"])
 
 
@@ -863,7 +943,7 @@ func _show_bubble(seat: int, text: String, font_size: int = 0) -> void:
 	var sz := bubble.get_combined_minimum_size()
 	var at := _seat_anchor(seat) + Vector2(_px(12), -_px(16) - sz.y)
 	at.x = clampf(at.x, _px(6), get_viewport_rect().size.x - sz.x - _px(6))
-	at.y = maxf(at.y, _px(6) + _insets.x)
+	at.y = maxf(at.y, _top_bar_bottom() + _px(4))
 	bubble.global_position = at
 	# It grows out of the corner nearest the avatar it speaks for.
 	bubble.pivot_offset = Vector2(clampf(_seat_anchor(seat).x - at.x, 0.0, sz.x), sz.y)
@@ -921,24 +1001,67 @@ func _on_seat_menu(id: int) -> void:
 			_show_notice("%s blocked" % who)
 
 
-func _on_reconnecting(attempt: int) -> void:
-	# Above the get-ready shade and any panel that opened after it.
-	move_child(_reconnect_overlay, -1)
-	_reconnect_overlay.visible = true
-	_reconnect_label.text = "Connection lost. Trying again (%d/5)…" % attempt
+## The table dims under the Reconnecting panel while Net keeps trying; in
+## a game it tries until the network is back (Net._try_reconnect).
+## On the results the standings stay in view: there is no game to rejoin.
+func _on_reconnecting(_attempt: int) -> void:
+	if view.get("phase") == "ended":
+		return
+	_show_reconnect("Connection lost. Reconnecting", false)
 
 
 func _on_reconnected() -> void:
-	_reconnect_overlay.visible = false
-	if Net.match_id.is_empty():
-		_status.text = "Could not rejoin"
+	if Net.match_id.is_empty() and view.get("phase") != "ended":
+		_show_reconnect("Could not rejoin this game.", true)
+	else:
+		_reconnect_overlay.visible = false
 
 
-func _on_connection_failed(reason: String) -> void:
-	_reconnect_overlay.visible = false
-	_status.text = "Connection lost"
-	var why := reason.rstrip(".! ")
-	_prompt.text = "%s. Go back to the lobby to play again." % (why.substr(0, 1).to_upper() + why.substr(1))
+func _on_connection_failed(_reason: String) -> void:
+	# WHY: each failed attempt inside the reconnect reports a failure too;
+	# only the end of the reconnect is final.
+	if Net.is_reconnecting() or view.get("phase") == "ended":
+		return
+	_show_reconnect("Could not reach the server.", true)
+
+
+## Shows the dimmed Reconnecting panel with `text`; `dead` when it will not
+## come back, which turns the way out into the main button.
+func _show_reconnect(text: String, dead: bool) -> void:
+	# Above the get-ready shade and any panel that opened after it.
+	move_child(_reconnect_overlay, -1)
+	_reconnect_overlay.visible = true
+	_reconnect_text = text
+	_reconnect_dead = dead
+	_reconnect_label.text = text if dead else text + "..."
+	_reconnect_title.text = "Connection lost" if dead else "Reconnecting"
+	# While it still tries, the way out is a small quiet button; once it
+	# cannot come back, it is the gold main action. Leaving a live game
+	# goes through the forfeit question, as from the top bar.
+	_reconnect_leave.text = "Leave game" if _can_forfeit() and not dead else "Back to lobby"
+	_reconnect_leave.theme_type_variation = "PrimaryButton" if dead else "GhostButton"
+	_reconnect_leave.add_theme_constant_override("outline_size", maxi(4, int(round(_px(15) * 0.3))) if dead else 0)
+	_reconnect_leave.size_flags_horizontal = Control.SIZE_FILL if dead else Control.SIZE_SHRINK_CENTER
+	_reconnect_leave.add_theme_font_size_override("font_size", _px(15) if dead else _px(13))
+
+
+## The dots after "Reconnecting" step while it tries, so a long wait does
+## not look frozen.
+func _step_reconnect_dots() -> void:
+	if not _reconnect_overlay.visible or _reconnect_dead:
+		return
+	var n := int(Time.get_ticks_msec() / 500) % 4
+	var text := _reconnect_text + ".".repeat(n)
+	if _reconnect_label.text != text:
+		_reconnect_label.text = text
+
+
+func _on_reconnect_leave() -> void:
+	if _can_forfeit() and not _reconnect_dead:
+		move_child(_forfeit_overlay, -1)
+		_forfeit_overlay.visible = true
+	else:
+		_on_leave()
 
 
 ## A move or dialog button, hidden until a step shows it.
@@ -1077,7 +1200,6 @@ func _on_play_again() -> void:
 	_turns_announced = 0
 	# A new game starts with the usual two-line prompt again.
 	_prompt.custom_minimum_size.y = maxf(_px(38), _prompt_height(2))
-	_status.text = "Finding a new game…"
 	_result_backdrop.visible = false
 	# The new game's capital is not a change to pop. WHY on the next view
 	# too: a re-render of the old view meanwhile (a resize) would remember
@@ -1127,12 +1249,15 @@ func _on_view(v: Dictionary) -> void:
 
 
 func _process(_delta: float) -> void:
+	_step_reconnect_dots()
 	if _ready_ends_msec > 0:
 		_update_countdown()
 	if view.is_empty():
 		return
 	var deadline := float(view.get("deadline", 0))
-	if deadline <= 0 or view.get("phase") == "ended" or _ready_overlay.visible:
+	# WHY the reconnect check: the deadline is stale while the connection is
+	# down, and its red pulse and ticks would play under the panel.
+	if deadline <= 0 or view.get("phase") == "ended" or _ready_overlay.visible or _reconnect_overlay.visible:
 		_timer_label.text = ""
 		_timer_pill.visible = false
 		_glow.visible = false
@@ -1252,8 +1377,16 @@ func _update_urgency(remaining: int) -> void:
 	if urgent != _was_urgent:
 		_was_urgent = urgent
 		var pill: StyleBoxFlat = _timer_pill.get_theme_stylebox("panel")
-		pill.bg_color = UiTheme.BADGE if urgent else Color(UiTheme.NIGHT, 0.6)
+		pill.bg_color = UiTheme.BADGE if urgent else UiTheme.NIGHT
 		_timer_label.add_theme_color_override("font_color", Color.WHITE if urgent else UiTheme.GOLD)
+	# On your own turn the pill wears a gold rim: with no turn words in the
+	# top bar, this is its sign that the move is yours.
+	var mine := _is_my_turn()
+	if mine != _was_mine:
+		_was_mine = mine
+		var rim: StyleBoxFlat = _timer_pill.get_theme_stylebox("panel")
+		rim.border_color = UiTheme.GOLD if mine else UiTheme.OUTLINE
+		rim.set_border_width_all(maxi(3, _px(2.5)) if mine else maxi(2, _px(1.5)))
 	if not urgent:
 		_last_tick = -1
 		return
@@ -1339,7 +1472,6 @@ func _render() -> void:
 		_forfeit_overlay.visible = false
 
 	_layout()
-	_render_status(phase, seats, active)
 	_render_seats(seats, active, phase)
 	_render_market(phase)
 	_render_portfolio(seats)
@@ -1421,20 +1553,6 @@ func _slam_banner(text: String, hint := "") -> void:
 	tw.chain().tween_property(holder, "modulate:a", 0.0, 0.3)
 	tw.parallel().tween_property(holder, "scale", Vector2.ONE * 0.85, 0.3).set_ease(Tween.EASE_IN)
 	tw.chain().tween_callback(holder.queue_free)
-
-
-func _render_status(phase: String, seats: Array, active: int) -> void:
-	if phase == "ended":
-		_status.text = "Dividend day!"
-	elif _ready_ends_msec > 0:
-		_status.text = "Get ready"
-	elif _is_my_turn():
-		_status.text = "Your turn"
-	else:
-		# WHY only the name: the bar has room for a few words; what they
-		# are doing is spelled out in the prompt below.
-		var who: Dictionary = seats[active] if active < seats.size() else {}
-		_status.text = "%s's turn" % SeatView.short_name(who, 9)
 
 
 ## Opponents in turn order from your left, on plates around the far side of
@@ -2251,5 +2369,4 @@ func _animate_dividends(result: Dictionary) -> void:
 				await get_tree().create_timer(0.05).timeout
 		if any:
 			await get_tree().create_timer(0.45).timeout
-	_status.text = "Dividend day!"
 	sfx.play("fanfare")

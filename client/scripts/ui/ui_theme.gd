@@ -83,6 +83,9 @@ static var _scale := 1.85
 ## Set to a Vector2(top, bottom) to stand in for a phone's safe-area
 ## insets off-device (the screenshot scripts use it); null on real runs.
 static var insets_override = null
+## Set to a Rect2 (canvas units) to stand in for the camera cut-out at the
+## top of the screen off-device; null on real runs.
+static var cutout_override = null
 
 
 static func get_theme() -> Theme:
@@ -330,6 +333,44 @@ static func safe_insets(ci: CanvasItem) -> Vector2:
 	var top := maxf(0.0, float(safe.position.y - win.position.y)) * k
 	var bottom := maxf(0.0, float(win.position.y + win.size.y - safe.end.y)) * k
 	return Vector2(top, bottom)
+
+
+## The camera cut-out at the top of the screen (Dynamic Island, notch or
+## punch hole), in canvas units; an empty Rect2 when there is none.
+## WHY a model table on iOS: iOS reports only the safe area, not the
+## cut-out's shape. A top inset of 51 pt or more means a Dynamic Island
+## (126 x 37 pt, 11 pt from the top), less means a notch: 162 pt wide on the
+## iPhone 13 and 14 lines and the 16e, about 210 pt on the X to 12 lines.
+## Android reports its cut-outs itself.
+static func top_cutout(ci: CanvasItem) -> Rect2:
+	if cutout_override != null:
+		return cutout_override
+	if not OS.has_feature("mobile"):
+		return Rect2()
+	var win := ci.get_window()
+	if win == null or win.size.y <= 0:
+		return Rect2()
+	var k := ci.get_viewport_rect().size.y / float(win.size.y)
+	var top := safe_insets(ci).x
+	if top <= 0.0:
+		return Rect2()
+	if OS.get_name() == "Android":
+		var hole := Rect2()
+		for r: Rect2 in DisplayServer.get_display_cutouts():
+			var c := Rect2((r.position - Vector2(win.position)) * k, r.size * k)
+			if c.position.y < top:
+				hole = c if hole.has_area() == false else hole.merge(c)
+		return hole
+	if OS.get_name() != "iOS":
+		return Rect2()
+	var pt := maxf(1.0, DisplayServer.screen_get_scale()) * k
+	var width := ci.get_viewport_rect().size.x
+	if top / pt >= 51.0:
+		return Rect2((width - 126.0 * pt) / 2.0, 11.0 * pt, 126.0 * pt, 37.0 * pt)
+	var model := OS.get_model_name()
+	var narrow := model.begins_with("iPhone14,") or model == "iPhone17,5"
+	var w := (162.0 if narrow else 210.0) * pt
+	return Rect2((width - w) / 2.0, 0.0, w, 32.0 * pt)
 
 
 static func layout_scale(viewport: Vector2) -> float:

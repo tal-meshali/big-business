@@ -29,6 +29,7 @@ The script is safe to run again, and every step skips what is already done. It:
 - **Console**: http://127.0.0.1:7351 on the PC, user `ops`, password `NAKAMA_CONSOLE_PASSWORD` in `.env.home`. It is not published to the internet.
 - **Logs**: `docker compose -f home/docker-compose.yml logs -f nakama`.
 - **Server-to-server RPCs** (Remote Config, analytics, moderation in `docs/deploy.md`): use the public address with `NAKAMA_HTTP_KEY` from `.env.home`, or `http://127.0.0.1:7350` on the PC.
+- **Player feedback** (More > Send feedback, decision D29): `home\feedback.ps1` prints the newest 20 messages (`-Limit 50` for more); `home\feedback.ps1 -Done <key>,<key>` clears handled ones, `-Player <id>` deletes one player's messages, and every listing deletes messages older than 90 days. They are also in the console under Storage, collection `feedback`.
 - **Backups**: `home\backup.ps1` writes `home\backups\nakama-<date>.dump` and keeps the newest 14. Each run is logged in `home\backups\backup.log`. Copy one off the PC now and then. The dumps hold player data, so keep them private. Restore with `home\restore.ps1 -File <dump>`, which backs up the current database first.
 
 ## Moving players over from Fly

@@ -37,6 +37,7 @@ export const RATE_LIMITS = {
   claim_gifts: 10,
   friends_playing: 20,
   watch_friend: 10,
+  send_feedback: 3,
   /** Charged per user named in an AddFriends request, not per request. */
   add_friends: 20,
 };

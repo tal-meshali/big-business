@@ -59,6 +59,8 @@ var _bots_sheet: Control
 var _bot_buttons: Array[Button] = []
 var _friends_sheet: Control
 var _more_sheet: Control
+var _feedback_sheet: Control
+var _feedback_panel: FeedbackPanel
 ## Notch / Dynamic Island (x) and home indicator (y), canvas units.
 var _insets := Vector2.ZERO
 ## Games on the profile; -1 until the profile has loaded.
@@ -87,6 +89,8 @@ var _s := 1.85
 ## A keyboard height in canvas units for tests and screenshots, which have
 ## no on-screen keyboard; below 0 the phone's own is used.
 var keyboard_override := -1.0
+## Metadata on the panels _sheet() makes, so the keyboard lift can find them.
+const LOBBY_SHEET := &"lobby_sheet"
 
 
 func _ready() -> void:
@@ -183,6 +187,7 @@ func _build() -> void:
 	_build_bots_sheet()
 	_build_friends_sheet()
 	_build_more_sheet()
+	_build_feedback_sheet()
 	_build_season_sheet()
 
 	# Quests overlay above the lobby, toggled by its button.
@@ -610,6 +615,7 @@ func _sheet(color: Color, title: String) -> Dictionary:
 	sheet.offset_right = -_px(16)
 	sheet.offset_bottom = -_px(16) - _insets.y
 	shade.add_child(sheet)
+	sheet.set_meta(LOBBY_SHEET, true)
 	var body := VBoxContainer.new()
 	body.add_theme_constant_override("separation", _px(12))
 	deed["body"].add_child(body)
@@ -732,7 +738,8 @@ func _build_friends_sheet() -> void:
 	_friends_panel.visible = false
 
 
-## More: rules and help, your account (guest or linked) and the server.
+## More: rules and help, feedback to the team, your account (guest or
+## linked) and the server.
 func _build_more_sheet() -> void:
 	var sheet := _sheet(UiTheme.VIOLET, "More")
 	_more_sheet = sheet["root"]
@@ -742,6 +749,11 @@ func _build_more_sheet() -> void:
 		_more_sheet.visible = false
 		_on_help())
 	body.add_child(rules)
+	var feedback := UiTheme.button("Send feedback or report a bug", _px(14), _px(48))
+	feedback.pressed.connect(func() -> void:
+		_more_sheet.visible = false
+		_open_feedback_sheet())
+	body.add_child(feedback)
 
 	# Account row: guest or linked providers, with link buttons where a
 	# token provider exists (iOS / Android with the plugin installed).
@@ -789,6 +801,21 @@ func _build_more_sheet() -> void:
 	body.add_child(_close_button(_more_sheet))
 
 
+## Feedback to the team (FeedbackPanel), from More.
+func _build_feedback_sheet() -> void:
+	var sheet := _sheet(UiTheme.VIOLET, "Send feedback")
+	_feedback_sheet = sheet["root"]
+	_feedback_panel = FeedbackPanel.new()
+	_feedback_panel.s = _s
+	_feedback_panel.closed.connect(func() -> void: _feedback_sheet.visible = false)
+	sheet["body"].add_child(_feedback_panel)
+
+
+func _open_feedback_sheet() -> void:
+	_feedback_panel.reset_view()
+	_feedback_sheet.visible = true
+
+
 ## Lifts the lobby so a focused text field stays above the on-screen
 ## keyboard (phones report its height; desktops report 0).
 func _process(_delta: float) -> void:
@@ -797,15 +824,30 @@ func _process(_delta: float) -> void:
 	# The name step sizes its card to the room the keyboard leaves.
 	_name_prompt.keyboard_height = kb
 	var focus := get_viewport().gui_get_focus_owner()
-	if kb > 0 and focus is LineEdit and is_ancestor_of(focus):
+	if kb > 0 and (focus is LineEdit or focus is TextEdit) and is_ancestor_of(focus):
 		var keyboard_top := get_viewport_rect().size.y - kb
 		# A field may name a control under it that must stay in view with it
 		# (the name step's error line and its Save button).
 		var keep: Control = focus.get_meta(NamePrompt.KEEP_IN_VIEW, focus)
 		var field_bottom := keep.get_global_rect().end.y - position.y + _px(12)
 		lift = maxf(0.0, field_bottom - keyboard_top)
+		# Never past the top: a sheet's title stays below the status bar.
+		var sheet := _sheet_of(focus)
+		if sheet != null:
+			lift = minf(lift, maxf(0.0, sheet.get_global_rect().position.y - position.y - _insets.x - _px(8)))
+	_feedback_panel.compact = kb > 0 and focus != null and _feedback_panel.is_ancestor_of(focus)
 	if absf(position.y + lift) > 0.5:
 		position.y = -lift
+
+
+## The sheet made by _sheet() a control sits in, or null.
+func _sheet_of(c: Control) -> Control:
+	var n: Node = c
+	while n != null and n != self:
+		if n.has_meta(LOBBY_SHEET):
+			return n as Control
+		n = n.get_parent()
+	return null
 
 
 ## Height of the on-screen keyboard in canvas units; 0 when it is down.

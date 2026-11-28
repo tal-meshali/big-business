@@ -955,18 +955,20 @@ func _get_ready_checks() -> int:
 		failures += 1
 	# A rejoin hides it; a game that could not be rejoined keeps the table
 	# dimmed with Back to lobby in gold.
-	var net_match: String = Net.match_id
-	Net.match_id = "m"
+	# WHY get_node: a SceneTree script cannot name an autoload at compile time.
+	var net: Node = root.get_node("Net")
+	var net_match: String = net.match_id
+	net.match_id = "m"
 	table._on_reconnected()
 	if table._reconnect_overlay.visible:
 		push_error("a rejoin should hide the Reconnecting panel")
 		failures += 1
-	Net.match_id = ""
+	net.match_id = ""
 	table._on_reconnected()
 	if not table._reconnect_overlay.visible or table._reconnect_title.text != "Connection lost" or table._reconnect_leave.theme_type_variation != "PrimaryButton":
 		push_error("a game that cannot be rejoined should say so, with Back to lobby in gold")
 		failures += 1
-	Net.match_id = net_match
+	net.match_id = net_match
 	table._reconnect_overlay.visible = false
 	# My turn comes first in this deal: no chime until the countdown ends.
 	v["active"] = 1

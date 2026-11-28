@@ -955,8 +955,6 @@ func _get_ready_checks() -> int:
 		failures += 1
 	# A rejoin hides it; a game that could not be rejoined keeps the table
 	# dimmed with Back to lobby in gold.
-	# WHY get_node: a SceneTree script cannot name an autoload at compile time.
-	var net: Node = root.get_node("Net")
 	var net_match: String = net.match_id
 	net.match_id = "m"
 	table._on_reconnected()
